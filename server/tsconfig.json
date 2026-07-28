@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["src/**/*"],
+  // NOTE: src/generated/slideRenderer.js is a prebuilt esbuild bundle (see
+  // client/scripts/build-ssr.mjs). tsc must not compile it or emit declarations for it —
+  // types come from the hand-written slideRenderer.d.ts sitting beside it, and
+  // scripts/copy-generated.mjs copies the .js into dist/ after the build.
+  "exclude": ["node_modules", "dist", "src/generated/**/*.js"]
+}

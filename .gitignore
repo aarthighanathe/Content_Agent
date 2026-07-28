@@ -1,0 +1,52 @@
+/.env
+/.env.local
+/.env.*.local
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+/.parcel-cache
+/.turbo
+/.idea
+/.cache
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/client/node_modules/
+/server/node_modules/
+# Secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log
+
+# Build outputs
+client/dist/
+server/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Test artifacts
+coverage/
+
+# Puppeteer local Chromium (large binary)
+.local-chromium/

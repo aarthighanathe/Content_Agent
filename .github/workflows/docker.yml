@@ -1,0 +1,36 @@
+name: ContentAgent Docker
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+  checks: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  test-and-build:
+    uses: ./.github/workflows/_reusable-build.yml
+    with:
+      node-version: '20'
+
+  push-image:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push images
+        run: |
+          docker buildx build --platform linux/amd64,linux/arm64 --push --file ./server/Dockerfile --tag contentagent/server:latest ./server
+          docker buildx build --platform linux/amd64,linux/arm64 --push --file ./client/Dockerfile --tag contentagent/client:latest ./client

@@ -1,0 +1,78 @@
+import { Zap } from 'lucide-react';
+import { Instagram, Linkedin, XTwitter } from '../../components/BrandIcons';
+import { Button } from '../../components/Button';
+
+interface SocialConnection {
+  platform: string;
+  label: string;
+  connected: boolean;
+  displayName: string | null;
+}
+
+interface PublishingConnectionsCardProps {
+  socialConnections: SocialConnection[];
+  disconnectingPlatform: string | null;
+  onDisconnect: (platform: string) => void;
+}
+
+const platformMeta = [
+  { platform: 'linkedin',  label: 'LinkedIn',    Icon: Linkedin,   color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',  border: 'rgba(96,165,250,0.25)',  desc: 'Post to your LinkedIn profile' },
+  { platform: 'twitter',   label: 'Twitter / X', Icon: XTwitter,   color: '#22d3ee', bg: 'rgba(34,211,238,0.1)',  border: 'rgba(34,211,238,0.25)',  desc: 'Tweet from your account' },
+  { platform: 'instagram', label: 'Instagram',   Icon: Instagram,  color: '#ec4899', bg: 'rgba(236,72,153,0.1)', border: 'rgba(236,72,153,0.25)', desc: 'Requires Instagram Business approval', soon: true },
+];
+
+export function PublishingConnectionsCard({
+  socialConnections, disconnectingPlatform, onDisconnect,
+}: PublishingConnectionsCardProps) {
+  return (
+    <div className="card" style={{ gridColumn: '1 / -1', borderLeft: '3px solid rgba(96,165,250,0.4)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <div style={{ width: 36, height: 36, background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa', flexShrink: 0 }}><Zap size={16} /></div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>Publishing Connections</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.28)', marginTop: 2 }}>Post directly to your social platforms</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {platformMeta.map(({ platform, label: pLabel, Icon: PlatIcon, color, bg, border, desc, soon }) => {
+          const conn = socialConnections.find(c => c.platform === platform);
+          const isConnected = conn?.connected;
+          return (
+            <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 14, background: isConnected ? bg : '#08081A', border: `1px solid ${isConnected ? border : 'rgba(255,255,255,0.07)'}`, borderRadius: 11, padding: '13px 16px', transition: 'all .2s' }}>
+              <div style={{ width: 38, height: 38, borderRadius: 9, background: isConnected ? bg : 'rgba(255,255,255,0.04)', border: `1px solid ${isConnected ? border : 'rgba(255,255,255,0.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: isConnected ? color : 'rgba(255,255,255,0.4)' }}>
+                <PlatIcon size={18} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: isConnected ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.65)' }}>{pLabel}</div>
+                <div style={{ fontSize: 10.5, color: isConnected ? color : 'rgba(255,255,255,0.28)', fontFamily: "var(--font-mono)", marginTop: 1 }}>
+                  {isConnected ? (conn?.displayName || 'Connected') : (soon ? 'Coming soon — requires app approval' : desc)}
+                </div>
+              </div>
+              {soon ? (
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 20, padding: '3px 9px', fontFamily: "var(--font-mono)" }}>Soon</span>
+              ) : isConnected ? (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  loading={disconnectingPlatform === platform}
+                  onClick={() => onDisconnect(platform)}
+                  style={{ flexShrink: 0 }}
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <a
+                  href={`/api/social/connect/${platform}`}
+                  style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, background: bg, border: `1px solid ${border}`, color, borderRadius: 8, padding: '7px 13px', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, textDecoration: 'none', transition: 'all .18s' }}
+                >
+                  <Zap size={11} /> Connect
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

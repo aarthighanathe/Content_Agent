@@ -1,0 +1,63 @@
+name: ContentAgent CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        node-version: ['18', '20', '21']
+    uses: ./.github/workflows/_reusable-build.yml
+    with:
+      node-version: ${{ matrix.node-version }}
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          cd server && npm ci
+          cd ../client && npm ci
+
+      - name: Check for dependencies with known vulnerabilities
+        run: |
+          cd server && npm audit --audit-level moderate || true
+          cd ../client && npm audit --audit-level moderate || true
+
+  deploy:
+    needs: [test, security-scan]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd server && npm ci
+          cd ../client && npm ci
+
+      - name: Build applications
+        run: |
+          cd server && npm run build
+          cd ../client && npm run build
+
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment"
+          echo "Implement your deployment logic here"
+          echo "Example: SSH to server, pull code, restart services"

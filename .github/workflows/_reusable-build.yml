@@ -1,0 +1,46 @@
+name: Reusable build/lint/test
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        required: false
+        type: string
+        default: '20'
+      run-tests:
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd server && npm ci
+          cd ../client && npm ci
+
+      - name: Run linting
+        run: |
+          cd server && npm run lint
+          cd ../client && npm run lint
+
+      - name: Run server tests
+        if: inputs.run-tests
+        run: |
+          cd server && npm run test:coverage
+
+      - name: Build applications
+        run: |
+          cd server && npm run build
+          cd ../client && npm run build
