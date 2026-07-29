@@ -11,6 +11,26 @@
 
 ---
 
+## 2026-07-29 — Fixed CI npm-cache failure; removed unused Docker workflow
+
+**Status:** Complete.
+
+**Fixed:** `actions/setup-node@v4`'s `cache: 'npm'` looks for a lock file at the repo root by
+default. This repo has no root lock file — `server/` and `client/` each have their own
+(non-workspace layout) — so every job using it failed immediately with "Dependencies lock file
+is not found." Added explicit `cache-dependency-path` (both `server/package-lock.json` and
+`client/package-lock.json`) to the `setup-node` steps in `_reusable-build.yml` and `ci.yml`'s
+`deploy` job.
+
+**Removed:** `.github/workflows/docker.yml`. Production deployment is Vercel (client) + Render
+(server) per `CLAUDE.md` §12 — nothing pulls or deploys the `contentagent/server:latest` /
+`contentagent/client:latest` images this workflow built and pushed, so it was pure dead CI spend
+(and was failing for the same lock-file reason via its `test-and-build` reuse of
+`_reusable-build.yml`). `Dockerfile`s and `docker-compose.yml` remain as local-dev-only per
+existing §12 notes — only the CI workflow that published images from them was removed.
+
+---
+
 ## 2026-07-28 (Root cleanup) — Archived closed-out audits; deleted stray leftover files
 
 **Status:** Complete. Phase 5 of the production-readiness pass (deployment target confirmed →
