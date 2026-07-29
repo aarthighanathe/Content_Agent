@@ -10,7 +10,7 @@ jobs:
   test:
     strategy:
       matrix:
-        node-version: ['18', '20', '21']
+        node-version: ['20', '22']
     uses: ./.github/workflows/_reusable-build.yml
     with:
       node-version: ${{ matrix.node-version }}

@@ -11,6 +11,29 @@
 
 ---
 
+## 2026-07-29 (2) — Fixed CI test-matrix crash (Node 18 unsupported by ESLint 10) and a flaky test timeout
+
+**Status:** Complete. Verified locally: `server` lint/test/build and `client` lint/build all
+exit 0 before pushing.
+
+**Fixed:** `ci.yml`'s `test` job ran a matrix of Node `18`, `20`, `21`. `eslint@^10.3.0` (and its
+`typescript-eslint@^8.59.2` peer) require Node `^20.19.0 || ^22.13.0 || >=24` — Node 18 is not
+supported at all, so `npm run lint` crashed with exit code 2 on that leg, which cascaded via the
+matrix's default `fail-fast` and cancelled the 20/21 legs before they finished. Changed the
+matrix to `['20', '22']` — 21 was also non-LTS and already EOL, no reason to keep testing it.
+No `engines` field anywhere in this repo pins Node 18, so nothing depended on that leg.
+
+**Fixed:** `server/vitest.config.ts` had `testTimeout: 15000`. Under full-suite parallelism
+(all `tests/**/*.test.ts` files transforming/importing concurrently) a few otherwise-passing
+integration/security tests (`users-route`, `users-account-deletion`,
+`content-routes-idor`) occasionally exceeded that 15s window and failed with
+`Test timed out` — confirmed non-deterministic (different subset failed on each of two local
+full-suite runs) and confirmed passing in isolation, i.e. genuine CPU-contention flakiness, not
+a code bug. Raised to `30000` — same flakiness would eventually surface in CI's constrained
+runners. No test logic changed.
+
+---
+
 ## 2026-07-29 — Fixed CI npm-cache failure; removed unused Docker workflow
 
 **Status:** Complete.
