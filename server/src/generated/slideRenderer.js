@@ -11561,6 +11561,18 @@ var DESIGN_PRESETS = [
   // 19 C→A→B cycle alternating emoji
 ];
 
+// src/pages/Result/components/content/carousel/igslide/constants.ts
+var FONT = "'Plus Jakarta Sans',system-ui,sans-serif";
+var PROGRESS_H = 40;
+var BOTTOM_PAD = 52;
+var H_PAD = 28;
+var GLOW_PRESETS = [
+  { x: "85%", y: "10%", size: 180 },
+  { x: "15%", y: "75%", size: 200 },
+  { x: "70%", y: "50%", size: 165 },
+  { x: "30%", y: "20%", size: 210 }
+];
+
 // src/pages/Result/components/content/carousel/igslide/slideResolvers.ts
 var ACCENT_ANGLES = [165, 135, 225, 45, 200, 315, 90];
 function resolveAccentGradient(index, colors) {
@@ -11585,18 +11597,6 @@ function resolveBackground(slide, idx, total, preset, colors) {
   if (preset.bgBias === "mostly-light") return { bgMode: "light", background: colors.LIGHT_BG };
   return idx % 2 === 0 ? { bgMode: "light", background: colors.LIGHT_BG } : { bgMode: "dark", background: colors.DARK_BG };
 }
-
-// src/pages/Result/components/content/carousel/igslide/constants.ts
-var FONT = "'Plus Jakarta Sans',system-ui,sans-serif";
-var PROGRESS_H = 40;
-var BOTTOM_PAD = 52;
-var H_PAD = 28;
-var GLOW_PRESETS = [
-  { x: "85%", y: "10%", size: 180 },
-  { x: "15%", y: "75%", size: 200 },
-  { x: "70%", y: "50%", size: 165 },
-  { x: "30%", y: "20%", size: 210 }
-];
 
 // src/pages/Result/components/content/carousel/SlideVisual.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -12642,7 +12642,6 @@ function FeaturesLayout({ slide, colors }) {
 
 // src/pages/Result/components/content/carousel/IGSlide.tsx
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
-var DESIGN_PRESET_COUNT = DESIGN_PRESETS.length;
 var IGSlide = import_react.default.forwardRef(
   // NOTE: isLast stays in IGSlideProps (callers pass it) but is no longer consumed here —
   // it only ever fed the now-removed SwipeArrow.
