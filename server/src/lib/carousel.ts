@@ -81,17 +81,39 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 }
 
 async function spawnBrowser(): Promise<Browser> {
-  // WHY: Use Puppeteer's installed Chrome browser. The build script runs
-  // `npx puppeteer browsers install chrome` which downloads Chrome to the
-  // local cache. Puppeteer automatically finds this in production.
+  // WHY: Configure Puppeteer to use the Chrome browser installed via postinstall script.
+  // The postinstall script runs `npx puppeteer browsers install chrome` which downloads
+  // Chrome to the local cache. We configure the cache directory explicitly for Render.
   const launchOptions: LaunchOptions = {
     headless: true,
     args: LAUNCH_ARGS,
   };
 
-  // Only try system Chrome if explicitly configured (not on Render by default)
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-    launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  // On Render, use the Chrome installed by puppeteer browsers install
+  if (process.env.RENDER === 'true' || process.env.NODE_ENV === 'production') {
+    // Set the cache directory explicitly for Puppeteer to find Chrome
+    const cacheDir = process.env.PUPPETEER_CACHE_DIR || '/opt/render/.cache/puppeteer';
+    process.env.PUPPETEER_CACHE_DIR = cacheDir;
+    
+    // Try specific Chrome paths that puppeteer browsers install uses
+    const possiblePaths = [
+      `${cacheDir}/chrome`,
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium-browser',
+    ];
+    
+    for (const path of possiblePaths) {
+      try {
+        const { existsSync } = await import('fs');
+        if (existsSync(path)) {
+          launchOptions.executablePath = path;
+          logger.info('[BrowserPool] Using Chrome at:', { path });
+          break;
+        }
+      } catch {
+        // Continue to next path
+      }
+    }
   }
 
   try {
@@ -101,8 +123,9 @@ async function spawnBrowser(): Promise<Browser> {
       'Browser launch',
     );
   } catch (error) {
-    // If Chrome fails, try without executablePath (use Puppeteer's bundled Chrome)
+    // If Chrome fails with explicit path, try without it (auto-discovery)
     if (launchOptions.executablePath) {
+      logger.warn('[BrowserPool] Failed with explicit path, trying auto-discovery');
       delete launchOptions.executablePath;
       try {
         return await withTimeout(

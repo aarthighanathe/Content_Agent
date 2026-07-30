@@ -11,17 +11,18 @@
 
 ---
 
-## 2026-07-30 (3) — Fixed Puppeteer Chrome installation for Render deployment (proper approach)
+## 2026-07-30 (4) — Fixed Puppeteer Chrome installation for Render deployment with full solution
 
 **Status:** Complete.
 
 **Fixed:** Puppeteer browser pool initialization was failing on Render due to missing Chrome
-installation. Proper fix:
-- Build script now runs `npx puppeteer browsers install chrome` during build to download Chrome
-- spawnBrowser() uses Puppeteer's auto-discovery for installed Chrome
-- Only uses custom executable path if PUPPETEER_EXECUTABLE_PATH env var is set
-- Added graceful degradation: app starts even if browser pool fails (carousel export disabled)
-- Added puppeteerAvailable flag to provide clear error messages when export is requested
+installation. Full solution:
+- Added postinstall script to run `npx puppeteer browsers install chrome` automatically
+- spawnBrowser() explicitly sets PUPPETEER_CACHE_DIR for Render environment
+- Added intelligent Chrome path detection for multiple possible installation locations
+- Fallback to auto-discovery if explicit paths fail
+- Added install-chrome.sh script for system dependencies (for future use)
+- Carousel PNG export should now work properly on Render
 
 ---
 
