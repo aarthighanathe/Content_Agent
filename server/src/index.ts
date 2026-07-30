@@ -5,6 +5,8 @@ import express from 'express';
 import cors from 'cors';
 import { config } from 'dotenv';
 import { resolve } from 'path';
+import { env } from './config.js';
+import { logger } from './lib/logger.js';
 
 // Load environment variables
 config({ path: resolve(process.cwd(), '.env') });
@@ -30,13 +32,10 @@ import templateRoutes from './routes/templates.js';
 import demoRoutes from './routes/demo.js';
 import imageGenRoutes from './routes/imageGen.js';
 import { clerkMiddleware } from '@clerk/express';
-import { env } from './config.js';
 import { authMiddleware } from './middleware/auth.js';
 import { startWorker, stopWorker } from './workers/contentWorker.js';
 import { closeBrowserPool } from './lib/carousel.js';
 import { demoJobRateLimit, sanitizeGenerationInput, contentRateLimit, imageRateLimit } from './middleware/rateLimit.js';
-import { env } from './config.js';
-import { logger } from './lib/logger.js';
 
 const app = express();
 const PORT = parseInt(env.PORT, 10);
