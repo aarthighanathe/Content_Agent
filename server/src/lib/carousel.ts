@@ -81,25 +81,19 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 }
 
 async function spawnBrowser(): Promise<Browser> {
-  // WHY: Configure Puppeteer to use the Chrome browser installed via postinstall script.
-  // The postinstall script runs `npx puppeteer browsers install chrome` which downloads
-  // Chrome to the local cache. We configure the cache directory explicitly for Render.
+  // WHY: Configure Puppeteer to use Chrome with proper configuration for cloud environments.
+  // Render provides system Chrome, so we try that first, then fall back to Puppeteer's bundled Chrome.
   const launchOptions: LaunchOptions = {
     headless: true,
     args: LAUNCH_ARGS,
   };
 
-  // On Render, use the Chrome installed by puppeteer browsers install
+  // On Render, try system Chrome first
   if (process.env.RENDER === 'true' || process.env.NODE_ENV === 'production') {
-    // Set the cache directory explicitly for Puppeteer to find Chrome
-    const cacheDir = process.env.PUPPETEER_CACHE_DIR || '/opt/render/.cache/puppeteer';
-    process.env.PUPPETEER_CACHE_DIR = cacheDir;
-    
-    // Try specific Chrome paths that puppeteer browsers install uses
     const possiblePaths = [
-      `${cacheDir}/chrome`,
       '/usr/bin/google-chrome-stable',
       '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
     ];
     
     for (const path of possiblePaths) {
