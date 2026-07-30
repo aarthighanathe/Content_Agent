@@ -11,6 +11,18 @@
 
 ---
 
+## 2026-07-30 — Fixed Clerk publishable key requirement for @clerk/express v2+
+
+**Status:** Complete.
+
+**Fixed:** @clerk/express v2.1.17 now requires both CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY
+on the server side, whereas previous versions only needed the secret key. Added CLERK_PUBLISHABLE_KEY
+to server/src/config.ts schema and server/.env.example, and updated clerkMiddleware() initialization
+in server/src/index.ts to explicitly pass both keys. This fixes the "Publishable key is missing"
+error that occurred during Render deployment.
+
+---
+
 ## 2026-07-29 (2) — Fixed CI test-matrix crash (Node 18 unsupported by ESLint 10) and a flaky test timeout
 
 **Status:** Complete. Verified locally: `server` lint/test/build and `client` lint/build all

@@ -30,6 +30,7 @@ import templateRoutes from './routes/templates.js';
 import demoRoutes from './routes/demo.js';
 import imageGenRoutes from './routes/imageGen.js';
 import { clerkMiddleware } from '@clerk/express';
+import { env } from './config.js';
 import { authMiddleware } from './middleware/auth.js';
 import { startWorker, stopWorker } from './workers/contentWorker.js';
 import { closeBrowserPool } from './lib/carousel.js';
@@ -102,7 +103,10 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
-app.use(clerkMiddleware());
+app.use(clerkMiddleware({
+  publishableKey: env.CLERK_PUBLISHABLE_KEY,
+  secretKey: env.CLERK_SECRET_KEY,
+}));
 
 // Liveness check — process is up, no dependency checks. Safe for a fast/frequent probe.
 app.get('/api/health', (_req, res) => {

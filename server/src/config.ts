@@ -22,6 +22,7 @@ const envSchema = z.object({
 
   // ── Auth (Clerk) ─────────────────────────────────────────────────────────
   CLERK_SECRET_KEY: z.string().min(1, 'CLERK_SECRET_KEY is required'),
+  CLERK_PUBLISHABLE_KEY: z.string().min(1, 'CLERK_PUBLISHABLE_KEY is required'),
 
   // ── AI providers ─────────────────────────────────────────────────────────
   GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY is required'),
