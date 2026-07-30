@@ -9,7 +9,7 @@
 // that was removed along with the /render-slides endpoints.
 import * as Sentry from '@sentry/node';
 import puppeteer from 'puppeteer';
-import type { Browser } from 'puppeteer';
+import type { Browser, LaunchOptions } from 'puppeteer';
 import { createHash } from 'crypto';
 import { logger } from './logger.js';
 
@@ -43,6 +43,7 @@ export function stripScriptsAndEventHandlers(html: string): string {
 const POOL_MIN = 2;
 const POOL_MAX = 8;
 const RENDER_TIMEOUT_MS = 60_000;
+let puppeteerAvailable = true;
 // WHY: puppeteer.launch() and browser.close() have no built-in timeout — a hung
 // Chromium subprocess (OS-level stall, sandbox issue, zombie process) would block
 // the caller indefinitely with no error to recover from. Racing both against this
@@ -80,11 +81,42 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 }
 
 async function spawnBrowser(): Promise<Browser> {
-  return withTimeout(
-    puppeteer.launch({ headless: true, args: LAUNCH_ARGS }),
-    BROWSER_LAUNCH_TIMEOUT_MS,
-    'Browser launch',
-  );
+  // WHY: Use system Chrome on Render/cloud environments where Puppeteer's bundled Chrome
+  // may not be available. Falls back to Puppeteer's Chrome if system Chrome fails.
+  const launchOptions: LaunchOptions = {
+    headless: true,
+    args: LAUNCH_ARGS,
+  };
+
+  // On Render, try to use system Chrome first
+  if (process.env.RENDER === 'true' || process.env.NODE_ENV === 'production') {
+    launchOptions.executablePath = '/usr/bin/google-chrome-stable';
+  }
+
+  try {
+    return await withTimeout(
+      puppeteer.launch(launchOptions),
+      BROWSER_LAUNCH_TIMEOUT_MS,
+      'Browser launch',
+    );
+  } catch (error) {
+    // If system Chrome fails, try without executablePath (use Puppeteer's bundled Chrome)
+    if (launchOptions.executablePath) {
+      delete launchOptions.executablePath;
+      try {
+        return await withTimeout(
+          puppeteer.launch(launchOptions),
+          BROWSER_LAUNCH_TIMEOUT_MS,
+          'Browser launch (fallback)',
+        );
+      } catch (fallbackError) {
+        puppeteerAvailable = false;
+        throw fallbackError;
+      }
+    }
+    puppeteerAvailable = false;
+    throw error;
+  }
 }
 
 async function initPool(): Promise<void> {
@@ -106,6 +138,10 @@ async function initPool(): Promise<void> {
   }
   if (_pool.length > 0) {
     logger.info('[BrowserPool] Ready', { instances: _pool.length, max: POOL_MAX });
+  } else {
+    // NOTE: If no browsers could be launched, the app should still start.
+    // Carousel export will fail gracefully when called.
+    logger.warn('[BrowserPool] No browsers available - carousel export will be disabled');
   }
   if (failures.length > 0) {
     console.error('[BrowserPool] Failed to launch', failures.length, 'of', POOL_MIN, 'browsers:', failures[0]);
@@ -254,6 +290,11 @@ export async function renderSlideWithCache(
   theme: ThemeKey,
   viewport: RenderViewport = DEFAULT_VIEWPORT,
 ): Promise<string> {
+  // NOTE: If Puppeteer is not available, throw a clear error for the caller
+  if (!puppeteerAvailable) {
+    throw new Error('Carousel export is not available - Puppeteer browser pool could not be initialized');
+  }
+
   const contentHash = createHash('sha256').update(html).digest('hex').slice(0, 12);
   // WHY the viewport is part of the key: the same HTML rendered at 1080x1080 and at
   // 1080x1350 produces different PNGs. Without it, entries cached by one size would be

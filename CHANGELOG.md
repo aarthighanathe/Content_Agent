@@ -11,6 +11,20 @@
 
 ---
 
+## 2026-07-30 (2) — Fixed Puppeteer Chrome installation for Render deployment
+
+**Status:** Complete.
+
+**Fixed:** Puppeteer browser pool initialization was failing on Render due to missing Chrome
+installation. Added multiple fallback strategies:
+- Build script now runs `npx puppeteer browsers install chrome` during build
+- spawnBrowser() tries system Chrome (`/usr/bin/google-chrome-stable`) on Render/production
+- Falls back to Puppeteer's bundled Chrome if system Chrome fails
+- Added graceful degradation: app starts even if browser pool fails (carousel export disabled)
+- Added puppeteerAvailable flag to provide clear error messages when export is requested
+
+---
+
 ## 2026-07-30 — Fixed Clerk publishable key requirement for @clerk/express v2+
 
 **Status:** Complete.
