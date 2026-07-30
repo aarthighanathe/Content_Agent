@@ -6,6 +6,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch --env-file ../.env src/index.ts",
+    "prebuild": "npm --prefix ../client install",
     "build": "npm --prefix ../client install && npm --prefix ../client run build:ssr && tsc && node scripts/copy-generated.mjs",
     "start": "node dist/index.js",
     "worker": "tsx --env-file ../.env src/workers/contentWorker.ts",
@@ -30,6 +31,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "esbuild": "^0.28.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "groq-sdk": "^1.2.0",
