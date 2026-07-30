@@ -81,16 +81,17 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
 }
 
 async function spawnBrowser(): Promise<Browser> {
-  // WHY: Use system Chrome on Render/cloud environments where Puppeteer's bundled Chrome
-  // may not be available. Falls back to Puppeteer's Chrome if system Chrome fails.
+  // WHY: Use Puppeteer's installed Chrome browser. The build script runs
+  // `npx puppeteer browsers install chrome` which downloads Chrome to the
+  // local cache. Puppeteer automatically finds this in production.
   const launchOptions: LaunchOptions = {
     headless: true,
     args: LAUNCH_ARGS,
   };
 
-  // On Render, try to use system Chrome first
-  if (process.env.RENDER === 'true' || process.env.NODE_ENV === 'production') {
-    launchOptions.executablePath = '/usr/bin/google-chrome-stable';
+  // Only try system Chrome if explicitly configured (not on Render by default)
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
   }
 
   try {
@@ -100,7 +101,7 @@ async function spawnBrowser(): Promise<Browser> {
       'Browser launch',
     );
   } catch (error) {
-    // If system Chrome fails, try without executablePath (use Puppeteer's bundled Chrome)
+    // If Chrome fails, try without executablePath (use Puppeteer's bundled Chrome)
     if (launchOptions.executablePath) {
       delete launchOptions.executablePath;
       try {

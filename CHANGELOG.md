@@ -11,15 +11,15 @@
 
 ---
 
-## 2026-07-30 (2) — Fixed Puppeteer Chrome installation for Render deployment
+## 2026-07-30 (3) — Fixed Puppeteer Chrome installation for Render deployment (proper approach)
 
 **Status:** Complete.
 
 **Fixed:** Puppeteer browser pool initialization was failing on Render due to missing Chrome
-installation. Added multiple fallback strategies:
-- Build script now runs `npx puppeteer browsers install chrome` during build
-- spawnBrowser() tries system Chrome (`/usr/bin/google-chrome-stable`) on Render/production
-- Falls back to Puppeteer's bundled Chrome if system Chrome fails
+installation. Proper fix:
+- Build script now runs `npx puppeteer browsers install chrome` during build to download Chrome
+- spawnBrowser() uses Puppeteer's auto-discovery for installed Chrome
+- Only uses custom executable path if PUPPETEER_EXECUTABLE_PATH env var is set
 - Added graceful degradation: app starts even if browser pool fails (carousel export disabled)
 - Added puppeteerAvailable flag to provide clear error messages when export is requested
 
