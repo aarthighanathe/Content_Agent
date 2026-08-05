@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Instagram, Linkedin, XTwitter } from '../../../components/BrandIcons';
 import { Sparkles, ChevronDown, Check, AlertTriangle, Undo2, ExternalLink, RefreshCw } from 'lucide-react';
 import type { MultiplyEntry } from '../hooks/useMultiplier';
@@ -24,7 +24,7 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply, show, onT
   const doneCount = Object.values(multiplyJobs).filter((j) => j.status === 'done').length;
 
   return (
-    <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 18, marginTop: 4 }}>
+    <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, marginTop: 4 }}>
       <button onClick={onToggle} className="rp-mult-banner" style={{ width: '100%', border: 'none', marginBottom: show ? 16 : 0, textAlign: 'left' }}>
         <div className="rp-mult-banner-icon"><Sparkles size={14} /></div>
         <div className="rp-mult-banner-text">
@@ -50,17 +50,17 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply, show, onT
               : '';
 
             return (
-              <div key={p.id} style={{ background: '#08081A', border: `1px solid ${isSource ? `${p.color}22` : isDone ? `${p.color}30` : isProc ? `${p.color}18` : 'rgba(255,255,255,0.06)'}`, borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', transition: 'border-color .25s', boxShadow: isDone ? `0 0 20px ${p.color}0A` : 'none' }}>
-                <div style={{ height: 2.5, background: isSource ? `linear-gradient(90deg,${p.color}50,${p.color}20)` : isDone ? `linear-gradient(90deg,${p.color},${p.color}50)` : isProc ? `linear-gradient(90deg,${p.color}60,transparent)` : 'transparent', transition: 'background .3s' }} />
+              <div key={p.id} style={{ background: 'var(--bg-raised)', border: `1px solid ${isSource ? `${p.color}22` : isDone ? `${p.color}30` : isProc ? `${p.color}18` : `${p.color}15`}`, borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', transition: 'border-color .25s', boxShadow: isDone ? `0 0 20px ${p.color}0A` : 'none' }}>
+                <div style={{ height: 2.5, background: isSource ? `linear-gradient(90deg,${p.color}50,${p.color}20)` : isDone ? `linear-gradient(90deg,${p.color},${p.color}50)` : isProc ? `linear-gradient(90deg,${p.color}60,transparent)` : `${p.color}25`, transition: 'background .3s' }} />
                 <div style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
                   {/* Platform header */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 9, background: isSource ? `${p.color}12` : isDone ? `${p.color}18` : 'rgba(255,255,255,0.04)', border: `1px solid ${isSource ? `${p.color}25` : isDone ? `${p.color}30` : 'rgba(255,255,255,0.06)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .25s' }}>
-                      <p.Icon size={15} color={isSource || isDone ? p.color : 'var(--color-text-muted)'} />
+                    <div style={{ width: 32, height: 32, borderRadius: 9, background: isSource ? `${p.color}12` : isDone ? `${p.color}18` : `${p.color}0C`, border: `1px solid ${isSource ? `${p.color}25` : isDone ? `${p.color}30` : `${p.color}20`}`, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .25s' }}>
+                      <p.Icon size={15} color={isSource || isDone ? p.color : `${p.color}A0`} />
                     </div>
                     <div>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: isSource || isDone ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.7)' }}>{p.label}</div>
-                      <div style={{ fontSize: 9.5, color: isSource ? `${p.color}90` : 'rgba(255,255,255,0.25)', fontFamily: "var(--font-mono)" }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: isSource || isDone ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{p.label}</div>
+                      <div style={{ fontSize: 9.5, color: isSource ? `${p.color}90` : 'var(--text-muted)', fontFamily: "var(--font-mono)" }}>
                         {isSource ? 'Source content' : isDone ? 'Ready to view' : isProc ? 'Generating…' : 'Cached research'}
                       </div>
                     </div>
@@ -71,11 +71,11 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply, show, onT
                   {/* Progress bar */}
                   {isProc && (
                     <div>
-                      <div style={{ height: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: 3, background: 'var(--rule)', borderRadius: 2, overflow: 'hidden' }}>
                         <div style={{ height: '100%', background: `linear-gradient(90deg,${p.color},${p.color}60)`, borderRadius: 2, width: `${mj.progress || 15}%`, transition: 'width .6s ease' }} />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
-                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)' }}>Adapting content…</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Adapting content…</span>
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: p.color }}>{mj.progress || 15}%</span>
                       </div>
                     </div>
@@ -84,7 +84,7 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply, show, onT
                   {/* Preview snippet */}
                   {isDone && preview && (
                     <div style={{ background: `${p.color}08`, border: `1px solid ${p.color}18`, borderRadius: 8, padding: '9px 11px', overflow: 'hidden' }}>
-                      <p style={{ fontSize: 11.5, color: 'var(--color-text-secondary)', lineHeight: 1.5, margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{preview}</p>
+                      <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{preview}</p>
                     </div>
                   )}
 
@@ -99,7 +99,7 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply, show, onT
                   <button
                     onClick={() => isSource ? window.open(`/result/${jobData.sourceJobId}`, '_blank') : isDone && mj.jobId ? window.open(`/result/${mj.jobId}`, '_blank') : onMultiply(p.id)}
                     disabled={isProc}
-                    style={{ background: isSource ? `${p.color}10` : isDone ? `${p.color}15` : isFailed ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.04)', border: `1px solid ${isSource ? `${p.color}28` : isDone ? `${p.color}35` : 'rgba(255,255,255,0.08)'}`, borderRadius: 8, padding: '8px 12px', cursor: isProc ? 'not-allowed' : 'pointer', fontSize: 12, color: isSource || isDone ? p.color : 'rgba(255,255,255,0.5)', transition: 'all .18s', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', fontWeight: isSource || isDone ? 600 : 400, marginTop: 'auto' }}
+                    style={{ background: isSource ? `${p.color}10` : isDone ? `${p.color}15` : isFailed ? 'var(--bg-raised)' : `${p.color}0C`, border: `1px solid ${isSource ? `${p.color}28` : isDone ? `${p.color}35` : `${p.color}22`}`, borderRadius: 8, padding: '8px 12px', cursor: isProc ? 'not-allowed' : 'pointer', fontSize: 12, color: p.color, transition: 'all .18s', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', fontWeight: isSource || isDone ? 600 : 400, marginTop: 'auto' }}
                   >
                     {isProc
                       ? <><span style={{ display: 'inline-block', width: 10, height: 10, border: `1.5px solid ${p.color}40`, borderTopColor: p.color, borderRadius: '50%', animation: 'rp-spin .7s linear infinite' }} /> Generating…</>

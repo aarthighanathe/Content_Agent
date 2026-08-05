@@ -22,8 +22,16 @@ function readDraft(): Partial<CreateDraft> {
 // came back, since all Create state was local useState wiped on unmount. This
 // persists the draft across that round trip but clears it once a job is actually
 // submitted, so it doesn't resurrect stale input days later.
+//
+// WHY draftWriteFailed instead of a toast inside this hook: this repo has no
+// shared toast component (Brand.tsx/useLibraryData.ts each implement the same
+// { message, isError } | null + flashToast pattern locally rather than sharing
+// one) — this hook exposes a boolean flag and lets the calling page (Create.tsx)
+// render it through whatever toast affordance it already uses, instead of this
+// hook inventing its own UI.
 export function useDraft() {
   const [draft, setDraftState] = useState<Partial<CreateDraft>>(readDraft);
+  const [draftWriteFailed, setDraftWriteFailed] = useState(false);
 
   function setDraft(patch: Partial<CreateDraft>) {
     setDraftState((prev) => {
@@ -31,7 +39,9 @@ export function useDraft() {
       try {
         sessionStorage.setItem(DRAFT_KEY, JSON.stringify(next));
       } catch {
-        // storage unavailable (private mode, quota) — draft just won't persist
+        // storage unavailable (private mode, quota) — draft just won't persist;
+        // surfaced to the caller via draftWriteFailed instead of failing silently.
+        setDraftWriteFailed(true);
       }
       return next;
     });
@@ -46,5 +56,5 @@ export function useDraft() {
     setDraftState({});
   }
 
-  return { draft, setDraft, clearDraft };
+  return { draft, setDraft, clearDraft, draftWriteFailed, dismissDraftWriteFailed: () => setDraftWriteFailed(false) };
 }

@@ -16,11 +16,20 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
   };
 
   return (
-    <div
-      role="group"
-      aria-label="Choose a platform"
-      style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}
-    >
+    <>
+      <style>{`
+        @media (max-width: 375px) {
+          .platform-grid-375-fix {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
+      <div
+        className="platform-grid-375-fix"
+        role="group"
+        aria-label="Choose a platform"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}
+      >
       {platforms.map((p) => {
         const sel = value === p.id;
         return (
@@ -32,8 +41,8 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
             aria-pressed={sel}
             onClick={() => handleClick(p.id)}
             style={{
-              background: sel ? 'rgba(245,158,11,0.07)' : '#08081A',
-              border: `1.5px solid ${sel ? '#F59E0B' : 'rgba(255,255,255,0.06)'}`,
+              background: sel ? 'color-mix(in srgb, var(--accent) 7%, transparent)' : 'var(--bg-raised)',
+              border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--rule)'}`,
               borderRadius: 11,
               padding: '20px',
               display: 'flex',
@@ -42,7 +51,7 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
               gap: 14,
               cursor: 'pointer',
               transition: 'all .18s',
-              boxShadow: sel ? '0 0 0 1px rgba(245,158,11,0.1), 0 4px 20px rgba(245,158,11,0.1)' : 'none',
+              boxShadow: sel ? '0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent), 0 4px 20px color-mix(in srgb, var(--accent) 10%, transparent)' : 'none',
               textAlign: 'left',
               position: 'relative',
             }}
@@ -53,16 +62,16 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
                 <p.Icon size={24} color="#fff" strokeWidth={1.75} />
               </div>
               {sel && (
-                <div style={{ width: 20, height: 20, minWidth: 20, borderRadius: '50%', background: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#050509', fontWeight: 700 }}><Check size={11} /></div>
+                <div style={{ width: 20, height: 20, minWidth: 20, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--on-accent)', fontWeight: 700 }}><Check size={11} /></div>
               )}
             </div>
 
             {/* Label and description */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 'clamp(13px,2vw,15px)', fontWeight: 600, color: sel ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.7)', marginBottom: 4 }}>
+              <div style={{ fontSize: 'clamp(13px,2vw,15px)', fontWeight: 600, color: sel ? 'var(--text-primary)' : 'var(--text-secondary)', marginBottom: 4 }}>
                 {p.label}
               </div>
-              <div style={{ fontSize: 'clamp(11px,1.5vw,12px)', color: 'rgba(255,255,255,0.45)', lineHeight: 1.4 }}>
+              <div style={{ fontSize: 'clamp(11px,1.5vw,12px)', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                 {p.desc}
               </div>
             </div>
@@ -70,6 +79,7 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
         );
       })}
     </div>
+    </>
   );
 }
 
@@ -90,7 +100,7 @@ export function PlatformSummary({ platform, onChangeClick }: PlatformSummaryProp
       onClick={onChangeClick}
       style={{
         display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-        background: '#08081A', border: '1.5px solid rgba(245,158,11,0.3)',
+        background: 'var(--bg-raised)', border: '1.5px solid color-mix(in srgb, var(--accent) 30%, transparent)',
         borderRadius: 11, padding: '12px 16px', cursor: 'pointer', textAlign: 'left',
         transition: 'border-color .18s',
       }}
@@ -99,9 +109,9 @@ export function PlatformSummary({ platform, onChangeClick }: PlatformSummaryProp
         <p.Icon size={18} color="#fff" strokeWidth={1.75} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.92)' }}>{p.label}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{p.label}</div>
       </div>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'rgba(245,158,11,0.65)', fontFamily: "var(--font-mono)", flexShrink: 0 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'color-mix(in srgb, var(--accent) 65%, transparent)', fontFamily: "var(--font-mono)", flexShrink: 0 }}>
         Change <ChevronDown size={12} />
       </span>
     </button>

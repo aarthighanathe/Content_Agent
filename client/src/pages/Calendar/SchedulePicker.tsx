@@ -64,14 +64,14 @@ export function SchedulePicker({
     >
       {/* Header */}
       <div className="sc-picker-hd">
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: '#F59E0B' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)' }}>
           {MONTH_NAMES[viewMonth]} {viewYear}
         </span>
         <button
           className="sc-btn-ghost"
           onClick={onClose}
           aria-label="Close date picker"
-          style={{ color: 'rgba(255,255,255,0.35)', marginLeft: 'auto' }}
+          style={{ color: 'var(--text-secondary)', marginLeft: 'auto' }}
         >
           <X size={13} />
         </button>
@@ -105,7 +105,7 @@ export function SchedulePicker({
           );
         })}
       </div>
-      <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(255,255,255,0.28)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
+      <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textAlign: 'center' }}>
         ↑↓←→ navigate · Enter select · Esc close
       </div>
     </div>

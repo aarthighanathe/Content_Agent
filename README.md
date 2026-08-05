@@ -20,7 +20,6 @@ Supported platforms: Instagram carousels (9 visual themes, Puppeteer-rendered PN
 - **Topic Ideation** — AI brainstorming with trend-aware suggestions
 - **URL Repurposing** — Paste an article URL; the article becomes the research context
 - **Competitor Analysis** — @handle → content pattern analysis + content ideas
-- **Content Templates** — Save and reuse successful content structures
 - **Batch Creation** — Generate up to 7 jobs in parallel (week planning)
 - **Public Demo** — No sign-up required to try the pipeline (truncated output, rate-limited)
 

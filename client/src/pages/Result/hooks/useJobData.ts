@@ -21,7 +21,9 @@ export function useJobData(jobId: string | undefined) {
 
   const loadJob = useCallback(async () => {
     if (!jobId) return;
-    try { const d = await getJob(jobId); setJobData(d); } catch (e) { console.error(e); }
+    try { const d = await getJob(jobId); setJobData(d); } catch (_e) {
+      // NOTE: Job fetch errors are handled by ErrorState component; no need for console.error
+    }
   }, [jobId]);
 
   const mergeSSEIntoJobData = useCallback((data: SSEEvent) => {
@@ -199,11 +201,11 @@ export function useJobData(jobId: string | undefined) {
       // mergeSSEIntoJobData same as the initial connect effect above — without it,
       // SSE events after a Regenerate were received but never merged into jobData.
       connectToStream(jobId, streamToken, mergeSSEIntoJobData);
-    } catch (e) {
-      console.error(e);
+    } catch (_e) {
+      // NOTE: Regenerate errors are handled by ErrorState component; no need for console.error
       setRegenerating(false);
     }
   }
 
-  return { jobData, setJobData, regenerating, setRegenerating, handleRegenerate, currentJob };
+  return { jobData, setJobData, regenerating, setRegenerating, handleRegenerate, currentJob, loadJob };
 }

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, ImageIcon, Sparkles, Video } from 'lucide-react';
 import { Instagram, Linkedin, XTwitter } from '../../components/BrandIcons';
 import { SectionDivider } from './SectionDivider';
+import { SkeletonCard } from '../../components/SkeletonCard';
 
 interface DemoPlatform {
   id: string;
@@ -105,22 +106,26 @@ export function LiveDemo() {
       <SectionDivider label="See it live" />
 
       {/* ══════════ LIVE DEMO ══════════ */}
-      <section id="demo" className="rv demo-section" style={{ padding: '80px 72px', background: 'rgba(7,7,28,0.5)' }}>
+      <section id="demo" className="rv demo-section" style={{ padding: '80px 72px' }}>
         <div style={{ maxWidth: 700, margin: '0 auto', textAlign: 'center' }}>
           <div className="eyebrow" style={{ margin: '0 auto 24px' }}>
             <span className="eyebrow-dot" />
             Try it — no account needed
           </div>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 'clamp(28px,4.5vw,46px)', fontWeight: 700, lineHeight: 1.08, letterSpacing: -1, marginBottom: 14 }}>
-            See the AI in <em style={{ color: '#F59E0B', fontStyle: 'italic' }}>action</em>
+            See the AI in <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>action</em>
           </h2>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.4)', marginBottom: 38, lineHeight: 1.72 }}>
+          <p style={{ fontSize: 15, color: 'var(--text-muted)', marginBottom: 38, lineHeight: 1.72 }}>
             Type any topic, pick a platform, and get a real sample instantly — without creating an account.
           </p>
 
-          <div className="demo-box" style={{ background: 'rgba(7,7,28,0.98)', border: '1px solid rgba(124,58,237,0.22)', borderRadius: 18, padding: '26px 30px', textAlign: 'left', marginBottom: 20 }}>
+          <div className="demo-box" style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 22%, transparent)', borderRadius: 18, padding: '26px 30px', textAlign: 'left', marginBottom: 20 }}>
             <div style={{ marginBottom: 16 }}>
+              <label htmlFor="demo-topic-input" className="sr-only">
+                Topic for your content sample
+              </label>
               <input
+                id="demo-topic-input"
                 className="demo-input"
                 placeholder="e.g., 5 habits that doubled my productivity…"
                 value={demoTopic}
@@ -140,24 +145,24 @@ export function LiveDemo() {
                 what each produces. A one-line summary uses muted mono styling to stay quiet
                 without cluttering the demo CTA. Tooltip was considered but added interaction
                 cost for content that's simple enough to inline. */}
-            <p style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.32)', lineHeight: 1.5, margin: '0 0 20px' }}>
+            <p style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'color-mix(in srgb, var(--text-primary) 32%, transparent)', lineHeight: 1.5, margin: '0 0 20px' }}>
               Carousel = 5 Instagram slides · LinkedIn = long-form post · Twitter = thread · Caption = short + hashtags · Video = scripted segments
             </p>
             <button
               onClick={runDemo}
               disabled={!demoTopic.trim() || demoLoading}
               style={{
-                background: demoTopic.trim() && !demoLoading ? 'linear-gradient(135deg,#F59E0B,#FBBF24)' : 'rgba(245,158,11,0.18)',
-                color: demoTopic.trim() && !demoLoading ? '#030310' : 'rgba(245,158,11,0.38)',
+                background: demoTopic.trim() && !demoLoading ? 'linear-gradient(135deg,var(--accent),var(--accent-2))' : 'color-mix(in srgb, var(--accent) 18%, transparent)',
+                color: demoTopic.trim() && !demoLoading ? 'var(--on-accent)' : 'color-mix(in srgb, var(--accent) 38%, transparent)',
                 border: 'none', borderRadius: 10, padding: '13px 28px',
                 fontWeight: 700, fontSize: 14, cursor: demoTopic.trim() && !demoLoading ? 'pointer' : 'not-allowed',
                 display: 'flex', alignItems: 'center', gap: 8, transition: 'all .2s',
-                boxShadow: demoTopic.trim() && !demoLoading ? '0 4px 22px rgba(245,158,11,0.32)' : 'none',
+                boxShadow: demoTopic.trim() && !demoLoading ? '0 4px 22px var(--accent-glow)' : 'none',
                 width: '100%', justifyContent: 'center',
               }}
             >
               {demoLoading
-                ? <><div style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#030310', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Generating…</>
+                ? <><div style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: 'var(--on-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Generating…</>
                 : <><Sparkles size={15} /> Generate sample</>}
             </button>
           </div>
@@ -165,6 +170,18 @@ export function LiveDemo() {
           {demoError && (
             <div style={{ padding: '11px 16px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 9, fontSize: 12.5, color: 'var(--color-error)', marginBottom: 16 }}>
               {demoError}
+            </div>
+          )}
+
+          {/* Loading skeleton for slow networks */}
+          {demoLoading && (
+            <div style={{ animation: 'demo-fadeUp .38s ease both', textAlign: 'left' }}>
+              <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 22%, transparent)', borderRadius: 15, overflow: 'hidden', marginBottom: 20 }}>
+                <div style={{ height: 3, background: 'linear-gradient(90deg,var(--accent-2),var(--accent))' }} />
+                <div style={{ padding: '22px 24px' }}>
+                  <SkeletonCard size="lines" />
+                </div>
+              </div>
             </div>
           )}
 
@@ -180,35 +197,35 @@ export function LiveDemo() {
             const isStandard = !isSlides && !isVideo && !isTweets && !isCaption && 'hook' in preview && !!preview.hook;
             return (
             <div style={{ animation: 'demo-fadeUp .38s ease both', textAlign: 'left' }}>
-              <div style={{ background: '#07071C', border: '1px solid rgba(124,58,237,0.22)', borderRadius: 15, overflow: 'hidden', marginBottom: 20 }}>
-                <div style={{ height: 3, background: 'linear-gradient(90deg,#7C3AED,#F59E0B,#22D3EE)' }} />
+              <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 22%, transparent)', borderRadius: 15, overflow: 'hidden', marginBottom: 20 }}>
+                <div style={{ height: 3, background: 'linear-gradient(90deg,var(--accent-2),var(--accent))' }} />
                 <div style={{ padding: '22px 24px' }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, color: '#F59E0B', textTransform: 'uppercase', marginBottom: 16 }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, color: 'var(--accent)', textTransform: 'uppercase', marginBottom: 16 }}>
                     {demoPlatforms.find((p) => p.id === demoResult.platform)?.icon}{' '}
                     {demoPlatforms.find((p) => p.id === demoResult.platform)?.label} · Preview
                   </div>
 
                   {isSlides && preview.map((slide, i) => (
-                    <div key={slide.slideNumber ?? i} style={{ marginBottom: 13, paddingBottom: 13, borderBottom: i < preview.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'rgba(245,158,11,0.55)', marginBottom: 5 }}>Slide {slide.slideNumber}</div>
-                      <div style={{ fontSize: 14.5, fontWeight: 700, color: 'rgba(255,255,255,0.9)', lineHeight: 1.3, marginBottom: 5 }}>{slide.headline}</div>
-                      <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.48)', lineHeight: 1.65 }}>{slide.body}</div>
+                    <div key={slide.slideNumber ?? i} style={{ marginBottom: 13, paddingBottom: 13, borderBottom: i < preview.length - 1 ? '1px solid var(--rule)' : 'none' }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'color-mix(in srgb, var(--accent) 55%, transparent)', marginBottom: 5 }}>Slide {slide.slideNumber}</div>
+                      <div style={{ fontSize: 14.5, fontWeight: 700, color: 'color-mix(in srgb, var(--text-primary) 90%, transparent)', lineHeight: 1.3, marginBottom: 5 }}>{slide.headline}</div>
+                      <div style={{ fontSize: 12.5, color: 'color-mix(in srgb, var(--text-primary) 48%, transparent)', lineHeight: 1.65 }}>{slide.body}</div>
                     </div>
                   ))}
 
                   {isStandard && !isSlides && (
                     <div>
-                      <div style={{ fontSize: 15.5, fontWeight: 700, color: 'rgba(255,255,255,0.92)', lineHeight: 1.5, marginBottom: 11 }}>{(preview as DemoPreview).hook}</div>
-                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.48)', lineHeight: 1.68 }}>{(preview as DemoPreview).body}</div>
+                      <div style={{ fontSize: 15.5, fontWeight: 700, color: 'color-mix(in srgb, var(--text-primary) 92%, transparent)', lineHeight: 1.5, marginBottom: 11 }}>{(preview as DemoPreview).hook}</div>
+                      <div style={{ fontSize: 13, color: 'color-mix(in srgb, var(--text-primary) 48%, transparent)', lineHeight: 1.68 }}>{(preview as DemoPreview).body}</div>
                     </div>
                   )}
 
                   {isTweets && !isSlides && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {((preview as DemoPreview).tweets ?? []).map((tw, i) => (
-                        <div key={tw.number ?? i} style={{ padding: '11px 13px', background: 'rgba(34,211,238,0.04)', border: '1px solid rgba(34,211,238,0.12)', borderRadius: 9 }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'rgba(34,211,238,0.55)', marginBottom: 4 }}>Tweet {tw.number}</div>
-                          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 1.58 }}>{tw.text}</div>
+                        <div key={tw.number ?? i} style={{ padding: '11px 13px', background: 'color-mix(in srgb, var(--accent-2) 4%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 12%, transparent)', borderRadius: 9 }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'color-mix(in srgb, var(--accent-2) 55%, transparent)', marginBottom: 4 }}>Tweet {tw.number}</div>
+                          <div style={{ fontSize: 13, color: 'color-mix(in srgb, var(--text-primary) 80%, transparent)', lineHeight: 1.58 }}>{tw.text}</div>
                         </div>
                       ))}
                     </div>
@@ -216,11 +233,11 @@ export function LiveDemo() {
 
                   {isCaption && !isSlides && (
                     <div>
-                      <div style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.8)', lineHeight: 1.72, marginBottom: 11 }}>{(preview as DemoPreview).caption}</div>
+                      <div style={{ fontSize: 13.5, color: 'color-mix(in srgb, var(--text-primary) 80%, transparent)', lineHeight: 1.72, marginBottom: 11 }}>{(preview as DemoPreview).caption}</div>
                       {(preview as DemoPreview).hashtags && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                           {((preview as DemoPreview).hashtags ?? []).map((tag) => (
-                            <span key={tag} style={{ fontSize: 11, padding: '3px 9px', background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 20, color: '#A78BFA', fontFamily: 'var(--font-mono)' }}>{tag}</span>
+                            <span key={tag} style={{ fontSize: 11, padding: '3px 9px', background: 'color-mix(in srgb, var(--accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 20, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{tag}</span>
                           ))}
                         </div>
                       )}
@@ -231,25 +248,25 @@ export function LiveDemo() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       <div style={{ padding: '11px 13px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.16)', borderRadius: 9 }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--color-error)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 1 }}>Hook — {(preview as DemoVideoPreview).hook?.duration}</div>
-                        <div style={{ fontSize: 14.5, fontWeight: 700, color: 'rgba(255,255,255,0.9)', lineHeight: 1.5 }}>{(preview as DemoVideoPreview).hook?.text}</div>
+                        <div style={{ fontSize: 14.5, fontWeight: 700, color: 'color-mix(in srgb, var(--text-primary) 90%, transparent)', lineHeight: 1.5 }}>{(preview as DemoVideoPreview).hook?.text}</div>
                       </div>
                       {((preview as DemoVideoPreview).segments ?? []).map((seg, i) => (
-                        <div key={seg.number ?? i} style={{ padding: '10px 13px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 9 }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'rgba(255,255,255,0.26)', marginBottom: 4 }}>Segment {seg.number} — {seg.duration}</div>
-                          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.62 }}>{seg.script}</div>
+                        <div key={seg.number ?? i} style={{ padding: '10px 13px', background: 'color-mix(in srgb, var(--text-primary) 3%, transparent)', border: '1px solid var(--rule)', borderRadius: 9 }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'color-mix(in srgb, var(--text-primary) 26%, transparent)', marginBottom: 4 }}>Segment {seg.number} — {seg.duration}</div>
+                          <div style={{ fontSize: 13, color: 'color-mix(in srgb, var(--text-primary) 70%, transparent)', lineHeight: 1.62 }}>{seg.script}</div>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
 
-                <div className="demo-result-footer" style={{ padding: '16px 24px', background: 'rgba(124,58,237,0.04)', borderTop: '1px solid rgba(124,58,237,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.32)', margin: 0, lineHeight: 1.45 }}>
+                <div className="demo-result-footer" style={{ padding: '16px 24px', background: 'color-mix(in srgb, var(--accent-2) 4%, transparent)', borderTop: '1px solid color-mix(in srgb, var(--accent-2) 10%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <p style={{ fontSize: 12, color: 'color-mix(in srgb, var(--text-primary) 32%, transparent)', margin: 0, lineHeight: 1.45 }}>
                     Preview only — full version includes quality scoring, platform optimisation, and more.
                   </p>
                   <Link
                     to="/sign-up"
-                    style={{ background: 'linear-gradient(135deg,#F59E0B,#FBBF24)', color: '#030310', fontWeight: 700, fontSize: 12, padding: '9px 18px', borderRadius: 8, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    style={{ background: 'linear-gradient(135deg,var(--accent),var(--accent-2))', color: 'var(--on-accent)', fontWeight: 700, fontSize: 12, padding: '9px 18px', borderRadius: 8, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                   >
                     Get the full result <ArrowRight size={12} />
                   </Link>

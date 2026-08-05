@@ -20,6 +20,7 @@ export interface DashboardJob {
 export interface PlatformBreakdownItem {
   platform: string;
   avgScore: number;
+  count: number;
 }
 
 // Type guard for critique.content — narrows `unknown` to the shape read by

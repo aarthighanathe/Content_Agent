@@ -4,12 +4,36 @@ import { persistJobToDB } from './persistJob.js';
 import { jobsMemory } from '../routes/jobs/ownership.js';
 import { getJobFromStore } from '../workers/contentWorker.js';
 import { ContentJob } from '../db/schema.js';
-import { runOrchestrator } from '../agents/orchestrator.js';
-import { runResearcher } from '../agents/researcher.js';
+import { runOrchestrator, type OrchestratorResult } from '../agents/orchestrator.js';
+import { runResearcher, type ResearchResult } from '../agents/researcher.js';
 import { runWriter } from '../agents/writer.js';
-import { runFormatter } from '../agents/formatter.js';
-import { runCritic } from '../agents/critic.js';
+import { runFormatter, type FormatterResponse } from '../agents/formatter.js';
+import { runCritic, type CriticResult } from '../agents/critic.js';
 import { runPerformancePredictor } from '../agents/performancePredictor.js';
+
+// WHY content: unknown, not a discriminated union of every agent's output type:
+// outputType/agentName don't correlate to a single TypeScript-discriminable field
+// the way a real discriminated union needs (e.g. 'writer' agentName covers both
+// 'draft' and 'final' outputType, each carrying a different content shape from
+// draft to formatted-to-final). unknown is the honest type for a field this file
+// only ever stores and forwards — it never reads a key off `content` itself: every
+// place that needs a specific shape (formatCarousel, runCritic, etc.) receives the
+// value directly from the agent call, not by reading it back out of this array.
+export interface PipelineOutput {
+  agentName: string;
+  outputType: 'research' | 'draft' | 'critique' | 'final' | 'prediction';
+  content: unknown;
+  qualityScore?: number;
+  partial?: boolean;
+}
+
+export interface PipelineLog {
+  agentName: string;
+  action: string;
+  inputSummary: string;
+  outputSummary: string;
+  durationMs: number;
+}
 
 export interface PipelineJob {
   id: string;
@@ -25,6 +49,38 @@ export interface PipelineJob {
   initialFeedback?: string;
   status: string;
   retryCount: number;
+  // WHY optional rather than split into a separate "lifecycle metadata" type:
+  // these fields are set by whichever route constructs the job (create.ts,
+  // manage.ts's regenerate/multiply/tag) and mutated in place as the pipeline
+  // runs (emitProgress sets stage/progress/status); a job in jobsMemory/jobStore
+  // is one evolving object across its whole lifecycle, not several distinct
+  // shapes, so callers need to read/write these by name without a cast.
+  deleted?: number;
+  tag?: string | null;
+  sourceJobId?: string | null;
+  sourcePlatform?: string;
+  // WHY optional: set by routes/content/repurpose.ts when a job is created
+  // from Repurpose's "paste a URL" flow — display/lineage metadata only, same
+  // pattern as sourceJobId/sourceCompetitorAnalysisId above (not read by any
+  // agent prompt, just carried through to the DB row so Result/Library can
+  // show "Repurposed from: <url>").
+  sourceUrl?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  stage?: string;
+  progress?: number;
+  // WHY optional, read only by orchestrator.ts: set by routes/jobs/create.ts
+  // (C3 — Competitor Content Lens integration) when a job is created from a
+  // competitor gap/angle CTA (Competitor.tsx's navigateToCreate call sites).
+  // Orchestrator's taskPlan output already flows into the Writer's prompt as
+  // <task_plan>, so splicing this into ONLY the orchestrator prompt — rather
+  // than threading a new field through researcher.ts/writer.ts too — is the
+  // smallest injection point that still reaches the final content: normal
+  // research still runs (this ADDS context, it doesn't skipResearch like
+  // Content Multiplier), and the resulting taskPlan carries the competitor
+  // framing forward automatically.
+  sourceCompetitorAnalysisId?: string | null;
+  competitorContext?: string;
   [key: string]: unknown;
 }
 
@@ -40,6 +96,25 @@ function asContentJob(job: PipelineJob): ContentJob {
   return job as unknown as ContentJob;
 }
 
+// WHY a type guard before cast: CLAUDE.md requires a runtime check before any
+// `as` cast. FormatterResponse has a known shape (hook/cta/tweets/caption/etc.
+// depending on platform), so we verify at least one expected field exists
+// before trusting the cast. This prevents a malformed content shape from
+// silently flowing through as a valid FormatterResponse.
+// WHY Array.isArray is checked first: carousels format to a plain slide array
+// (FormattedCarouselResponse) with none of the hook/tweets/caption keys —
+// performancePredictor.ts's own contentSummary narrowing already treats
+// Array.isArray(content) as the carousel case, so this guard must accept it
+// too or every carousel job silently skips performance prediction.
+function isFormatterResponse(content: unknown): content is FormatterResponse {
+  return (
+    Array.isArray(content) ||
+    (typeof content === 'object' &&
+      content !== null &&
+      ('hook' in content || 'tweets' in content || 'caption' in content))
+  );
+}
+
 export type EmitProgress = (
   stage: string,
   progress: number,
@@ -48,6 +123,22 @@ export type EmitProgress = (
   durationMs?: number,
 ) => void;
 
+// WHY a union of the two literal result shapes, not one interface with optional
+// fields: 'done' and 'failed' are genuinely different shapes (done carries
+// criticResult, failed carries error, neither carries the other) — a shared
+// interface with everything optional would let a caller construct a
+// self-contradictory object (e.g. status:'failed' with a criticResult) that this
+// union makes impossible instead.
+// NOTE: This type extends PipelineJob to maintain compatibility with the
+// existing codebase. A true memory optimization (removing unused fields like
+// contentDna/brandVoice/phrasesUse/Avoid from the in-memory store) would require
+// a larger refactor to separate "job in memory" types from "persisted result"
+// types throughout the codebase (manage.ts, persistJob.ts, create.ts all
+// access these fields on the stored job object).
+export type PersistedJobResult =
+  | (PipelineJob & { status: 'done'; outputs: PipelineOutput[]; logs: PipelineLog[]; criticResult: CriticResult | null })
+  | (PipelineJob & { status: 'failed'; error: string; outputs: []; logs: [] });
+
 // WHY: Content Multiplier (routes/jobs/manage.ts POST /:jobId/multiply) reuses
 // research from a source job and must skip straight to the Writer stage —
 // re-running the orchestrator/researcher would waste Tavily/Gemini quota on
@@ -55,9 +146,9 @@ export type EmitProgress = (
 // runContentPipeline can seed orchestratorResult/researchResult without ever
 // calling runOrchestrator/runResearcher.
 export interface SkipResearchOpts {
-  researchResult: any;
+  researchResult: ResearchResult;
   taskPlan: string;
-  platformRules: any;
+  platformRules: Record<string, unknown>;
 }
 
 /**
@@ -74,12 +165,12 @@ export async function runContentPipeline(
   job: PipelineJob,
   emitProgress: EmitProgress,
   opts?: { skipResearch?: SkipResearchOpts },
-): Promise<{ status: 'done'; outputs: any[]; logs: any[]; criticResult: any }> {
-  const outputs: any[] = [];
-  const logs: any[] = [];
+): Promise<{ status: 'done'; outputs: PipelineOutput[]; logs: PipelineLog[]; criticResult: CriticResult | null }> {
+  const outputs: PipelineOutput[] = [];
+  const logs: PipelineLog[] = [];
 
-  let orchestratorResult: { taskPlan: string; platformRules: any; searchQueries: string[] };
-  let researchResult: any;
+  let orchestratorResult: OrchestratorResult;
+  let researchResult: ResearchResult;
 
   if (opts?.skipResearch) {
     // FLOW: Content Multiplier path — research/task-plan/platform-rules come
@@ -127,9 +218,9 @@ export async function runContentPipeline(
   // Stage 3: Write → Format → Critique loop
   let retryCount = 0;
   let approved = false;
-  let bestDraft: any = null;
+  let bestDraft: FormatterResponse | null = null;
   let bestScore = 0;
-  let lastCriticResult: any = null;
+  let lastCriticResult: CriticResult | null = null;
   let criticFeedback: string | undefined = job.initialFeedback || undefined;
 
   while (!approved && retryCount < 3) {
@@ -216,12 +307,23 @@ export async function runContentPipeline(
   // render". Labeling this pre-persist stage 'done' let clients observe
   // status:'done' with no outputs attached yet — the exact bug that caused the
   // Result page to freeze on a stale, output-less snapshot mid-pipeline.
-  const finalContent = outputs.find((o) => o.outputType === 'final')?.content;
+  // WHY the cast here: finalContent comes back out of the PipelineOutput[]
+  // array as `unknown` (see PipelineOutput's own WHY — outputType doesn't
+  // discriminate cleanly enough to type `content` precisely at rest), but it
+  // was pushed in a few lines up as exactly `formattedContent`
+  // (FormatterResponse, itself built from WriterResponse) — this is the same
+  // "we know more than the type system can prove from storage alone" gap
+  // asContentJob documents above, not a new unverified assumption.
+  // WHY the type guard before cast: CLAUDE.md requires a runtime check before
+  // any `as` cast. isFormatterResponse verifies the content has at least one
+  // expected FormatterResponse field before we trust the cast.
+  const finalContentRaw = outputs.find((o) => o.outputType === 'final')?.content;
+  const finalContent = finalContentRaw && isFormatterResponse(finalContentRaw) ? finalContentRaw : undefined;
   emitProgress('predicting', 95, 'system', 'Predicting engagement performance…');
   const [predResult] = await Promise.allSettled([
     finalContent
-      ? runPerformancePredictor(asContentJob(job), finalContent, lastCriticResult, researchResult)
-          .catch((e: any) => { console.warn('Predictor failed (non-fatal):', e?.message); return null; })
+      ? runPerformancePredictor(asContentJob(job), finalContent, lastCriticResult ?? undefined, researchResult)
+          .catch((e: unknown) => { console.warn('Predictor failed (non-fatal):', e instanceof Error ? e.message : String(e)); return null; })
       : Promise.resolve(null),
   ]);
   if (predResult.status === 'fulfilled' && predResult.value) {
@@ -241,7 +343,7 @@ export async function runAndPersistPipeline(
   job: PipelineJob,
   emitProgress: EmitProgress,
   store: {
-    set: (jobId: string, data: any) => void;
+    set: (jobId: string, data: PersistedJobResult) => void;
     evict: (jobId: string) => void;
   },
   opts?: { skipResearch?: SkipResearchOpts },
@@ -258,7 +360,7 @@ export async function runAndPersistPipeline(
       return;
     }
 
-    const jobResult = { ...job, status: 'done', outputs, logs, criticResult };
+    const jobResult: PersistedJobResult = { ...job, status: 'done', outputs, logs, criticResult };
     store.set(job.id, jobResult);
     await persistJobToDB(jobResult);
 
@@ -276,7 +378,7 @@ export async function runAndPersistPipeline(
       type: 'progress', stage: 'done', progress: 100,
       agent: 'system', message: 'Content generation complete!',
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error(`Pipeline failed for ${job.id}:`, error);
 
     if (isSoftDeleted(job.id)) {
@@ -284,8 +386,9 @@ export async function runAndPersistPipeline(
       return;
     }
 
+    const errorMessage = error instanceof Error ? error.message : 'Internal pipeline failure';
     Sentry.captureException(error, { tags: { jobId: job.id, stage: 'pipeline' }, contexts: { job: { topic: job.topic, platform: job.platform } } });
-    const failedResult = { ...job, status: 'failed', error: error.message || 'Internal pipeline failure', outputs: [], logs: [] };
+    const failedResult: PersistedJobResult = { ...job, status: 'failed', error: errorMessage, outputs: [], logs: [] };
     store.set(job.id, failedResult);
     await persistJobToDB(failedResult);
 
@@ -294,7 +397,7 @@ export async function runAndPersistPipeline(
       stage: 'failed',
       progress: 0,
       agent: 'system',
-      message: `Job failed: ${error.message || 'Internal pipeline failure'}`,
+      message: `Job failed: ${errorMessage}`,
     });
     throw error;
   }

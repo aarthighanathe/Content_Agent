@@ -16,15 +16,23 @@ function initDb() {
   return _db;
 }
 
-// db behaves like the drizzle instance but initializes on first property access
+// db behaves like the drizzle instance but initializes on first property access.
+// WHY Reflect.get/Reflect.has instead of `(instance as any)[prop]`/`prop in
+// (instance as any)`: prop here is PropertyKey (string | symbol) from the Proxy
+// trap signature, not a known key of the drizzle instance — TypeScript can't
+// verify an arbitrary PropertyKey indexes into a specific object shape without
+// either an `any` escape hatch or Reflect's own already-correctly-typed
+// (target: object, propertyKey: PropertyKey) signature, which is exactly this
+// situation (dynamic forwarding to an arbitrary target object) and needs no cast.
 export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
   get(_, prop) {
     const instance = initDb();
     if (!instance) return undefined;
-    return (instance as any)[prop];
+    return Reflect.get(instance, prop);
   },
   has(_, prop) {
-    return initDb() !== null && prop in (initDb() as any);
+    const instance = initDb();
+    return instance !== null && Reflect.has(instance, prop);
   },
 }) as ReturnType<typeof drizzle<typeof schema>> | null;
 

@@ -1,17 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CalendarSidebar } from './Calendar/CalendarSidebar';
 import { CalendarGrid } from './Calendar/CalendarGrid';
 import { DayDetailPanel } from './Calendar/DayDetailPanel';
 import { CALENDAR_STYLES } from './Calendar/calendarStyles';
-import type { CalendarJob, ScheduleMap } from './Calendar/calendarHelpers';
-import { fetchCalendarJobs, loadSchedule, saveSchedule } from './Calendar/calendarHelpers';
+import type { CalendarJob } from './Calendar/calendarHelpers';
+import { fetchCalendarJobs, useSchedule } from './Calendar/calendarHelpers';
+import type { PublishPlatform } from '../types/scheduledPost';
 
 export default function CalendarPage() {
   const navigate = useNavigate();
   const [viewDate, setViewDate] = useState(() => { const d = new Date(); d.setDate(1); return d; });
-  const [schedule, setSchedule] = useState<ScheduleMap>(loadSchedule);
+  const {
+    schedule,
+    postsByJobId,
+    isLoading: scheduleLoading,
+    isError: scheduleError,
+    refetch: refetchSchedule,
+    allocate: allocateRemote,
+    removeFromSchedule: removeFromScheduleRemote,
+  } = useSchedule();
+  const [scheduleActionError, setScheduleActionError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dragJobId, setDragJobId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
@@ -25,41 +35,19 @@ export default function CalendarPage() {
   const jobsQuery = useQuery({ queryKey: ['calendar', 'jobs'], queryFn: fetchCalendarJobs });
   const jobs: CalendarJob[] = jobsQuery.data?.jobs || [];
   const hitFetchCap = jobsQuery.data?.hitFetchCap ?? false;
-  const loading = jobsQuery.isLoading;
-  const isError = jobsQuery.isError;
+  // WHY combined across both queries: the grid/sidebar render from both the
+  // jobs list AND the schedule map, so either one still loading/erroring
+  // means the combined view isn't ready yet — same "both matter" reasoning
+  // Dashboard.tsx uses for its own two independent queries.
+  const loading = jobsQuery.isLoading || scheduleLoading;
+  const isError = jobsQuery.isError || scheduleError;
 
-  // WHY only when !hitFetchCap: schedule ids for jobs that no longer appear in the
-  // fetched set are never removed on their own — a job scheduled and later deleted
-  // (or that fell outside the fetch window) leaves its id in localStorage forever,
-  // an unbounded, silently-accumulating leak (FUNCTIONAL_AUDIT_2026-07.md finding
-  // #29). This only prunes once the fetch is known-complete (not capped) — pruning
-  // against a capped, partial job list would wrongly treat "not fetched yet" as
-  // "deleted" and drop valid schedule entries for older content.
-  useEffect(() => {
-    if (loading || isError || hitFetchCap || jobs.length === 0) return undefined;
-    const knownIds = new Set(jobs.map((j) => j.id));
-    // WHY setTimeout(..., 0): calling setState synchronously inside an effect body
-    // triggers react-hooks/set-state-in-effect. Deferring via a 0ms timeout keeps
-    // the same user-visible behaviour (fires in the same microtask flush) while
-    // satisfying the rule — matches the pattern already used elsewhere in this
-    // codebase (e.g. Brand.tsx, BatchResult.tsx) for the same lint requirement.
-    const t = setTimeout(() => {
-      setSchedule((prev) => {
-        let changed = false;
-        const next: ScheduleMap = {};
-        for (const [dateKey, ids] of Object.entries(prev)) {
-          const kept = ids.filter((id) => knownIds.has(id));
-          if (kept.length !== ids.length) changed = true;
-          if (kept.length > 0) next[dateKey] = kept;
-        }
-        if (!changed) return prev;
-        saveSchedule(next);
-        return next;
-      });
-    }, 0);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, isError, hitFetchCap, jobs.length]);
+  // WHY schedule rows for jobs the current fetch doesn't know about are simply
+  // not rendered (jobs.find(...) returns undefined, filtered out below) rather
+  // than actively pruned client-side: pruning is now the server's job — a
+  // deleted job's scheduled_posts row is orphaned data sitting in Postgres,
+  // not an unbounded client-side leak the way localStorage was
+  // (FUNCTIONAL_AUDIT_2026-07.md finding #29 no longer applies to this store).
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -81,27 +69,24 @@ export default function CalendarPage() {
       .map(([dateKey]) => dateKey)
   );
 
-  function allocate(dateKey: string, jobId: string) {
-    setSchedule(prev => {
-      // Remove from any existing date first
-      const cleaned: ScheduleMap = {};
-      for (const [k, ids] of Object.entries(prev)) {
-        cleaned[k] = ids.filter(id => id !== jobId);
-      }
-      cleaned[dateKey] = [...(cleaned[dateKey] || []), jobId];
-      saveSchedule(cleaned);
-      return cleaned;
+  // WHY thin wrappers around the mutation, not calling allocateRemote directly
+  // at each JSX callsite: keeps a single place to surface a mutation failure
+  // (e.g. a network blip, or the job-ownership check failing) as user-visible
+  // feedback instead of a silently-reverted optimistic-looking UI — React
+  // Query itself doesn't roll back an unchanged cache, but without this catch
+  // a failed request would fail *silently* since none of these call sites
+  // await the promise today.
+  function allocate(dateKey: string, jobId: string, publishPlatform?: PublishPlatform) {
+    setScheduleActionError(null);
+    allocateRemote(dateKey, jobId, publishPlatform).catch(() => {
+      setScheduleActionError('Failed to schedule — please try again.');
     });
   }
 
   function removeFromSchedule(jobId: string) {
-    setSchedule(prev => {
-      const next: ScheduleMap = {};
-      for (const [k, ids] of Object.entries(prev)) {
-        next[k] = ids.filter(id => id !== jobId);
-      }
-      saveSchedule(next);
-      return next;
+    setScheduleActionError(null);
+    removeFromScheduleRemote(jobId).catch(() => {
+      setScheduleActionError('Failed to remove from schedule — please try again.');
     });
   }
 
@@ -119,8 +104,34 @@ export default function CalendarPage() {
   }).reduce((acc, [, ids]) => acc + ids.length, 0);
 
   return (
-    <div style={{ display: 'flex', gap: 0, height: '100%', minHeight: 0 }}>
+    <div style={{ display: 'flex', gap: 0, height: '100%', minHeight: 0, position: 'relative' }}>
       <style>{CALENDAR_STYLES}</style>
+
+      {/* WHY a fixed toast, not an inline banner: a schedule/unschedule action can
+          happen from either the sidebar, the grid, or the day-detail panel — a
+          fixed-position toast surfaces the failure regardless of which of those
+          three triggered it, without needing three separate banner slots. */}
+      {scheduleActionError && (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 50,
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--color-error) 40%, transparent)',
+            color: 'var(--text-primary)', borderRadius: 10, padding: '10px 16px', fontSize: 12.5,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+          }}
+        >
+          {scheduleActionError}
+          <button
+            onClick={() => setScheduleActionError(null)}
+            aria-label="Dismiss"
+            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, padding: 0 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <CalendarSidebar
         open={sidebarOpen}
@@ -157,7 +168,7 @@ export default function CalendarPage() {
         onToday={() => { const d = new Date(); d.setDate(1); setViewDate(d); setSelectedDay(null); }}
         isError={isError}
         loading={loading}
-        onRetry={() => jobsQuery.refetch().catch(() => {})}
+        onRetry={() => { jobsQuery.refetch().catch(() => {}); refetchSchedule().catch(() => {}); }}
         selectedDay={selectedDay}
         onSelectDay={setSelectedDay}
         dragOver={dragOver}
@@ -170,11 +181,13 @@ export default function CalendarPage() {
           <DayDetailPanel
             selectedDay={selectedDay}
             jobs={scheduledOnDay(selectedDay)}
+            postsByJobId={postsByJobId}
             onClose={() => setSelectedDay(null)}
             onViewResult={(jobId) => navigate(`/result/${jobId}`)}
             onRemove={removeFromSchedule}
             unscheduled={unscheduled}
             onAddContent={(jobId) => allocate(selectedDay, jobId)}
+            onSetPublishPlatform={(jobId, platform) => allocate(selectedDay, jobId, platform)}
           />
         )}
       </CalendarGrid>

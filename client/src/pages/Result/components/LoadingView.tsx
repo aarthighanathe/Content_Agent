@@ -42,19 +42,19 @@ export function LoadingView({ regenerating, currentStage, stageMessage, progress
       {/* Spinner */}
       <div className="rp-lv-spinner-wrap">
         <div style={{ position: 'relative', width: 56, height: 56 }}>
-          <div style={{ width: 56, height: 56, borderRadius: '50%', border: '2px solid rgba(245,158,11,0.12)', borderTopColor: '#F59E0B', animation: 'rp-spin .9s linear infinite', boxShadow: '0 0 20px rgba(245,158,11,0.15)' }} />
-          <div style={{ position: 'absolute', inset: 9, borderRadius: '50%', border: '1.5px solid rgba(139,92,246,0.12)', borderBottomColor: 'rgba(139,92,246,0.45)', animation: 'rp-spinR .65s linear infinite' }} />
+          <div style={{ width: 56, height: 56, borderRadius: '50%', border: '2px solid color-mix(in srgb, var(--accent) 12%, transparent)', borderTopColor: 'var(--accent)', animation: 'rp-spin .9s linear infinite', boxShadow: '0 0 20px color-mix(in srgb, var(--accent) 15%, transparent)' }} />
+          <div style={{ position: 'absolute', inset: 9, borderRadius: '50%', border: '1.5px solid color-mix(in srgb, var(--accent-2) 12%, transparent)', borderBottomColor: 'color-mix(in srgb, var(--accent-2) 45%, transparent)', animation: 'rp-spinR .65s linear infinite' }} />
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#F59E0B', boxShadow: '0 0 8px rgba(245,158,11,0.6)' }} />
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 8px color-mix(in srgb, var(--accent) 60%, transparent)' }} />
           </div>
         </div>
         <h3 className="rp-lv-title">{regenerating ? 'Regenerating content…' : 'Generating your content…'}</h3>
         <div>
-          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', textAlign: 'center', margin: 0, fontFamily: "var(--font-mono)", letterSpacing: 0.5 }}>
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', margin: 0, fontFamily: "var(--font-mono)", letterSpacing: 0.5 }}>
             Estimated time: ~30 sec · {progress}%
           </p>
           {stageMessage && (
-            <p key={stageMessage} aria-live="polite" style={{ fontSize: 12, color: 'rgba(245,158,11,0.75)', textAlign: 'center', animation: 'rp-fadeUp .3s ease both', margin: 0 }}>
+            <p key={stageMessage} aria-live="polite" style={{ fontSize: 12, color: 'color-mix(in srgb, var(--accent) 75%, transparent)', textAlign: 'center', animation: 'rp-fadeUp .3s ease both', margin: 0 }}>
               {stageMessage}
             </p>
           )}
@@ -89,11 +89,13 @@ export function LoadingView({ regenerating, currentStage, stageMessage, progress
                   {packet}
                 </div>
               )}
-              <div className="rp-lv-step-dot" style={{ border: `1.5px solid ${done || active ? color : 'rgba(255,255,255,0.08)'}`, background: done ? `${color}18` : active ? `${color}12` : 'rgba(8,8,26,1)', color: done ? color : active ? color : 'rgba(255,255,255,0.22)', animation: active ? 'rp-pulse 1.4s infinite' : 'none' }}>
+              <div className="rp-lv-step-dot" style={{ border: `1.5px solid ${done || active ? color : 'var(--rule)'}`, background: done ? `${color}18` : active ? `${color}12` : 'var(--bg-card)', color: done ? color : active ? color : 'var(--text-muted)', animation: active ? 'rp-pulse 1.4s infinite' : 'none' }}>
                 {done ? <Check size={9} /> : active ? <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} /> : null}
               </div>
-              <span className={`rp-lv-step-name${done || active ? ' lit' : ''}`}>{name}</span>
-              {active && <span className="rp-lv-step-sub">{agentSubs[i]}</span>}
+              <div className="rp-lv-step-text">
+                <span className={`rp-lv-step-name${done || active ? ' lit' : ''}`}>{name}</span>
+                {active && <span className="rp-lv-step-sub">{agentSubs[i]}</span>}
+              </div>
             </div>
           );
         })}
@@ -104,14 +106,14 @@ export function LoadingView({ regenerating, currentStage, stageMessage, progress
         <div className="rp-lv-feed">
           {agentLogs.slice(-6).map((log, i, arr) => (
             <div key={`${log.agentName}::${log.action}::${log.durationMs ?? 'x'}`} ref={i === arr.length - 1 ? latestLogRef : undefined} className="rp-lv-log">
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: '#F59E0B', textTransform: 'uppercase', flexShrink: 0, paddingTop: 1, minWidth: 62 }}>[{log.agentName}]</span>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.38)', lineHeight: 1.5 }}>{log.action}</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--accent)', textTransform: 'uppercase', flexShrink: 0, paddingTop: 1, minWidth: 62 }}>[{log.agentName}]</span>
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{log.action}</span>
             </div>
           ))}
         </div>
       ) : (
         !stageMessage && (
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)', textAlign: 'center', margin: 0 }}>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
             5 AI agents working · {progress}%
           </p>
         )

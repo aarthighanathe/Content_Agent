@@ -42,7 +42,7 @@ function getQueue(): Queue | null {
   return contentQueue;
 }
 
-export async function addJobToQueue(jobId: string, data: Record<string, any>): Promise<boolean> {
+export async function addJobToQueue(jobId: string, data: Record<string, unknown>): Promise<boolean> {
   try {
     const queue = getQueue();
     if (!queue) return false;

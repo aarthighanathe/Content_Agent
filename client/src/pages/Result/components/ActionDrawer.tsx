@@ -1,23 +1,23 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { X, Pen, Send, Hash, Bookmark } from 'lucide-react';
+import { X, Pen, Send, Hash, History } from 'lucide-react';
 import { FeedbackPanel } from './panels/FeedbackPanel';
 import { PostPanel } from './panels/PostPanel';
 import { HashtagPanel } from './panels/HashtagPanel';
-import { TemplatePanel } from './panels/TemplatePanel';
+import { HistoryPanel } from './panels/HistoryPanel';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
-import type { ContentJob, CriticResult } from '../../../types/job';
+import type { ContentJob } from '../../../types/job';
 import type { SocialConnection } from '../../../types/api';
 import type { ResultContent } from './ContentColumn';
 
-type TabType = 'feedback' | 'post' | 'hashtags' | 'template';
+type TabType = 'feedback' | 'post' | 'hashtags' | 'history';
 
 interface ActionDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   jobData: ContentJob | null;
   content: ResultContent | undefined;
-  criticResult: CriticResult | null | undefined;
   onRegenerate: (feedback?: string) => void;
+  onRestored: () => void;
   defaultTab?: TabType;
   social: {
     socialConnections: SocialConnection[];
@@ -36,10 +36,10 @@ const tabs: Array<{ id: TabType; label: string; icon: React.ElementType }> = [
   { id: 'feedback', label: 'Feedback', icon: Pen },
   { id: 'post', label: 'Post', icon: Send },
   { id: 'hashtags', label: 'Hashtags', icon: Hash },
-  { id: 'template', label: 'Template', icon: Bookmark },
+  { id: 'history', label: 'History', icon: History },
 ];
 
-export function ActionDrawer({ isOpen, onClose, jobData, content, criticResult, onRegenerate, defaultTab = 'feedback', social }: ActionDrawerProps) {
+export function ActionDrawer({ isOpen, onClose, jobData, content, onRegenerate, onRestored, defaultTab = 'feedback', social }: ActionDrawerProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -86,7 +86,7 @@ export function ActionDrawer({ isOpen, onClose, jobData, content, criticResult, 
         onClick={(e) => e.stopPropagation()}
       >
         {/* Drawer header with tabs */}
-        <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--rule)', padding: 0 }}>
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -102,10 +102,10 @@ export function ActionDrawer({ isOpen, onClose, jobData, content, criticResult, 
                   justifyContent: 'center',
                   gap: 6,
                   padding: '14px 12px',
-                  background: isActive ? 'rgba(245,158,11,0.08)' : 'none',
+                  background: isActive ? 'color-mix(in srgb, var(--accent) 8%, transparent)' : 'none',
                   border: 'none',
-                  borderBottom: isActive ? '2px solid #F59E0B' : '2px solid transparent',
-                  color: isActive ? '#F59E0B' : 'rgba(255,255,255,0.45)',
+                  borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+                  color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
                   fontSize: 12,
                   fontWeight: isActive ? 600 : 400,
                   cursor: 'pointer',
@@ -122,7 +122,7 @@ export function ActionDrawer({ isOpen, onClose, jobData, content, criticResult, 
             style={{
               background: 'none',
               border: 'none',
-              color: 'rgba(255,255,255,0.45)',
+              color: 'var(--text-secondary)',
               cursor: 'pointer',
               padding: '8px 12px',
               display: 'flex',
@@ -161,8 +161,8 @@ export function ActionDrawer({ isOpen, onClose, jobData, content, criticResult, 
           {activeTab === 'hashtags' && (
             <HashtagPanel jobData={jobData} content={content} onClose={onClose} />
           )}
-          {activeTab === 'template' && (
-            <TemplatePanel jobData={jobData} content={content} criticResult={criticResult} onClose={onClose} />
+          {activeTab === 'history' && (
+            <HistoryPanel jobId={jobData?.id} onClose={onClose} onRestored={onRestored} />
           )}
         </div>
       </div>

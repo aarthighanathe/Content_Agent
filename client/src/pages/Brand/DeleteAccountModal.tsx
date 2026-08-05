@@ -47,20 +47,20 @@ export function DeleteAccountModal({
         aria-modal="true"
         aria-labelledby="delete-account-title"
         onClick={e => e.stopPropagation()}
-        style={{ background: '#0C0C28', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 14, padding: 24, maxWidth: 420, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
+        style={{ background: 'var(--bg-card)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 14, padding: 24, maxWidth: 420, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
           <AlertTriangle size={18} color="var(--color-error)" />
-          <h2 id="delete-account-title" style={{ fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.92)', margin: 0 }}>
+          <h2 id="delete-account-title" style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
             Delete your account?
           </h2>
         </div>
-        <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6, marginBottom: 16 }}>
-          This permanently deletes all your content jobs, templates, brand voice settings, and connected
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
+          This permanently deletes all your content jobs, brand voice settings, and connected
           social accounts. This action cannot be undone.
         </p>
-        <label style={{ display: 'block', fontSize: 11.5, color: 'rgba(255,255,255,0.4)', marginBottom: 7 }}>
-          Type <strong style={{ color: 'rgba(255,255,255,0.7)' }}>DELETE</strong> to confirm
+        <label style={{ display: 'block', fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 7 }}>
+          Type <strong style={{ color: 'var(--text-secondary)' }}>DELETE</strong> to confirm
         </label>
         <input
           autoFocus

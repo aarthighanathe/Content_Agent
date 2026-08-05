@@ -8,7 +8,7 @@ export const VALID_PLATFORMS = [
   'video_script',
 ] as const;
 
-// WHY these 8 (not the original 5): client/src/pages/Create/ToneSelector.tsx (5:
+// WHY these 9 (not the original 5): client/src/pages/Create/ToneSelector.tsx (5:
 // professional/casual/bold/playful/minimal) and client/src/pages/Brand/VoiceCard.tsx
 // (6: professional/casual/witty/educational/direct/inspirational) had each drifted
 // into their own independent tone vocabulary that didn't match this enum or each
@@ -31,11 +31,26 @@ export const VALID_TONES = [
 export const platformEnum = z.enum(VALID_PLATFORMS);
 export const toneEnum = z.enum(VALID_TONES);
 
+// WHY a loose regex, not z.string().uuid(): matches this codebase's existing
+// UUID convention (lib/uuid.ts's isValidUUID) rather than zod's stricter RFC
+// 4122 version/variant check — same reasoning as schemas/scheduledPosts.ts's
+// jobIdSchema.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const createJobSchema = z.object({
   topic: z.string().min(3, 'Topic must be at least 3 characters').max(250, 'Topic must be 250 characters or fewer').trim(),
   platform: platformEnum,
   tone: toneEnum,
   targetAudience: z.string().min(1, 'targetAudience is required').max(300).trim(),
+  // WHY optional, C3 (Competitor Content Lens → job creation): set only when
+  // the job originates from a Competitor.tsx "Create content →" CTA — see
+  // CreateHandoff in client/src/lib/utils.ts and this schema's sibling
+  // sourceCompetitorAnalysisId. competitorContext is free-form (the gap/
+  // opportunity or angle/rationale text) — sanitizeGenerationInput's LIMITS
+  // covers it at 300 chars, same cap as brandVoice/targetAudience-scale
+  // fields, before it ever reaches this schema.
+  competitorContext: z.string().max(300).trim().optional(),
+  competitorAnalysisId: z.string().regex(UUID_REGEX, 'competitorAnalysisId must be a valid UUID').optional(),
 });
 
 export const batchJobSchema = z.object({

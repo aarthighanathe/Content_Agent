@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useClerk } from '@clerk/clerk-react';
+import { useClerk, useUser } from '@clerk/clerk-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
 import { updateBrandVoice, getProfile, analyzeVoice, getSocialConnections, disconnectSocial, exportMyData, deleteMyAccount } from '../api';
@@ -8,10 +8,14 @@ import { useAppStore } from '../store';
 import type { ContentDna } from '../types/api';
 import { IdentityCard } from './Brand/IdentityCard';
 import { VoiceCard } from './Brand/VoiceCard';
+import { VoiceDriftCard } from './Brand/VoiceDriftCard';
 import { ContentDnaCard } from './Brand/ContentDnaCard';
 import { PublishingConnectionsCard } from './Brand/PublishingConnectionsCard';
 import { DangerZoneCard } from './Brand/DangerZoneCard';
 import { DeleteAccountModal } from './Brand/DeleteAccountModal';
+import { BRAND_STYLES } from './Brand/brandStyles';
+import { loadDnaHistory, saveDnaHistory } from './Brand/dnaHistory';
+import type { DnaHistoryEntry } from './Brand/dnaHistory';
 
 // WHY this exact key: Dashboard.tsx's profileQuery uses ['dashboard', 'profile'] for the
 // same getProfile() call. Sharing the key means both pages read/write one cache entry —
@@ -24,10 +28,11 @@ export default function BrandSettings() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { signOut } = useClerk();
+  const { user } = useUser();
+  const clerkUserId = user?.id ?? '';
 
   const [brandName, setBrandName]                 = useState('');
   const [industry, setIndustry]                   = useState('');
-  const [website, setWebsite]                     = useState('');
   const [selectedVoices, setSelectedVoices]       = useState<string[]>(['Professional']);
   const [phrasesUse, setPhrasesUse]               = useState('');
   const [phrasesAvoid, setPhrasesAvoid]           = useState('');
@@ -35,6 +40,7 @@ export default function BrandSettings() {
   const [dnaSamples, setDnaSamples]               = useState('');
   const [contentDna, setContentDna]               = useState<ContentDna | null>(null);
   const [dnaError, setDnaError]                   = useState('');
+  const [dnaHistory, setDnaHistory]               = useState<DnaHistoryEntry[]>([]);
   const [disconnectingPlatform, setDisconnectingPlatform] = useState<string | null>(null);
   const [exportError, setExportError]             = useState('');
   const [showDeleteModal, setShowDeleteModal]     = useState(false);
@@ -51,7 +57,7 @@ export default function BrandSettings() {
   const [toast, setToast] = useState<{ message: string; isError?: boolean } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const flashToast = useCallback((message: string, isError = false, durationMs = 3000) => {
+  const flashToast = useCallback((message: string, isError = false, durationMs = 4000) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, isError });
     toastTimerRef.current = setTimeout(() => setToast(null), durationMs);
@@ -63,6 +69,18 @@ export default function BrandSettings() {
   const socialConnectionsQuery = useQuery({ queryKey: ['brand', 'socialConnections'], queryFn: getSocialConnections });
   const socialConnections = socialConnectionsQuery.data?.connections ?? [];
 
+  // WHY extracted from the hydration effect below: "Reset" (handleReset) needs the
+  // exact same "copy server profile into form state" logic on demand, not just on
+  // first load — see the WHY on handleReset for what bug this fixes.
+  function applyProfileToForm(profile: NonNullable<typeof profileQuery.data>): void {
+    setBrandName(profile.brandName || '');
+    setIndustry(profile.industry || '');
+    setSelectedVoices(profile.brandVoice ? profile.brandVoice.split(',').map((v: string) => v.trim()).filter(Boolean) : ['Professional']);
+    setPhrasesUse(profile.phrasesUse || '');
+    setPhrasesAvoid(profile.phrasesAvoid || '');
+    setContentDna(profile.contentDna || null);
+  }
+
   // WHY a hydrated-once guard (audit #2, original: "profile-load race clobbering
   // in-progress edits"): profileQuery can refetch/refresh in the background (window
   // refocus, another tab's mutation invalidating this same shared key, React Query's
@@ -70,23 +88,33 @@ export default function BrandSettings() {
   // Only copying server data into local state the FIRST time it successfully loads —
   // never on subsequent background refetches — means a user who's already typed into a
   // field can't have it silently overwritten out from under them.
+  // WHY call applyProfileToForm instead of duplicating the logic: the original
+  // effect had truthy-only checks (if (profile.brandName)) that differed from
+  // applyProfileToForm's || '' fallbacks. This meant clearing a field server-side
+  // (e.g. brandName set to empty string) wouldn't be reflected on reload, while
+  // clicking Reset would correctly blank it. Using the shared function ensures both
+  // paths behave identically.
   const hydrated = useRef(false);
   useEffect(() => {
     if (hydrated.current || !profileQuery.data) return undefined;
-    hydrated.current = true;
     const profile = profileQuery.data;
     // WHY setTimeout(..., 0): calling setState synchronously inside an effect body
     // triggers react-hooks/set-state-in-effect. Deferring via a 0ms timeout keeps
     // the same user-visible behaviour (fires in the same microtask flush) while
     // satisfying the rule — the state update now happens in a callback, not in the
     // effect body itself.
+    // WHY hydrated.current is set INSIDE the timeout, not before scheduling it:
+    // under StrictMode's dev double-invoke (mount → cleanup → remount, synchronous
+    // in the same tick), setting the guard before scheduling meant the first
+    // invocation's timer got cleared by cleanup while the second invocation's guard
+    // check already saw hydrated.current === true and skipped scheduling a
+    // replacement — no timer ever fired and the form silently never hydrated.
+    // Setting the guard only once the timer actually runs means a cleared/cancelled
+    // timeout never marks hydration as done, and the surviving invocation's timer
+    // is the one that flips it.
     const t = setTimeout(() => {
-      if (profile.brandName)    setBrandName(profile.brandName);
-      if (profile.industry)     setIndustry(profile.industry);
-      if (profile.brandVoice)   setSelectedVoices(profile.brandVoice.split(',').map((v: string) => v.trim()).filter(Boolean));
-      if (profile.phrasesUse)   setPhrasesUse(profile.phrasesUse);
-      if (profile.phrasesAvoid) setPhrasesAvoid(profile.phrasesAvoid);
-      if (profile.contentDna)   setContentDna(profile.contentDna);
+      hydrated.current = true;
+      applyProfileToForm(profile);
     }, 0);
     return () => clearTimeout(t);
   }, [profileQuery.data]);
@@ -128,12 +156,30 @@ export default function BrandSettings() {
     },
   });
 
+  // WHY useEffect to load DNA history: clerkUserId is not available synchronously
+  // on first render (Clerk hydrates asynchronously). Loading once when the userId
+  // stabilises avoids an empty-history flash on slow-auth sessions.
+  useEffect(() => {
+    if (clerkUserId) {
+      const t = setTimeout(() => setDnaHistory(loadDnaHistory(clerkUserId)), 0);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [clerkUserId]);
+
   const analyzeVoiceMutation = useMutation({
     mutationFn: analyzeVoice,
     onSuccess: ({ contentDna: dna }) => {
       setContentDna(dna);
       setDnaSamples('');
       queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
+      // WHY save here: this is the point where a new DNA fingerprint is produced.
+      // Saving before or after the invalidation both work — the DB write is async
+      // and localStorage is sync, so the history entry lands immediately.
+      if (clerkUserId) {
+        const updated = saveDnaHistory(clerkUserId, dna);
+        setDnaHistory(updated);
+      }
     },
     onError: () => {
       setDnaError('Analysis failed — please try again.');
@@ -148,8 +194,14 @@ export default function BrandSettings() {
       );
       flashToast(`${platform} disconnected`, false, 2500);
     },
-    // WHY no onError toast: matches the pre-existing behavior (disconnect failures were
-    // silently swallowed before this migration too) — not introducing new UI in this pass.
+    // WHY now has an onError toast: this used to swallow disconnect failures silently
+    // (a comment here previously acknowledged that as pre-existing behavior) — the UI
+    // still showed the platform as connected with no explanation if the request failed,
+    // which reads as "did my click even register?" Reuses the same flashToast used for
+    // every other Brand.tsx outcome instead of adding a second notification mechanism.
+    onError: (_err, platform) => {
+      flashToast(`Failed to disconnect ${platform} — please try again.`, true, 4000);
+    },
   });
 
   const exportMyDataMutation = useMutation({
@@ -204,15 +256,24 @@ export default function BrandSettings() {
     updateBrandVoiceMutation.mutate({ brandName, industry, brandVoice: selectedVoices.join(', '), phrasesUse, phrasesAvoid });
   }
 
-  function handleReset() {
+  // WHY refetch-and-reapply, not clear-to-blank: the confirm dialog's copy says
+  // "Discard unsaved edits?" — implying the saved profile comes back — but the old
+  // implementation just blanked every field to hardcoded defaults, which is a
+  // different (and destructive-looking) action if the user actually has saved brand
+  // settings. Refetching guarantees the reapplied values are the current server
+  // state, not a possibly-stale local cache.
+  async function handleReset() {
     if (!resetConfirming) {
       setResetConfirming(true);
       return;
     }
-    setBrandName(''); setIndustry(''); setWebsite('');
-    setSelectedVoices(['Professional']);
-    setPhrasesUse(''); setPhrasesAvoid('');
     setResetConfirming(false);
+    try {
+      const { data } = await profileQuery.refetch();
+      if (data) applyProfileToForm(data);
+    } catch {
+      flashToast('Failed to reload your saved settings — please try again.', true);
+    }
   }
 
   function handleExportData() {
@@ -227,27 +288,12 @@ export default function BrandSettings() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <style>{`
-        .brand-card-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 16px;
-        }
-        @media (max-width: 768px) {
-          .brand-card-grid { grid-template-columns: 1fr; }
-        }
-        @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-        @keyframes fadeInUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
-      `}</style>
+    <div className="brand-page-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <style>{BRAND_STYLES}</style>
 
       {/* ── Page Header ── */}
       <div className="section-header">
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 3, textTransform: 'uppercase', color: '#F59E0B', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ width: 18, height: 1, background: 'linear-gradient(90deg,#F59E0B,transparent)', display: 'inline-block' }} />
-          Settings
-        </div>
-        <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'rgba(255,255,255,0.92)' }}>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'var(--text-primary)' }}>
           Brand Settings
         </h1>
         <p style={{ fontSize: 'clamp(12px,2vw,13px)', color: 'var(--color-text-muted)', marginTop: 4 }}>
@@ -260,13 +306,19 @@ export default function BrandSettings() {
         <IdentityCard
           brandName={brandName} onBrandNameChange={setBrandName}
           industry={industry} onIndustryChange={setIndustry}
-          website={website} onWebsiteChange={setWebsite}
         />
 
         <VoiceCard
           selectedVoices={selectedVoices} onToggleVoice={toggleVoice}
           phrasesUse={phrasesUse} onPhrasesUseChange={setPhrasesUse}
           phrasesAvoid={phrasesAvoid} onPhrasesAvoidChange={setPhrasesAvoid}
+        />
+
+        <VoiceDriftCard
+          isLoading={profileQuery.isLoading}
+          isError={profileQuery.isError}
+          onRetry={() => { profileQuery.refetch().catch(() => {}); }}
+          dimensionTrend={profileQuery.data?.stats?.dimensionTrend}
         />
 
         <ContentDnaCard
@@ -276,12 +328,16 @@ export default function BrandSettings() {
           dnaError={dnaError}
           analyzingDna={analyzeVoiceMutation.isPending}
           onAnalyze={handleAnalyzeDna}
+          dnaHistory={dnaHistory}
         />
 
         <PublishingConnectionsCard
           socialConnections={socialConnections}
           disconnectingPlatform={disconnectingPlatform}
           onDisconnect={handleDisconnect}
+          isLoading={socialConnectionsQuery.isLoading}
+          isError={socialConnectionsQuery.isError}
+          onRetry={() => { socialConnectionsQuery.refetch().catch(() => {}); }}
         />
 
         <DangerZoneCard
@@ -299,21 +355,21 @@ export default function BrandSettings() {
             <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Discard unsaved edits?</span>
             <button className="btn-secondary" onClick={() => setResetConfirming(false)}>Cancel</button>
             <button
-              onClick={handleReset}
-              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--color-error)', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}
+              onClick={() => { handleReset().catch(() => {}); }}
+              style={{ background: 'color-mix(in srgb, var(--color-error) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--color-error) 30%, transparent)', color: 'var(--color-error)', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}
             >
               Yes, reset
             </button>
           </div>
         ) : (
-          <button className="btn-secondary" onClick={handleReset} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <button className="btn-secondary" onClick={() => { handleReset().catch(() => {}); }} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <RefreshCw size={13} /> Reset
           </button>
         )}
         <button className="btn-primary" onClick={handleSave} disabled={updateBrandVoiceMutation.isPending}>
           {updateBrandVoiceMutation.isPending ? (
             <>
-              <div style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#050509', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              <div style={{ width: 16, height: 16, border: '2px solid color-mix(in srgb, var(--on-accent) 20%, transparent)', borderTopColor: 'var(--on-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
               Saving...
             </>
           ) : (

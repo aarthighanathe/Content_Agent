@@ -7,11 +7,12 @@ import {
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 // Tools items — ordered by user workflow: plan → research → create → schedule
-// WHY no "Batch" entry: it linked to /batch with no query string, which always
-// rendered BatchResult's "No batch found" empty state — nothing in the app builds
-// the ?jobs= URL or calls createBatchJobs()/POST /jobs/batch that page expects.
-// The backend route is fully built and still reachable directly; only the dead
-// nav entry was removed. Re-add once a real batch-creation UI exists.
+// WHY still no "Batch" entry (2026-08-04, batch UI now exists): batch creation
+// lives inside Create.tsx's "Plan multiple topics" toggle, not a standalone
+// page — there's no separate destination worth a Tools link. /batch-result
+// (formerly /batch) is a one-shot landing page reached only via a submission
+// from Create; linking it directly would hit its "No batch found" empty state,
+// same reasoning as before, just no longer because the feature is unbuilt.
 const toolsItems = [
   { to: '/ideate',     icon: Lightbulb,   label: 'Ideate' },
   { to: '/competitor', icon: Search,      label: 'Competitor' },
@@ -27,6 +28,7 @@ interface ToolsDropdownProps {
 export function ToolsDropdown({ collapsed = false, onItemClick }: ToolsDropdownProps) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const toolsActive = toolsItems.some(item => location.pathname.startsWith(item.to));
 
@@ -34,6 +36,18 @@ export function ToolsDropdown({ collapsed = false, onItemClick }: ToolsDropdownP
     setOpen(false);
     onItemClick?.();
   };
+
+  // SECURITY/ACCESSIBILITY: Focus trap when dropdown is open, Escape-to-close
+  useEffect(() => {
+    if (!open) return undefined;
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
+  useFocusTrap(dropdownRef, open);
 
   return (
     <div style={{ position: 'relative' }}>
@@ -69,14 +83,17 @@ export function ToolsDropdown({ collapsed = false, onItemClick }: ToolsDropdownP
       {/* Tools Dropdown Menu */}
       {open && !collapsed && (
         <div
+          ref={dropdownRef}
+          role="menu"
+          aria-label="Tools menu"
           style={{
             position: 'absolute',
             top: '100%',
             left: 8,
             right: 8,
             marginTop: 4,
-            background: 'rgba(15, 15, 35, 0.95)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--rule)',
             borderRadius: 6,
             overflow: 'hidden',
             zIndex: 1000,
@@ -87,6 +104,7 @@ export function ToolsDropdown({ collapsed = false, onItemClick }: ToolsDropdownP
               key={item.to}
               to={item.to}
               onClick={handleItemClick}
+              role="menuitem"
               className={({ isActive }) =>
                 `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`
               }
@@ -98,7 +116,7 @@ export function ToolsDropdown({ collapsed = false, onItemClick }: ToolsDropdownP
                 fontSize: 13,
                 margin: 0,
                 borderRadius: 0,
-                borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+                borderBottom: '1px solid var(--rule)',
               }}
             >
               <item.icon size={14} style={{ minWidth: 14, flexShrink: 0 }} />
@@ -153,9 +171,9 @@ export function ToolsDrawer({ isOpen, onClose, onItemClick }: ToolsDrawerProps) 
       >
         <div className="mobile-more-handle" />
         <div className="mobile-more-header">
-          <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15, color: 'rgba(255,255,255,0.9)' }}>Tools</span>
+          <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Tools</span>
           <button className="mobile-more-close" onClick={onClose} aria-label="Close">
-            <X size={24} style={{ color: 'rgba(255,255,255,0.6)', cursor: 'pointer' }} />
+            <X size={24} style={{ color: 'var(--text-secondary)', cursor: 'pointer' }} />
           </button>
         </div>
         <div className="mobile-more-grid">

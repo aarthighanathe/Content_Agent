@@ -1,16 +1,60 @@
 import { generateWithAI } from '../lib/ai.js';
 import { sseManager } from '../lib/sse.js';
 import { ContentJob } from '../db/schema.js';
+import type { ResearchResult } from './researcher.js';
+import {
+  type ContentDna,
+  type WriterResponse,
+  writerCarouselResponseSchema,
+  writerLinkedInResponseSchema,
+  writerTwitterResponseSchema,
+  writerInstagramCaptionResponseSchema,
+  writerVideoScriptResponseSchema,
+} from '../schemas/agentResponses.js';
 
 interface WriterInput {
-  researchReport: any;
+  researchReport: ResearchResult;
   taskPlan: string;
-  platformRules: Record<string, any>;
+  // WHY unknown, not Record<string, any>: writer.ts declares this field but never
+  // reads a key off it anywhere in this file (it's passed through from
+  // orchestrator.ts's PLATFORM_RULES, which still has its own untyped `any` — out of
+  // scope for this pass). unknown is the honest type for a value this file never
+  // actually inspects; Record<string, unknown> would falsely imply it does.
+  platformRules: Record<string, unknown>;
   brandVoice?: string;
   phrasesUse?: string;
   phrasesAvoid?: string;
   criticFeedback?: string;
-  contentDna?: any;
+  // WHY unknown, not ContentDna directly: the caller (lib/pipeline.ts, out of
+  // scope for this pass) passes job.contentDna straight from Drizzle's jsonb
+  // column, which is typed unknown at the ORM boundary — this file can't prove
+  // the runtime shape any more than critic.ts can prove buildContentSummary's
+  // content param. Narrowed to ContentDna via isContentDna() below before use.
+  contentDna?: unknown;
+}
+
+// WHY a hand-written guard, not a Zod schema: unlike criticResponseSchema/the
+// writer response schemas, this isn't parsing raw LLM text — it's narrowing an
+// already-deserialized jsonb value with no failure path to report to (there's no
+// "reject and retry" concept for a brand-voice field the way there is for a
+// generation response). A cheap object-shape check is enough to satisfy the
+// compiler without pulling in a stricter validator than this use case needs.
+// WHY verify expected fields: the old guard only checked for non-null object,
+// letting any object pass as ContentDna. Now we verify at least one expected
+// field exists to prevent malformed shapes from producing undefined-laden prompts.
+function isContentDna(value: unknown): value is ContentDna {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    ('hookPattern' in value ||
+     'avgSentenceWords' in value ||
+     'emojiFrequency' in value ||
+     'ctaStyle' in value ||
+     'structuralSignature' in value ||
+     'vocabularyLevel' in value ||
+     'writingPersonality' in value ||
+     'keyPhrasePatterns' in value)
+  );
 }
 
 // Placeholder patterns that indicate the model returned template instructions
@@ -26,12 +70,12 @@ const PLACEHOLDER_PATTERNS = [
   /the reframe or solution in one bold claim/i,
 ];
 
-function containsPlaceholders(obj: any): boolean {
+function containsPlaceholders(obj: WriterResponse): boolean {
   const str = JSON.stringify(obj);
   return PLACEHOLDER_PATTERNS.some(p => p.test(str));
 }
 
-export async function runWriter(job: ContentJob, input: WriterInput): Promise<any> {
+export async function runWriter(job: ContentJob, input: WriterInput): Promise<WriterResponse> {
   sseManager.sendEvent(job.id, {
     type: 'progress',
     stage: 'writing',
@@ -224,7 +268,7 @@ Return ONLY this JSON (no markdown, no code fences):
 Include 3-5 main content segments. Total duration 30-60 seconds.`,
   };
 
-  const dna = input.contentDna;
+  const dna = isContentDna(input.contentDna) ? input.contentDna : undefined;
   const dnaSection = dna
     ? `
 CONTENT DNA FINGERPRINT (replicate this exact writing style):
@@ -263,7 +307,7 @@ Research insights to incorporate:
 
 Task plan: ${input.taskPlan}
 
-${input.criticFeedback ? `REVISION INSTRUCTIONS (incorporate all of this feedback): ${input.criticFeedback}` : ''}
+${input.criticFeedback ? `REVISION INSTRUCTIONS (incorporate all of this feedback): <critic_feedback>${input.criticFeedback}</critic_feedback>` : ''}
 
 ${platformPrompts[job.platform] || platformPrompts.linkedin_post}
 
@@ -293,24 +337,27 @@ Respond ONLY with the JSON. No markdown fences, no extra text.`;
     return out;
   }
 
-  let parsed: any;
-  try {
-    const jsonMatch = result.match(/[[{][\s\S]*[\]}]/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : result;
-    parsed = JSON.parse(sanitizeAiJson(jsonStr));
-  } catch {
+  // WHY a fallback function (not inline per-branch assignment): both the
+  // JSON.parse() failure path AND a schema-validation failure below need the
+  // identical platform-specific default — the old code only had this fallback on
+  // a parse *exception*, silently accepting any shape that merely parsed as valid
+  // JSON. Reusing one function for both means a malformed-but-parseable response
+  // (e.g. carousel JSON missing "headline" on every slide) degrades the same safe
+  // way a syntax error already did, instead of flowing an unvalidated shape
+  // downstream to formatter.ts/critic.ts.
+  function buildFallbackResponse(): WriterResponse {
     if (job.platform === 'instagram_carousel') {
-      parsed = [
+      return [
         { slide_number: 1, type: 'cover',   headline: job.topic, body: 'Swipe to discover the key insights.', visual_hint: '🔥' },
         { slide_number: 2, type: 'content', headline: 'The Core Challenge', body: result.slice(0, 120), visual_hint: '📌' },
         { slide_number: 3, type: 'cta',     headline: 'Save this for later', body: 'Follow for more content like this.', visual_hint: '👇', cta: { action: 'Follow for more', handle: '@yourbrand' } },
       ];
     } else if (job.platform === 'twitter_thread') {
-      parsed = { tweets: [{ number: 1, text: `1/ ${result.slice(0, 270)}` }] };
+      return { tweets: [{ number: 1, text: `1/ ${result.slice(0, 270)}` }] };
     } else if (job.platform === 'instagram_caption') {
-      parsed = { caption: result.slice(0, 300), hashtags: ['#content', '#socialmedia', '#creator'] };
+      return { caption: result.slice(0, 300), hashtags: ['#content', '#socialmedia', '#creator'] };
     } else if (job.platform === 'video_script') {
-      parsed = {
+      return {
         hook: { text: job.topic, duration: '0-3s', visual: 'Presenter on camera' },
         segments: [{ number: 1, script: result.slice(0, 200), duration: '15s', broll: 'Screen recording', caption: job.topic }],
         cta: { text: 'Follow for more!', duration: '3-5s', visual: 'Text overlay' },
@@ -319,8 +366,31 @@ Respond ONLY with the JSON. No markdown fences, no extra text.`;
         totalDuration: '30s',
       };
     } else {
-      parsed = { hook: job.topic, body: result.slice(0, 400), cta: 'Follow for more!', hashtags: ['#content'] };
+      return { hook: job.topic, body: result.slice(0, 400), cta: 'Follow for more!', hashtags: ['#content'] };
     }
+  }
+
+  // WHY the platform-specific schema per branch (not one big union schema.safeParse):
+  // z.array vs z.object are structurally distinct at the top level (carousel is an
+  // array, every other platform is an object) — picking the right schema per
+  // job.platform up front is both simpler and gives more accurate validation than
+  // trying every schema in the union and hoping one matches by accident.
+  let parsed: WriterResponse;
+  try {
+    const jsonMatch = result.match(/[[{][\s\S]*[\]}]/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : result;
+    const rawParsed: unknown = JSON.parse(sanitizeAiJson(jsonStr));
+
+    const schema = job.platform === 'instagram_carousel' ? writerCarouselResponseSchema
+      : job.platform === 'twitter_thread' ? writerTwitterResponseSchema
+      : job.platform === 'instagram_caption' ? writerInstagramCaptionResponseSchema
+      : job.platform === 'video_script' ? writerVideoScriptResponseSchema
+      : writerLinkedInResponseSchema;
+
+    const validation = schema.safeParse(rawParsed);
+    parsed = validation.success ? validation.data : buildFallbackResponse();
+  } catch {
+    parsed = buildFallbackResponse();
   }
 
   // Validate carousel slide count — fewer than 6 slides means the model

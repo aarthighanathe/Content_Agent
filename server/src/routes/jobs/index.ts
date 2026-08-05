@@ -4,6 +4,9 @@ import { authJobRateLimit } from '../../middleware/rateLimit.js';
 import createRouter from './create.js';
 import streamRouter from './stream.js';
 import renderRouter from './render.js';
+import insightsRouter from './insights.js';
+import versionsRouter from './versions.js';
+import listRouter from './list.js';
 import manageRouter from './manage.js';
 
 const router = Router();
@@ -12,9 +15,16 @@ const router = Router();
 // SECURITY: '/render-slides/stream' was dropped from this list when that endpoint was
 // removed — leaving it would keep an auth-bypass rule alive for a path that no longer
 // exists, and any future route ending in it would silently inherit the exemption.
+//
+// SECURITY: this must match the exact SSE stream path only, never by substring —
+// a bare `.includes('/stream')` also matches `/stream-token`, which exempted the
+// token-minting route from authMiddleware and silently broke SSE auth for every
+// user (see CHANGELOG). `/^\/[^/]+\/stream$/` anchors to "jobId segment, then
+// literally /stream, then end of string", so it cannot accidentally match any
+// future route that merely contains "/stream" as part of a longer path segment.
+const SSE_STREAM_PATH = /^\/[^/]+\/stream$/;
 router.use(async (req: Request, res: Response, next) => {
-  const openPaths = ['/stream'];
-  if (openPaths.some((path) => req.path.endsWith(path) || req.path.includes(path))) {
+  if (SSE_STREAM_PATH.test(req.path)) {
     return next();
   }
   return authMiddleware(req as AuthRequest, res, next);
@@ -31,7 +41,10 @@ router.use(authJobRateLimit);
 router.use('/', createRouter);    // POST /create, POST /batch
 router.use('/', streamRouter);    // GET /:jobId/stream, POST /:jobId/stream-token
 router.use('/', renderRouter);    // POST /:jobId/export/carousel-png
-router.use('/', manageRouter);    // GET /, GET /:jobId, DELETE /:jobId, PATCH /:jobId/content, POST /:jobId/regenerate, POST /:jobId/multiply
+router.use('/', insightsRouter);  // GET /audience-defaults — must precede manageRouter's GET /:jobId
+router.use('/', versionsRouter);  // GET /:jobId/versions, POST /:jobId/versions/:versionId/restore
+router.use('/', listRouter);      // GET / — paginated, searchable, filterable, sortable job list
+router.use('/', manageRouter);    // GET /:jobId, DELETE /:jobId, PATCH /:jobId/content, POST /:jobId/regenerate, POST /:jobId/multiply
 
 export { jobsMemory } from './ownership.js';
 export { runPipelineDirect } from './create.js';

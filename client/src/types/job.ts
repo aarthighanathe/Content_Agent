@@ -62,6 +62,10 @@ export interface ContentJob {
   // WHY optional: only set on jobs created via Content Multiplication (routes/jobs/manage.ts)
   sourceJobId?: string;
   sourcePlatform?: string;
+  // WHY optional: only set on jobs created via a Competitor.tsx "Create content →" CTA
+  sourceCompetitorAnalysisId?: string;
+  // WHY optional: only set on jobs created via Repurpose's "paste a URL" flow
+  sourceUrl?: string;
 }
 
 // WHY one loose interface instead of a strict discriminated union: real SSE payloads from

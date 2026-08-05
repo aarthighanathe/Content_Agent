@@ -12,13 +12,11 @@ interface RowActionStripProps {
   actions: RowAction[];
 }
 
-/**
- * Inline action strip revealed when a job/template row is expanded — replaces the
- * kebab-menu + floating-dropdown pattern (REVIEW_FINDINGS.md §4.4: "Retire the kebab-menu
- * + dropdown pattern on job rows for a swipeable/expandable row"). Renders every action
- * the caller passes — this component makes no assumption about which actions exist on a
- * given page; callers pass only the actions that page's kebab menu already offered.
- */
+// WHY inline action strip: replaces the kebab-menu + floating-dropdown pattern per
+// REVIEW_FINDINGS.md §4.4 ("Retire the kebab-menu + dropdown pattern on job rows for a
+// swipeable/expandable row"). Renders every action the caller passes — this component
+// makes no assumption about which actions exist on a given page; callers pass only the
+// actions that page's kebab menu already offered.
 export function RowActionStrip({ actions }: RowActionStripProps) {
   return (
     <div
@@ -32,7 +30,7 @@ export function RowActionStrip({ actions }: RowActionStripProps) {
           key={action.key}
           type="button"
           className="row-action-btn"
-          style={{ color: action.danger ? 'var(--color-error)' : 'rgba(255,255,255,0.7)' }}
+          style={{ color: action.danger ? 'var(--color-error)' : 'var(--text-secondary)' }}
           onClick={(e) => { e.stopPropagation(); action.onClick(); }}
         >
           <action.Icon size={13} />

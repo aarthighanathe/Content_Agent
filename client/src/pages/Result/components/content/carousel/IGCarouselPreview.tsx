@@ -178,8 +178,8 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
       {/* ── Instagram frame — 420px wide ─────────────────────────────── */}
       <div style={{
         width: SLIDE_W,
-        background: '#0C0C12',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'var(--bg-card)',
+        border: '1px solid var(--rule)',
         borderRadius: 14,
         overflow: 'hidden',
         boxShadow: '0 8px 40px rgba(0,0,0,0.45)',
@@ -189,7 +189,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '12px 16px',
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          borderBottom: '1px solid var(--rule)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* Avatar with gradient ring */}

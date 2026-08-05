@@ -9,11 +9,11 @@ import AuthLayout from './components/AuthLayout';
 // Lazy-load everything behind auth — none of it matters for the landing page
 const Dashboard       = lazy(() => import('./pages/Dashboard'));
 const CreatePage      = lazy(() => import('./pages/Create'));
+const BatchResultPage = lazy(() => import('./pages/BatchResult'));
 const ResultPage      = lazy(() => import('./pages/Result'));
 const BrandSettings   = lazy(() => import('./pages/Brand'));
 const LibraryPage     = lazy(() => import('./pages/Library'));
 const CalendarPage    = lazy(() => import('./pages/Calendar'));
-const BatchResultPage = lazy(() => import('./pages/BatchResult'));
 const IdeatePage      = lazy(() => import('./pages/Ideate'));
 const RepurposePage   = lazy(() => import('./pages/Repurpose'));
 const CompetitorPage  = lazy(() => import('./pages/Competitor'));
@@ -21,7 +21,7 @@ const CompetitorPage  = lazy(() => import('./pages/Competitor'));
 const RouteSpinner = () => (
   <div role="status" aria-label="Loading" style={{ minHeight: '100vh', background: 'var(--color-dark-900)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-    <div style={{ width: 32, height: 32, border: '3px solid #A855F7',
+    <div style={{ width: 32, height: 32, border: '3px solid var(--accent-2)',
                   borderTopColor: 'transparent', borderRadius: '50%',
                   animation: 'spin 0.8s linear infinite' }} />
   </div>
@@ -68,12 +68,12 @@ function ClerkProviderWithRoutes() {
         }>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/create" element={<CreatePage />} />
+          <Route path="/batch-result" element={<BatchResultPage />} />
           <Route path="/result/:jobId" element={<ResultPage />} />
           <Route path="/brand" element={<BrandSettings />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/history" element={<Navigate to="/library" replace />} />
           <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/batch" element={<BatchResultPage />} />
           <Route path="/ideate" element={<IdeatePage />} />
           <Route path="/repurpose" element={<RepurposePage />} />
           <Route path="/competitor" element={<CompetitorPage />} />

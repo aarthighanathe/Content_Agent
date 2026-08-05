@@ -23,14 +23,48 @@ export interface ContentDna {
 export interface ProfilePlatformBreakdown {
   platform: string;
   avgScore: number;
+  count: number;
+}
+
+// Critic agent's 5 scoring dimensions (0-20 each, see server/src/agents/critic.ts).
+export interface DimensionAverages {
+  hookStrength: number;
+  platformCompliance: number;
+  brandVoiceMatch: number;
+  valueDelivery: number;
+  ctaClarity: number;
+}
+
+// One completed job's dimension scores, chronologically ordered — powers the
+// quality trend line chart. `date` is the job's createdAt (ISO string).
+export interface DimensionTrendPoint extends DimensionAverages {
+  date: string;
+  jobId: string;
+}
+
+// PerformancePredictor's tier is qualitative (no fabricated reach/saves/shares
+// numbers — see server/src/agents/performancePredictor.ts) — this is a count
+// distribution across the user's completed jobs' most recent prediction.
+export interface PredictionTierCounts {
+  high: number;
+  medium: number;
+  low: number;
 }
 
 export interface ProfileStats {
   totalPosts: number;
   avgScore: number;
-  bestPlatform: string;
+  mostUsedPlatform: string;
   platformBreakdown?: ProfilePlatformBreakdown[];
   quickTips?: string[];
+  // null when the user has no completed jobs with critic scores yet (empty state).
+  dimensionAverages?: DimensionAverages | null;
+  dimensionTrend?: DimensionTrendPoint[];
+  predictionTierCounts?: PredictionTierCounts;
+  // Most recent prediction's one-sentence "biggest factor" — null until the
+  // user has at least one job created after the prediction-persistence feature
+  // shipped (2026-08-04); all pre-existing jobs have zero prediction rows.
+  latestPredictionTopReason?: string | null;
 }
 
 export interface Profile {
@@ -69,10 +103,9 @@ export interface ExportedSocialAccount {
 export interface ExportDataResponse {
   exportedAt: string;
   user: ExportedUser | null;
-  // WHY unknown[]: raw DB rows (contentJobs/templates) passed through as-is by the export
-  // route — not remodeled into the client's ContentJob/Template shapes.
+  // WHY unknown[]: raw DB rows (contentJobs) passed through as-is by the export
+  // route — not remodeled into the client's ContentJob shape.
   contentJobs: unknown[];
-  templates: unknown[];
   connectedSocialAccounts: ExportedSocialAccount[];
   onboarding: unknown | null;
 }
@@ -82,20 +115,6 @@ export interface SocialConnection {
   label: string;
   connected: boolean;
   displayName: string | null;
-}
-
-export interface Template {
-  id: string;
-  name: string;
-  platform: string;
-  topic?: string;
-  hookStyle?: string;
-  structure?: string;
-  ctaPattern?: string;
-  contentSample?: string | null;
-  userId: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface SSEProgress {

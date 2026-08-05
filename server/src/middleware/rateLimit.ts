@@ -1,7 +1,7 @@
 // SECURITY: rate limiting backed by Redis (not in-process memory).
 // WHY Redis: an in-process MemoryStore is reset on every server restart and doesn't
 // share state across horizontally scaled instances — both let users bypass limits trivially.
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction, RequestHandler } from 'express';
 import rateLimit from 'express-rate-limit';
 import { ipKeyGenerator } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
@@ -39,7 +39,7 @@ function stripHtml(value: string): string {
 /**
  * Sanitizes and validates all LLM-facing text fields on the request body.
  * Applied to all generation routes: /api/jobs/create, /api/jobs/batch,
- * /api/content/repurpose, /api/demo/jobs/create
+ * /api/content/* (including /ideate's focusTopic), /api/demo/jobs/create
  */
 export function sanitizeGenerationInput(req: Request, res: Response, next: NextFunction): void {
   const LIMITS: Record<string, number> = {
@@ -54,6 +54,9 @@ export function sanitizeGenerationInput(req: Request, res: Response, next: NextF
     handle: 100,
     industry: 150,
     samples: 3000,
+    focusTopic: 200,
+    competitorContext: 300,
+    prompt: 2000,
   };
 
   for (const [field, maxLen] of Object.entries(LIMITS)) {
@@ -94,8 +97,43 @@ export function sanitizeGenerationInput(req: Request, res: Response, next: NextF
   next();
 }
 
-// FLOW: makeStore() returns a RedisStore when Redis is available, or undefined which
-// causes express-rate-limit to fall back to its built-in in-process MemoryStore.
+// SECURITY: CLAUDE.md hard-bans in-memory rate limiters (MemoryStore resets on
+// restart and isn't shared across instances — trivially bypassable, and on a
+// multi-instance deployment each instance would track its own independent
+// counter, effectively multiplying a user's real limit by instance count).
+// WHY fail closed, not fall back to MemoryStore: express-rate-limit's default
+// behavior when `store` is undefined is to silently use its own in-process
+// MemoryStore — exactly the banned behavior. failClosedMiddleware rejects
+// with 503 instead whenever Redis is unavailable, so a Redis outage degrades
+// rate-limited endpoints (content generation, exports, image gen) to
+// unavailable rather than to unenforced. This is a real availability
+// tradeoff, made deliberately: an unenforced limiter on routes that call
+// metered external APIs (Gemini/Tavily/OpenAI/Together) is a cost/abuse
+// exposure, not just a correctness nicety.
+function failClosedMiddleware(prefix: string): (req: Request, res: Response, next: NextFunction) => void {
+  return (_req, res, next) => {
+    if (getRedisClient()) {
+      next();
+      return;
+    }
+    logger.error('Redis unavailable — rejecting request rather than falling back to an in-memory rate limiter', { prefix });
+    res.status(503).json({
+      error: 'This action is temporarily unavailable. Please try again shortly.',
+      code: 'RATE_LIMITER_UNAVAILABLE',
+      retryable: true,
+    });
+  };
+}
+
+// FLOW: makeStore() is evaluated once at module load (`rateLimit({ store:
+// makeStore('auth') })` below runs at import time, before any request), so it
+// must never throw here — Redis may not be configured yet, or at all, in
+// local dev, and this file is imported unconditionally by index.ts. Returning
+// undefined at load time is safe: express-rate-limit only reads `store` at
+// construction, and failClosedMiddleware (applied as request-time middleware
+// ahead of each limiter below) is what actually enforces "reject rather than
+// silently use an in-memory limiter" per-request, based on Redis's REAL
+// availability at request time rather than this load-time snapshot.
 //
 // WHY reuse the redisClient.ts singleton directly (not a dedicated connection like
 // BullMQ needs): rate-limit-redis only issues plain get/set/incr-style commands, none
@@ -103,14 +141,7 @@ export function sanitizeGenerationInput(req: Request, res: Response, next: NextF
 // it avoids opening yet another Redis socket per process (see CLAUDE.md finding 1.15).
 function makeStore(prefix: string): RedisStore | undefined {
   const client = getRedisClient();
-  if (!client) {
-    // SECURITY: CLAUDE.md hard-bans in-memory rate limiters (MemoryStore resets on
-    // restart and isn't shared across instances — trivially bypassable). This fallback
-    // firing is a production misconfiguration, not a benign dev default, so it must be
-    // loud (logger.error) rather than degrading silently.
-    logger.error('Redis unavailable — rate limiter falling back to in-process MemoryStore', { prefix });
-    return undefined;
-  }
+  if (!client) return undefined;
   // NOTE: ioredis's `.call()` has generated overloads keyed to specific command-name
   // string literals, which TS can't match against a generic `...string[]` spread from
   // rate-limit-redis's SendCommandFn. Narrowing to a single explicit signature here
@@ -124,52 +155,82 @@ function makeStore(prefix: string): RedisStore | undefined {
 
 // ── Rate limiters ──────────────────────────────────────────────────────────────
 
+// WHY a factory function: eliminates duplication of failClosedMiddleware wrapper
+// across all limiters and ensures the prefix is compiler-enforced to match the limiter.
+// A new limiter added later can't forget the wrapper or use the wrong prefix.
+interface RateLimiterConfig {
+  prefix: string;
+  windowMs: number;
+  max: number;
+  message: string;
+  code: string;
+  skip?: (req: Request) => boolean;
+  keyGenerator?: (req: Request) => string;
+}
+
+function buildRateLimiter(config: RateLimiterConfig): RequestHandler[] {
+  const limiter = rateLimit({
+    windowMs: config.windowMs,
+    max: config.max,
+    store: makeStore(config.prefix),
+    keyGenerator: config.keyGenerator || ((req: Request) => {
+      const authReq = req as AuthRequest;
+      return authReq.userId || authReq.dbUserId || ipKeyGenerator(req.ip ?? '') || (req.socket?.remoteAddress ?? 'unknown') || 'unknown';
+    }),
+    handler: (_req, res) => {
+      res.status(429).json({
+        error: config.message,
+        code: config.code,
+        retryable: false,
+      });
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: config.skip,
+  });
+  return [failClosedMiddleware(config.prefix), limiter];
+}
+
 /**
  * Authenticated users: configurable generation jobs per hour per user ID.
  * Override for local dev by setting RATE_LIMIT_MAX_JOBS=100 in .env
  */
 const AUTH_JOB_MAX = parseInt(env.RATE_LIMIT_MAX_JOBS, 10);
 
-export const authJobRateLimit = rateLimit({
+// SECURITY: every keyGenerator below used to call `ipKeyGenerator(req as any)` —
+// passing the whole Express Request where ipKeyGenerator(ip: string, ...)
+// expects an IP address string. net.isIPv6() on a non-string returns false, so
+// the function fell through to `return ip` and handed back the Request object
+// itself as the rate-limit "key," not an actual IP. This was masked for every
+// authenticated request (userId/dbUserId already win the `||` chain before
+// ipKeyGenerator is ever reached) and only manifested in the true
+// unauthenticated fallback path — exactly the case a rate limiter most needs to
+// get right. Fixed to ipKeyGenerator(req.ip ?? ''), the string IP the function
+// actually expects.
+export const authJobRateLimit = buildRateLimiter({
+  prefix: 'auth',
   windowMs: 60 * 60 * 1000,
   max: AUTH_JOB_MAX,
-  store: makeStore('auth'),
+  message: 'Too many generation requests. You can create up to 10 pieces of content per hour.',
+  code: 'RATE_LIMITED',
+  skip: (req) => req.method === 'GET',
   keyGenerator: (req: Request) => {
     const authReq = req as AuthRequest;
-    return authReq.userId || authReq.dbUserId || ipKeyGenerator(req as any) || (req.socket?.remoteAddress ?? 'unknown') || 'unknown';
+    return authReq.userId || authReq.dbUserId || ipKeyGenerator(req.ip ?? '') || (req.socket?.remoteAddress ?? 'unknown') || 'unknown';
   },
-  handler: (_req, res) => {
-    res.status(429).json({
-      error: 'Too many generation requests. You can create up to 10 pieces of content per hour.',
-      code: 'RATE_LIMITED',
-      retryable: false,
-      retryAfterMs: 60 * 60 * 1000,
-    });
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.method === 'GET',
 });
 
 /**
  * Demo mode: 3 generation jobs per hour per IP.
  */
-export const demoJobRateLimit = rateLimit({
+export const demoJobRateLimit = buildRateLimiter({
+  prefix: 'demo',
   windowMs: 60 * 60 * 1000,
   max: 3,
-  store: makeStore('demo'),
-  keyGenerator: (req: Request) => ipKeyGenerator(req as any) || (req.socket?.remoteAddress ?? 'unknown') || 'unknown',
-  handler: (_req, res) => {
-    res.status(429).json({
-      error: 'Demo limit reached. Sign up for free to create up to 10 pieces per hour.',
-      code: 'RATE_LIMITED',
-      retryable: false,
-      retryAfterMs: 60 * 60 * 1000,
-    });
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Demo limit reached. Sign up for free to create up to 10 pieces per hour.',
+  code: 'RATE_LIMITED',
   skip: (req) => req.method === 'GET',
+  keyGenerator: (req: Request) => ipKeyGenerator(req.ip ?? '') || (req.socket?.remoteAddress ?? 'unknown') || 'unknown',
 });
 
 // NOTE: renderRateLimit and renderStreamRateLimit were removed along with the
@@ -179,23 +240,12 @@ export const demoJobRateLimit = rateLimit({
 /**
  * Carousel export endpoint: 10 exports per hour per user.
  */
-export const exportRateLimit = rateLimit({
+export const exportRateLimit = buildRateLimiter({
+  prefix: 'export',
   windowMs: 60 * 60 * 1000,
   max: 10,
-  store: makeStore('export'),
-  keyGenerator: (req: Request) => {
-    const authReq = req as AuthRequest;
-    return authReq.userId || authReq.dbUserId || ipKeyGenerator(req as any) || (req.socket?.remoteAddress ?? 'unknown') || 'unknown';
-  },
-  handler: (_req, res) => {
-    res.status(429).json({
-      error: 'Too many export requests. Limit: 10 carousel exports per hour.',
-      code: 'RATE_LIMITED',
-      retryable: false,
-    });
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Too many export requests. Limit: 10 carousel exports per hour.',
+  code: 'RATE_LIMITED',
 });
 
 /**
@@ -204,23 +254,12 @@ export const exportRateLimit = rateLimit({
  * fire outbound fetches — without a limiter a scripted loop burns real cost
  * and can exhaust the shared provider API keys for every user.
  */
-export const contentRateLimit = rateLimit({
+export const contentRateLimit = buildRateLimiter({
+  prefix: 'content',
   windowMs: 60 * 60 * 1000,
   max: 30,
-  store: makeStore('content'),
-  keyGenerator: (req: Request) => {
-    const authReq = req as AuthRequest;
-    return authReq.userId || authReq.dbUserId || ipKeyGenerator(req as any) || (req.socket?.remoteAddress ?? 'unknown') || 'unknown';
-  },
-  handler: (_req, res) => {
-    res.status(429).json({
-      error: 'Too many requests. Limit: 30 content-tool calls per hour.',
-      code: 'RATE_LIMITED',
-      retryable: false,
-    });
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Too many requests. Limit: 30 content-tool calls per hour.',
+  code: 'RATE_LIMITED',
   skip: (req) => req.method === 'GET',
 });
 
@@ -229,23 +268,26 @@ export const contentRateLimit = rateLimit({
  * (OpenAI gpt-image-1 → DALL-E 3 → Together AI → Gemini image → Pollinations)
  * per single request — the most expensive per-call route in the app.
  */
-export const imageRateLimit = rateLimit({
+export const imageRateLimit = buildRateLimiter({
+  prefix: 'image',
   windowMs: 60 * 60 * 1000,
   max: 20,
-  store: makeStore('image'),
-  keyGenerator: (req: Request) => {
-    const authReq = req as AuthRequest;
-    return authReq.userId || authReq.dbUserId || ipKeyGenerator(req as any) || (req.socket?.remoteAddress ?? 'unknown') || 'unknown';
-  },
-  handler: (_req, res) => {
-    res.status(429).json({
-      error: 'Too many image generation requests. Limit: 20 per hour.',
-      code: 'RATE_LIMITED',
-      retryable: false,
-    });
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Too many image generation requests. Limit: 20 per hour.',
+  code: 'RATE_LIMITED',
   skip: (req) => req.method === 'GET',
+});
+
+/**
+ * /api/social/connect/:platform and /api/social/callback/:platform: the
+ * callback route calls external LinkedIn/Twitter token + profile APIs.
+ * Without a limiter, repeated hits with crafted/stale codes cause unbounded
+ * outbound calls to those APIs with no backpressure.
+ */
+export const socialRateLimit = buildRateLimiter({
+  prefix: 'social',
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Too many social connection requests. Please try again later.',
+  code: 'RATE_LIMITED',
 });
 

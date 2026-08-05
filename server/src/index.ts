@@ -28,13 +28,17 @@ import jobRoutes from './routes/jobs/index.js';
 import contentRoutes from './routes/content.js';
 import userRoutes, { seedUserProfilesFromDB } from './routes/users.js';
 import socialRoutes from './routes/social.js';
-import templateRoutes from './routes/templates.js';
 import demoRoutes from './routes/demo.js';
 import imageGenRoutes from './routes/imageGen.js';
+import scheduledPostsRoutes from './routes/scheduledPosts.js';
+import collectionsRoutes from './routes/collections.js';
+import feedMonitorsRoutes from './routes/feedMonitors.js';
 import { clerkMiddleware } from '@clerk/express';
 import { authMiddleware } from './middleware/auth.js';
 import { startWorker, stopWorker } from './workers/contentWorker.js';
-import { closeBrowserPool } from './lib/carousel.js';
+import { startPublishWorker, stopPublishWorker } from './workers/publishWorker.js';
+import { startFeedMonitorWorker, stopFeedMonitorWorker } from './workers/feedMonitorWorker.js';
+import { closeBrowserPool, stopPngCacheSweep } from './lib/carousel.js';
 import { demoJobRateLimit, sanitizeGenerationInput, contentRateLimit, imageRateLimit } from './middleware/rateLimit.js';
 
 const app = express();
@@ -160,11 +164,13 @@ app.get('/api/ready', async (_req, res) => {
 // capable connections (EventSource).
 app.use('/api/jobs', sanitizeGenerationInput, jobRoutes);
 app.use('/api/content', authMiddleware, sanitizeGenerationInput, contentRateLimit, contentRoutes);
-app.use('/api/users', authMiddleware, userRoutes);
+app.use('/api/users', authMiddleware, sanitizeGenerationInput, userRoutes);
 app.use('/api/social', authMiddleware, socialRoutes);
-app.use('/api/templates', authMiddleware, templateRoutes);
+app.use('/api/scheduled-posts', authMiddleware, scheduledPostsRoutes);
+app.use('/api/collections', authMiddleware, collectionsRoutes);
+app.use('/api/feed-monitors', authMiddleware, feedMonitorsRoutes);
 app.use('/api/demo', demoJobRateLimit, sanitizeGenerationInput, demoRoutes);
-app.use('/api/image', authMiddleware, imageRateLimit, imageGenRoutes);
+app.use('/api/image', authMiddleware, sanitizeGenerationInput, imageRateLimit, imageGenRoutes);
 
 // AUDIT FIX #7 — Sentry error handler must come before all other error handlers
 if (env.SENTRY_DSN) {
@@ -172,14 +178,23 @@ if (env.SENTRY_DSN) {
 }
 
 // Error handling
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled error:', err);
+// WHY the ErrorRequestHandler type, not a plain 4-arg arrow function: Express
+// dispatches error middleware by counting the handler's declared parameters
+// (exactly 4 marks it as an error handler, not a route handler) — the `err`
+// parameter must stay structurally `any` at the express.d.ts boundary for
+// that arity check to work, which is why express's own ErrorRequestHandler
+// type declares `err: any`. `unknownErr` immediately re-types it as `unknown`
+// inside the body, so this file's own code never treats `err` as `any`.
+const errorHandler: express.ErrorRequestHandler = (err, _req, res, _next) => {
+  const unknownErr: unknown = err;
+  console.error('Unhandled error:', unknownErr);
   res.status(500).json({
     error: 'Internal server error',
     code: 'SERVER_ERROR',
     retryable: true,
   });
-});
+};
+app.use(errorHandler);
 
 // Start server
 const server = app.listen(PORT, async () => {
@@ -194,6 +209,20 @@ const server = app.listen(PORT, async () => {
   } catch (error) {
     logger.warn('BullMQ worker not started (Redis may not be available)');
     logger.warn('Jobs will run directly in the Express process');
+  }
+
+  // Try to start the scheduled-publish worker (Calendar auto-publish)
+  try {
+    startPublishWorker();
+  } catch (error) {
+    logger.warn('Publish worker not started (Redis may not be available) — scheduled posts will stay reminder-only');
+  }
+
+  // Start the RSS/feed monitor cron (no Redis dependency — uses node-cron)
+  try {
+    startFeedMonitorWorker();
+  } catch (error) {
+    logger.warn('Feed monitor worker not started — RSS monitoring will be unavailable');
   }
 });
 
@@ -224,11 +253,25 @@ async function shutdown(signal: string) {
   }
 
   try {
+    await stopPublishWorker();
+    logger.info('Publish worker closed');
+  } catch (err) {
+    console.error('Error closing publish worker:', err);
+  }
+
+  stopFeedMonitorWorker();
+
+  try {
     await closeBrowserPool();
     logger.info('Browser pool closed');
   } catch (err) {
     console.error('Error closing browser pool:', err);
   }
+
+  // WHY here even though the interval is unref()'d (so it wouldn't block exit on its
+  // own): explicit cleanup during the coordinated shutdown sequence, consistent with
+  // how the browser pool above is closed rather than left to the 'exit' handler.
+  stopPngCacheSweep();
 
   clearTimeout(forceExit);
   process.exit(0);

@@ -1,20 +1,20 @@
 .rp { display:flex; flex-direction:column; gap:20px; }
 
 /* Breadcrumb nav */
-.rp-breadcrumb { display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.22); margin-bottom:4px; }
-.rp-breadcrumb a, .rp-breadcrumb button { background:none; border:none; padding:0; cursor:pointer; color:rgba(255,255,255,0.22); font-family:var(--font-mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; text-decoration:none; transition:color .18s; display:inline-flex; align-items:center; gap:4px; }
-.rp-breadcrumb a:hover, .rp-breadcrumb button:hover { color:#F59E0B; }
+.rp-breadcrumb { display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); margin-bottom:4px; }
+.rp-breadcrumb a, .rp-breadcrumb button { background:none; border:none; padding:0; cursor:pointer; color:var(--text-muted); font-family:var(--font-mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; text-decoration:none; transition:color .18s; display:inline-flex; align-items:center; gap:4px; }
+.rp-breadcrumb a:hover, .rp-breadcrumb button:hover { color:var(--accent); }
 .rp-breadcrumb-sep { opacity:0.3; }
 
-.rp-hd { display:flex; flex-direction:column; gap:12px; padding-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.05); }
+.rp-hd { display:flex; flex-direction:column; gap:12px; padding-bottom:20px; border-bottom:1px solid var(--rule); }
 .rp-title { min-width:0; }
 .rp-hd-bottom { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
-.rp-eyebrow { display:flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:10px; letter-spacing:3px; text-transform:uppercase; color:#F59E0B; margin-bottom:8px; flex-wrap:wrap; }
-.rp-meta { font-size:12px; color:rgba(255,255,255,0.3); margin-top:5px; }
+.rp-eyebrow { display:flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--accent); margin-bottom:8px; flex-wrap:wrap; }
+.rp-meta { font-size:12px; color:var(--text-muted); margin-top:5px; }
 .rp-badge { display:inline-flex; align-items:center; gap:5px; border-radius:20px; padding:2px 9px; font-size:9px; letter-spacing:1px; font-family:var(--font-mono); }
 .rp-badge-done { background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); color:#34D399; }
-.rp-badge-gen  { background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.2); color:#F59E0B; }
-.rp-badge-dot  { width:5px; height:5px; border-radius:50%; background:#F59E0B; }
+.rp-badge-gen  { background:color-mix(in srgb, var(--accent) 8%, transparent); border:1px solid color-mix(in srgb, var(--accent) 20%, transparent); color:var(--accent); }
+.rp-badge-dot  { width:5px; height:5px; border-radius:50%; background:var(--accent); }
 
 .rp-actions { display:flex; flex-direction:column; gap:10px; align-items:flex-end; flex-shrink:0; }
 .rp-btn-row { display:flex; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
@@ -23,24 +23,24 @@
 /* Grouped action toolbar */
 .rp-toolbar { display:flex; align-items:center; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
 .rp-toolbar-group { display:flex; align-items:center; gap:5px; }
-.rp-toolbar-sep { width:1px; height:22px; background:rgba(255,255,255,0.08); margin:0 4px; flex-shrink:0; }
+.rp-toolbar-sep { width:1px; height:22px; background:var(--rule); margin:0 4px; flex-shrink:0; }
 
 /* Platform header pill */
-.rp-platform-pill { display:inline-flex; align-items:center; gap:7px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:5px 12px; }
-.rp-platform-pill-sep { width:1px; height:12px; background:rgba(255,255,255,0.1); }
+.rp-platform-pill { display:inline-flex; align-items:center; gap:7px; background:var(--bg-raised); border:1px solid var(--rule); border-radius:8px; padding:5px 12px; }
+.rp-platform-pill-sep { width:1px; height:12px; background:var(--rule); }
 
 /* Meta badge pills row */
 .rp-meta-pills { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:8px; }
 
-.rp-lv { display:flex; flex-direction:column; align-items:center; gap:24px; padding:3rem 2rem 2.5rem; background:rgba(255,255,255,0.015); border:1px solid rgba(255,255,255,0.06); border-radius:16px; min-height:300px; justify-content:center; }
+.rp-lv { display:flex; flex-direction:column; align-items:center; gap:24px; padding:3rem 2rem 2.5rem; background:var(--bg-raised); border:1px solid var(--rule); border-radius:16px; min-height:300px; justify-content:center; }
 .rp-lv-spinner-wrap { display:flex; flex-direction:column; align-items:center; gap:10px; }
-.rp-lv-title { font-family:var(--font-heading); font-size:clamp(17px,4vw,22px); font-weight:700; color:rgba(255,255,255,0.9); text-align:center; margin:0; }
+.rp-lv-title { font-family:var(--font-heading); font-size:clamp(17px,4vw,22px); font-weight:700; color:var(--text-primary); text-align:center; margin:0; }
 
 /* ── 4.1: pipeline-as-hero — relay track with animated handoff packets ── */
 .rp-lv-steps { display:flex; align-items:flex-start; width:100%; max-width:560px; position:relative; }
 .rp-lv-step { display:flex; flex-direction:column; align-items:center; flex:1; position:relative; z-index:1; }
-.rp-lv-step-line { position:absolute; top:12px; left:calc(50% + 12px); right:calc(-50% + 12px); height:1.5px; background:rgba(255,255,255,0.07); z-index:0; transition:background .4s; overflow:visible; }
-.rp-lv-step-line.done { background:rgba(245,158,11,0.3); }
+.rp-lv-step-line { position:absolute; top:12px; left:calc(50% + 12px); right:calc(-50% + 12px); height:1.5px; background:var(--rule); z-index:0; transition:background .4s; overflow:visible; }
+.rp-lv-step-line.done { background:color-mix(in srgb, var(--accent) 30%, transparent); }
 /* WHY: the handoff packet travels along this line's own box (not a shared absolute
    overlay) so each inter-agent gap gets an independently-timed pill with no layout
    math needed in JS — CSS keyframes alone move it from 0% to 100% of the line. */
@@ -51,9 +51,9 @@
   animation: rp-lv-packet-fly 1.1s cubic-bezier(.4,0,.2,1) both;
 }
 .rp-lv-step-dot { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-family:var(--font-mono); transition:all .25s; flex-shrink:0; position:relative; z-index:1; }
-.rp-lv-step-name { font-size:9.5px; color:rgba(255,255,255,0.28); margin-top:6px; text-align:center; font-family:var(--font-mono); letter-spacing:0.5px; transition:color .25s; }
-.rp-lv-step-name.lit { color:rgba(255,255,255,0.75); }
-.rp-lv-step-sub { font-size:8.5px; color:rgba(255,255,255,0.3); text-align:center; margin-top:2px; }
+.rp-lv-step-name { font-size:9.5px; color:var(--text-muted); margin-top:6px; text-align:center; font-family:var(--font-mono); letter-spacing:0.5px; transition:color .25s; }
+.rp-lv-step-name.lit { color:var(--text-primary); }
+.rp-lv-step-sub { font-size:8.5px; color:var(--text-muted); text-align:center; margin-top:2px; }
 
 @keyframes rp-lv-packet-fly {
   0%   { left: 4%;  opacity: 0;   transform: translate(-50%,-50%) scale(0.8); }
@@ -62,13 +62,13 @@
   100% { left: 96%; opacity: 0;   transform: translate(-50%,-50%) scale(0.8); }
 }
 
-.rp-lv-feed { width:100%; max-width:460px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; max-height:120px; overflow-y:auto; scrollbar-width:none; }
+.rp-lv-feed { width:100%; max-width:460px; background:var(--bg-card); border:1px solid var(--rule); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; max-height:120px; overflow-y:auto; scrollbar-width:none; }
 .rp-lv-feed::-webkit-scrollbar { display:none; }
 .rp-lv-log { display:flex; gap:10px; align-items:flex-start; animation:rp-fadeUp .25s ease both; }
 
-.rp-tabs { display:none; background:#08081A; border:1px solid rgba(255,255,255,0.07); border-radius:10px; overflow:hidden; }
-.rp-tab  { flex:1; padding:11px 14px; background:none; border:none; cursor:pointer; font-family:var(--font-mono); font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,0.35); transition:all .2s; }
-.rp-tab.on { background:rgba(245,158,11,0.1); color:#F59E0B; border-bottom:2px solid #F59E0B; }
+.rp-tabs { display:none; background:var(--bg-raised); border:1px solid var(--rule); border-radius:10px; overflow:hidden; }
+.rp-tab  { flex:1; padding:11px 14px; background:none; border:none; cursor:pointer; font-family:var(--font-mono); font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); transition:all .2s; }
+.rp-tab.on { background:color-mix(in srgb, var(--accent) 10%, transparent); color:var(--accent); border-bottom:2px solid var(--accent); }
 
 .rp-grid { display:grid; grid-template-columns:1fr 360px; gap:20px; align-items:stretch; }
 .rp-main { display:flex; flex-direction:column; gap:16px; min-width:0; }
@@ -77,10 +77,10 @@
    positioner — the visible card (border+padding) is a child of it. Scrolling the
    outer wrapper put the scrollbar outside the card's rounded border; scrolling the
    card itself keeps it inside the card's own padding where it visually belongs. */
-.rp-sidebar > .card-glow { overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(245,158,11,0.18) transparent; }
+.rp-sidebar > .card-glow { overflow-y:auto; scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--accent) 18%, transparent) transparent; }
 .rp-sidebar > .card-glow::-webkit-scrollbar { width:3px; }
 .rp-sidebar > .card-glow::-webkit-scrollbar-track { background:transparent; }
-.rp-sidebar > .card-glow::-webkit-scrollbar-thumb { background:rgba(245,158,11,0.2); border-radius:2px; }
+.rp-sidebar > .card-glow::-webkit-scrollbar-thumb { background:color-mix(in srgb, var(--accent) 20%, transparent); border-radius:2px; }
 
 .rp-plat-hd { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
 .rp-slide-nav { display:flex; align-items:center; gap:10px; margin-top:12px; }
@@ -89,38 +89,43 @@
 .rp-mult-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(196px,1fr)); gap:10px; margin-top:10px; animation:rp-fadeUp .25s ease both; }
 
 /* Slide-over drawer */
-.rp-drawer-backdrop { position:fixed; inset:0; background:rgba(3,3,14,0.55); z-index:199; animation:rp-fadeIn .2s ease both; backdrop-filter:blur(2px); }
-.rp-drawer { position:fixed; top:0; right:0; bottom:0; width:340px; max-width:100vw; background:#07071C; border-left:1px solid rgba(255,255,255,0.07); z-index:200; display:flex; flex-direction:column; overflow:hidden; animation:rp-slideInRight .22s cubic-bezier(.16,1,.3,1) both; box-shadow:-12px 0 40px rgba(0,0,0,0.45); }
-.rp-drawer-hd { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 16px; border-bottom:1px solid rgba(255,255,255,0.06); flex-shrink:0; }
-.rp-drawer-title { font-family:var(--font-display); font-size:15px; font-weight:600; color:rgba(255,255,255,0.88); }
-.rp-drawer-close { background:none; border:none; color:rgba(255,255,255,0.3); cursor:pointer; padding:4px; border-radius:6px; transition:color .15s, background .15s; display:flex; align-items:center; justify-content:center; font-size:16px; line-height:1; }
-.rp-drawer-close:hover { color:rgba(255,255,255,0.7); background:rgba(255,255,255,0.06); }
-.rp-drawer-body { flex:1; overflow-y:auto; padding:20px; scrollbar-width:thin; scrollbar-color:rgba(245,158,11,0.18) transparent; }
+.rp-drawer-backdrop { position:fixed; inset:0; background:color-mix(in srgb, var(--bg-base) 70%, transparent); z-index:199; animation:rp-fadeIn .2s ease both; backdrop-filter:blur(2px); }
+.rp-drawer { position:fixed; top:0; right:0; bottom:0; width:340px; max-width:100vw; background:var(--bg-raised); border-left:1px solid var(--rule); z-index:200; display:flex; flex-direction:column; overflow:hidden; animation:rp-slideInRight .22s cubic-bezier(.16,1,.3,1) both; box-shadow:-12px 0 40px rgba(0,0,0,0.45); }
+.rp-drawer-hd { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 16px; border-bottom:1px solid var(--rule); flex-shrink:0; }
+.rp-drawer-title { font-family:var(--font-display); font-size:15px; font-weight:600; color:var(--text-primary); }
+.rp-drawer-close { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; border-radius:6px; transition:color .15s, background .15s; display:flex; align-items:center; justify-content:center; font-size:16px; line-height:1; }
+.rp-drawer-close:hover { color:var(--text-secondary); background:var(--rule); }
+.rp-drawer-body { flex:1; overflow-y:auto; padding:20px; scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--accent) 18%, transparent) transparent; }
 .rp-drawer-body::-webkit-scrollbar { width:3px; }
-.rp-drawer-body::-webkit-scrollbar-thumb { background:rgba(245,158,11,0.2); border-radius:2px; }
+.rp-drawer-body::-webkit-scrollbar-thumb { background:color-mix(in srgb, var(--accent) 20%, transparent); border-radius:2px; }
 
-/* Sticky mobile footer action bar */
-.rp-footer-bar { display:none; position:fixed; bottom:0; left:0; right:0; z-index:150; background:rgba(3,3,14,0.92); border-top:1px solid rgba(255,255,255,0.07); backdrop-filter:blur(20px); padding:10px 16px calc(10px + env(safe-area-inset-bottom)); gap:8px; align-items:center; justify-content:center; }
-.rp-footer-bar-btn { display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.45); font-family:var(--font-mono); font-size:9px; letter-spacing:0.5px; text-transform:uppercase; transition:color .18s; padding:6px 14px; border-radius:8px; flex:1; max-width:80px; }
-.rp-footer-bar-btn:hover { color:rgba(255,255,255,0.8); background:rgba(255,255,255,0.04); }
-.rp-footer-bar-btn.primary { color:#F59E0B; }
-.rp-footer-bar-btn.primary:hover { background:rgba(245,158,11,0.06); }
+/* Sticky mobile footer action bar
+   WHY bottom:72px, not 0: the app-wide .mobile-tab-bar (Home/Create/Library/Ideate/
+   Brand — index.css) is ALSO fixed to bottom:0 on every authenticated page, ~72px tall
+   incl. its own padding. This bar used to sit at bottom:0 too, so it was painted directly
+   behind/under that global nav and its Copy/Regen/Export/More buttons were unreachable —
+   this now stacks it directly above the global bar instead of overlapping it. */
+.rp-footer-bar { display:none; position:fixed; bottom:72px; left:0; right:0; z-index:150; background:color-mix(in srgb, var(--bg-base) 92%, transparent); border-top:1px solid var(--rule); backdrop-filter:blur(20px); padding:10px 16px; gap:8px; align-items:center; justify-content:center; }
+.rp-footer-bar-btn { display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:none; cursor:pointer; color:var(--text-secondary); font-family:var(--font-mono); font-size:9px; letter-spacing:0.5px; text-transform:uppercase; transition:color .18s; padding:6px 14px; border-radius:8px; flex:1; max-width:80px; }
+.rp-footer-bar-btn:hover { color:var(--text-primary); background:var(--rule); }
+.rp-footer-bar-btn.primary { color:var(--accent); }
+.rp-footer-bar-btn.primary:hover { background:color-mix(in srgb, var(--accent) 6%, transparent); }
 .rp-footer-spacer { flex:1; }
-.rp-footer-sep { width:1px; height:28px; background:rgba(255,255,255,0.07); }
+.rp-footer-sep { width:1px; height:28px; background:var(--rule); }
 
 /* Content Multiplier banner card */
-.rp-mult-banner { display:flex; align-items:center; gap:12px; padding:14px 18px; background:rgba(124,58,237,0.06); border:1px solid rgba(124,58,237,0.18); border-radius:12px; cursor:pointer; transition:background .18s, border-color .18s; }
-.rp-mult-banner:hover { background:rgba(124,58,237,0.1); border-color:rgba(124,58,237,0.3); }
-.rp-mult-banner-icon { width:36px; height:36px; border-radius:10px; background:rgba(124,58,237,0.12); border:1px solid rgba(124,58,237,0.25); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:16px; color:#8B5CF6; }
+.rp-mult-banner { display:flex; align-items:center; gap:12px; padding:14px 18px; background:var(--bg-raised); border:1px solid var(--rule); border-radius:12px; cursor:pointer; transition:background .18s, border-color .18s; }
+.rp-mult-banner:hover { background:color-mix(in srgb, var(--accent) 6%, var(--bg-raised)); border-color:color-mix(in srgb, var(--accent) 25%, transparent); }
+.rp-mult-banner-icon { width:36px; height:36px; border-radius:10px; background:color-mix(in srgb, var(--accent) 12%, transparent); border:1px solid color-mix(in srgb, var(--accent) 25%, transparent); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:16px; color:var(--accent); }
 .rp-mult-banner-text { flex:1; min-width:0; }
-.rp-mult-banner-label { font-family:var(--font-display); font-size:13px; font-weight:600; color:rgba(255,255,255,0.82); }
-.rp-mult-banner-sub { font-family:var(--font-mono); font-size:10px; color:rgba(255,255,255,0.3); letter-spacing:0.5px; margin-top:2px; }
-.rp-mult-banner-chevron { color:rgba(124,58,237,0.5); transition:transform .2s; }
+.rp-mult-banner-label { font-family:var(--font-display); font-size:13px; font-weight:600; color:var(--text-primary); }
+.rp-mult-banner-sub { font-family:var(--font-mono); font-size:10px; color:var(--text-muted); letter-spacing:0.5px; margin-top:2px; }
+.rp-mult-banner-chevron { color:color-mix(in srgb, var(--accent) 50%, transparent); transition:transform .2s; }
 .rp-mult-banner-chevron.open { transform:rotate(180deg); }
 
 /* ── Instagram Carousel Slide ─────────────────────────────────────── */
 .rp-ig-wrap  { display:flex; flex-direction:column; gap:14px; }
-.rp-ig-slide { position:relative; aspect-ratio:1/1; width:100%; max-width:520px; margin:0 auto; border-radius:16px; overflow:hidden; cursor:grab; user-select:none; box-shadow:0 12px 48px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04); }
+.rp-ig-slide { position:relative; aspect-ratio:1/1; width:100%; max-width:520px; margin:0 auto; border-radius:16px; overflow:hidden; cursor:grab; user-select:none; box-shadow:0 12px 48px rgba(0,0,0,0.55),0 0 0 1px var(--rule); }
 .rp-ig-slide:active { cursor:grabbing; }
 .rp-ig-bg    { position:absolute; inset:0; }
 .rp-ig-glow  { position:absolute; inset:0; pointer-events:none; }
@@ -144,6 +149,9 @@
 
 .rp-ig-body-area  { flex:1; display:flex; flex-direction:column; justify-content:center; gap:clamp(7px,1.8%,12px); padding:clamp(6px,1.5%,14px) 0 0; min-height:0; }
 .rp-ig-accent-bar { height:4px; width:44px; border-radius:2px; flex-shrink:0; }
+/* NOTE: slide headline/body text sits ON TOP OF the carousel's own themed background
+   (SlideVisual.tsx / CAROUSEL_THEMES), not the app chrome — intentionally fixed
+   white-on-dark per CLAUDE.md §13, not a UI-theme token gap. */
 .rp-ig-headline   { font-family:var(--font-heading); font-size:clamp(15px,4.2%,25px); font-weight:700; color:rgba(255,255,255,0.96); line-height:1.22; margin:0; letter-spacing:-0.2px; word-break:break-word; }
 .rp-ig-headline.cover { font-size:clamp(18px,5%,30px); }
 .rp-ig-divider    { display:flex; align-items:center; gap:8px; flex-shrink:0; }
@@ -156,31 +164,32 @@
 .rp-ig-dots-row   { display:flex; align-items:center; gap:5px; flex-shrink:0; margin-top:auto; padding-top:clamp(6px,1.5%,12px); }
 .rp-ig-dot        { height:4px; border-radius:10px; transition:width .2s,background .2s,box-shadow .2s; cursor:pointer; flex-shrink:0; }
 
-/* Nav row below the slide */
+/* Nav row below the slide — app chrome, themed */
 .rp-ig-nav { display:flex; align-items:center; gap:10px; max-width:520px; margin:0 auto; width:100%; }
-.rp-ig-nav-btn { width:36px; height:36px; border-radius:50%; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:rgba(255,255,255,0.6); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all .18s; flex-shrink:0; }
-.rp-ig-nav-btn:hover { background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.9); }
+.rp-ig-nav-btn { width:36px; height:36px; border-radius:50%; background:var(--bg-raised); border:1px solid var(--rule); color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all .18s; flex-shrink:0; }
+.rp-ig-nav-btn:hover { background:var(--rule); color:var(--text-primary); }
 .rp-ig-nav-btn:disabled { opacity:0.3; cursor:default; }
 .rp-ig-nav-spacer { flex:1; }
 .rp-ig-nav-actions { display:flex; gap:7px; }
 
-/* Edit panel */
-.rp-ig-edit { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:12px; padding:18px; display:flex; flex-direction:column; gap:12px; animation:rp-fadeUp .2s ease both; max-width:520px; margin:0 auto; width:100%; box-sizing:border-box; }
+/* Edit panel — app chrome, themed */
+.rp-ig-edit { background:var(--bg-card); border:1px solid var(--rule); border-radius:12px; padding:18px; display:flex; flex-direction:column; gap:12px; animation:rp-fadeUp .2s ease both; max-width:520px; margin:0 auto; width:100%; box-sizing:border-box; }
 .rp-ig-edit-hd { display:flex; align-items:center; justify-content:space-between; }
-.rp-ig-edit-title { font-size:13.5px; font-weight:600; color:rgba(255,255,255,0.82); }
-.rp-ig-edit-close { background:none; border:none; color:rgba(255,255,255,0.3); cursor:pointer; font-size:16px; line-height:1; padding:2px; transition:color .15s; }
-.rp-ig-edit-close:hover { color:rgba(255,255,255,0.7); }
+.rp-ig-edit-title { font-size:13.5px; font-weight:600; color:var(--text-primary); }
+.rp-ig-edit-close { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:16px; line-height:1; padding:2px; transition:color .15s; }
+.rp-ig-edit-close:hover { color:var(--text-secondary); }
 /* ─────────────────────────────────────────────────────────────────── */
 
 @keyframes rp-fadeIn      { from{opacity:0} to{opacity:1} }
 @keyframes rp-slideInRight { from{transform:translateX(100%)} to{transform:translateX(0)} }
+@keyframes rp-slideInUp    { from{transform:translateY(100%)} to{transform:translateY(0)} }
 @keyframes rp-fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
 /* WHY: for elements whose base transform already centers them (translate(-50%,-50%)) —
    animating plain rp-fadeUp would overwrite that offset and knock the element off-center. */
 @keyframes rp-fadeUpCentered { from{opacity:0;transform:translate(-50%,calc(-50% + 6px))} to{opacity:1;transform:translate(-50%,-50%)} }
 @keyframes rp-spin   { to{transform:rotate(360deg)} }
 @keyframes rp-spinR  { to{transform:rotate(-360deg)} }
-@keyframes rp-pulse  { 0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,0.2)} 50%{box-shadow:0 0 0 4px rgba(245,158,11,0.07)} }
+@keyframes rp-pulse  { 0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 20%, transparent)} 50%{box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 7%, transparent)} }
 
 @media (max-width:1100px) {
   .rp-grid { grid-template-columns:1fr 300px; }
@@ -201,16 +210,49 @@
   .rp-sidebar { display:flex; flex-direction:column; position:static; max-height:none; overflow:visible; padding-right:0; gap:12px; }
   .rp-off     { display:none !important; }
   .rp-mult-grid { grid-template-columns:1fr 1fr; }
-  .rp-lv      { padding:2rem 1.2rem; gap:18px; }
-  .rp-lv-steps { flex-wrap:wrap; gap:10px; justify-content:center; }
-  .rp-lv-step { flex:0 0 calc(33% - 10px); }
+  .rp-lv      { padding:1.75rem 1.2rem; gap:20px; }
+  /* WHY: the desktop horizontal relay (absolute-positioned connector lines between
+     flex siblings) has no valid geometry once steps wrap onto multiple rows, so the
+     old mobile rule just hid the lines — losing the pipeline's "connected relay" look
+     it's meant to have. A vertical stepper keeps a real connector running the full
+     column instead — .rp-lv-steps (not each .rp-lv-step) is the line's positioning
+     parent so its height always spans exactly dot-center to dot-center regardless of
+     row height, rather than a magic-number offset that drifted from the box model. */
+  .rp-lv-steps { flex-direction:column; align-items:stretch; gap:16px; width:100%; max-width:280px; margin:0 auto; position:relative; }
+  .rp-lv-steps::before {
+    content:''; position:absolute; top:12px; bottom:12px; left:12px; width:1.5px;
+    background:var(--rule);
+  }
+  .rp-lv-step {
+    flex-direction:row; align-items:center; width:100%; flex:none; gap:12px; position:relative;
+  }
   .rp-lv-step-line { display:none; }
+  .rp-lv-step-text { display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+  .rp-lv-step-name { margin-top:0; text-align:left; }
+  .rp-lv-step-sub  { margin-top:0; text-align:left; }
+  .rp-lv-packet    { display:none; }
   .rp-footer-bar { display:flex; }
-  .rp { padding-bottom:80px; }
-  .rp-drawer  { width:100vw; }
+  /* WHY 140px, not 80px: .main-content (index.css) already reserves 72px+safe-area to
+     clear the global bottom nav; this page also needs its OWN ~64px-tall footer bar
+     (which now sits above that nav, not overlapping it — see .rp-footer-bar) cleared on
+     top of that, or the last card in the page gets tucked behind both fixed bars. */
+  .rp { padding-bottom:140px; }
+  /* WHY switch to a bottom sheet on mobile, not a full-width right-edge drawer:
+     width:100vw on the old right-side drawer left zero backdrop margin, so the panel
+     filled the entire screen edge-to-edge with no visible "this is an overlay, not a
+     new page" cue — tab switches inside it (Feedback/Post/Hashtags/Template) looked
+     like nothing had happened because the whole viewport was already drawer chrome.
+     A bottom sheet keeps a visible strip of the dimmed page above it at all times, and
+     is the platform-idiomatic mobile pattern for this kind of action panel anyway. */
+  .rp-drawer {
+    top:auto; right:0; left:0; bottom:0; width:auto; max-width:100vw;
+    max-height:min(80vh, 640px); border-left:none; border-top:1px solid var(--rule);
+    border-radius:16px 16px 0 0;
+    animation:rp-slideInUp .22s cubic-bezier(.16,1,.3,1) both;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
 }
 @media (max-width:480px) {
   .rp-footer-bar-btn span.rp-footer-label { display:none; }
   .rp-mult-grid   { grid-template-columns:1fr; }
-  .rp-lv-step     { flex:0 0 calc(50% - 10px); }
 }

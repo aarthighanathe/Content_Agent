@@ -54,7 +54,7 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
     <div style={{ width: '100%', maxWidth: 500, background: 'rgba(34,211,238,0.04)', border: '1px solid rgba(34,211,238,0.18)', borderRadius: 10, padding: '14px 16px', animation: 'rp-fadeUp .2s ease both' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'rgba(34,211,238,0.7)' }}>Hashtag Research</div>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><X size={14} /></button>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><X size={14} /></button>
       </div>
 
       {loading && (
@@ -77,7 +77,7 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {tiers.map(({ label, key, color }) => (
             <div key={key}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 }}>{label}</div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 }}>{label}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                 {(data[key] || []).map((tag: string) => (
                   <button key={tag} onClick={() => { navigator.clipboard.writeText(tag).catch(() => {}); }} title="Click to copy"
@@ -89,8 +89,8 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
               </div>
             </div>
           ))}
-          {data.reachTier && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>Reach tier: {data.reachTier}</div>}
-          {data.strategy && <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.4)', margin: 0, lineHeight: 1.6, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8 }}>{data.strategy}</p>}
+          {data.reachTier && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Reach tier: {data.reachTier}</div>}
+          {data.strategy && <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>{data.strategy}</p>}
           <button onClick={() => { const all = [...(data.broad || []), ...(data.niche || []), ...(data.branded || [])].join(' '); navigator.clipboard.writeText(all).catch(() => {}); }} style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.25)', borderRadius: 7, padding: '6px 12px', color: '#22D3EE', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
             <Copy size={10} /> Copy all hashtags
           </button>

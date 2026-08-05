@@ -49,10 +49,10 @@ export function CalendarGrid({
             <GripVertical size={15} aria-hidden />
           </button>
           <div>
-            <div style={{ fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:2.5, textTransform:'uppercase', color:'#F59E0B', marginBottom:4 }}>
+            <div style={{ fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:2.5, textTransform:'uppercase', color:'var(--accent)', marginBottom:4 }}>
               Content Calendar
             </div>
-            <h1 style={{ fontFamily:'var(--font-heading)', fontSize:'clamp(18px,4vw,24px)', fontWeight:700, color:'rgba(255,255,255,0.92)', lineHeight:1.1 }}>
+            <h1 style={{ fontFamily:'var(--font-heading)', fontSize:'clamp(18px,4vw,24px)', fontWeight:700, color:'var(--text-primary)', lineHeight:1.1 }}>
               {MONTH_NAMES[month]} {year}
             </h1>
           </div>
@@ -61,25 +61,25 @@ export function CalendarGrid({
         <div style={{ display:'flex', gap:16, alignItems:'center', flexWrap:'wrap' }}>
           <div style={{ display:'flex', gap:14, alignItems:'center' }}>
             <div style={{ textAlign:'center' }}>
-              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'#F59E0B', lineHeight:1 }}>{allScheduledCount}</div>
-              <div style={{ fontSize:9, color:'rgba(255,255,255,0.28)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>scheduled</div>
+              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'var(--accent)', lineHeight:1 }}>{allScheduledCount}</div>
+              <div style={{ fontSize:9, color:'var(--text-muted)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>scheduled</div>
             </div>
-            <div style={{ width:1, height:26, background:'rgba(255,255,255,0.07)' }} />
+            <div style={{ width:1, height:26, background:'var(--rule)' }} />
             <div style={{ textAlign:'center' }}>
-              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'#F59E0B', lineHeight:1 }}>{thisMonthScheduledCount}</div>
-              <div style={{ fontSize:9, color:'rgba(255,255,255,0.28)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>this month</div>
+              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'var(--accent)', lineHeight:1 }}>{thisMonthScheduledCount}</div>
+              <div style={{ fontSize:9, color:'var(--text-muted)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>this month</div>
             </div>
-            <div style={{ width:1, height:26, background:'rgba(255,255,255,0.07)' }} />
+            <div style={{ width:1, height:26, background:'var(--rule)' }} />
             <div style={{ textAlign:'center' }}>
-              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'rgba(255,255,255,0.5)', lineHeight:1 }}>{unscheduledCount}</div>
-              <div style={{ fontSize:9, color:'rgba(255,255,255,0.28)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>unscheduled</div>
+              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'var(--text-secondary)', lineHeight:1 }}>{unscheduledCount}</div>
+              <div style={{ fontSize:9, color:'var(--text-muted)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>unscheduled</div>
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             <button className="sc-nav-btn" onClick={onPrevMonth}><ChevronLeft size={15} /></button>
             <button
               onClick={onToday}
-              style={{ fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:0.5, background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.2)', color:'#F59E0B', borderRadius:7, padding:'6px 12px', cursor:'pointer', transition:'all .15s' }}
+              style={{ fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:0.5, background:'color-mix(in srgb, var(--accent) 8%, transparent)', border:'1px solid color-mix(in srgb, var(--accent) 20%, transparent)', color:'var(--accent)', borderRadius:7, padding:'6px 12px', cursor:'pointer', transition:'all .15s' }}
             >Today</button>
             <button className="sc-nav-btn" onClick={onNextMonth}><ChevronRight size={15} /></button>
           </div>
@@ -89,27 +89,35 @@ export function CalendarGrid({
       {/* Legend */}
       <div style={{ display:'flex', flexWrap:'wrap', gap:12 }}>
         {Object.entries(platformMeta).map(([id, cfg]) => (
-          <div key={id} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'rgba(255,255,255,0.4)' }}>
+          <div key={id} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-secondary)' }}>
             <div style={{ width:9, height:9, borderRadius:3, background:cfg.color+'44', border:`1px solid ${cfg.color}77` }} />
             {cfg.label}
           </div>
         ))}
-        <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'rgba(255,255,255,0.25)' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-muted)' }}>
           <Clock size={10} aria-hidden />
           {/* WHY updated hint (#12): old text said "Drag content from library to schedule" —
               now acknowledges both drag and the new click/keyboard path. */}
-          Drag a card to schedule · or tap <strong style={{ color:'rgba(255,255,255,0.35)' }}>Schedule…</strong> on any card
+          Drag a card to schedule · or tap <strong style={{ color:'var(--text-secondary)' }}>Schedule…</strong> on any card
         </div>
       </div>
 
-      {/* WHY this disclosure: the schedule (what's placed on which day) is saved to
-          this browser's localStorage only — there is no server sync, so it won't
-          appear on another device/browser and is lost if site data is cleared. This
-          wasn't disclosed anywhere before, unlike the sidebar's hitFetchCap banner
-          for its own limitation (FUNCTIONAL_AUDIT_2026-07.md finding #28). */}
-      <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10.5, color:'rgba(245,158,11,0.5)', fontFamily:'var(--font-mono)' }}>
+      {/* WHY this disclosure: the schedule (what's placed on which day) is now
+          saved server-side (scheduled_posts table, via calendarHelpers.ts's
+          useSchedule() hook — see CLAUDE.md §9), so placements survive a
+          cleared browser and sync across devices. The auto-publish caveat
+          below is still true and still needs disclosure, unlike the old
+          "browser only" claim which this replaced once server sync shipped
+          (previously undisclosed at all, unlike the sidebar's hitFetchCap
+          banner for its own limitation — FUNCTIONAL_AUDIT_2026-07.md finding #28).
+          WHY the second sentence: PostPanel.tsx has its own, separate reminder-only
+          social-scheduling concept ("schedule to actually publish to LinkedIn/Twitter
+          later") — without calling out that this calendar view is planning-only, a
+          user could reasonably assume placing a card here also queues a real post. */}
+      <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10.5, color:'color-mix(in srgb, var(--accent) 50%, transparent)', fontFamily:'var(--font-mono)' }}>
         <Clock size={10} aria-hidden />
-        Schedule is saved to this browser only — it won't appear on other devices.
+        Your schedule syncs across devices. This is a personal planning view, not an
+        auto-publish action — posting to social still happens separately from the Result page.
       </div>
 
       {/* Grid */}
@@ -118,7 +126,7 @@ export function CalendarGrid({
       ) : loading ? (
         <div className="sc-grid">
           {Array.from({length:35}).map((_,i) => (
-            <SkeletonBlock key={i} height={100} radius={10} delay={i * 0.04} style={{ border:'1px solid rgba(255,255,255,0.04)' }} />
+            <SkeletonBlock key={i} height={100} radius={10} delay={i * 0.04} style={{ border:'1px solid var(--rule)' }} />
           ))}
         </div>
       ) : (
@@ -166,9 +174,26 @@ export function CalendarGrid({
                   );
                 })}
                 {dayJobs.length > 3 && (
-                  <div style={{ fontSize:9, color:'rgba(255,255,255,0.25)', fontFamily:'var(--font-mono)', padding:'1px 4px' }}>
+                  // WHY its own <button>, not just text inside the cell: previously this
+                  // was inert text — clicking it only worked because it happened to sit
+                  // inside the whole-cell click target, and it never explicitly opened the
+                  // day (a click while already selected would toggle it closed instead of
+                  // guaranteeing the extra items become visible). This is now a distinct
+                  // affordance that always opens (never toggles closed) the day's detail
+                  // panel, where the remaining scheduled items are visible.
+                  <button
+                    type="button"
+                    className="sc-more-btn"
+                    aria-label={`Show ${dayJobs.length - 3} more scheduled item${dayJobs.length - 3 !== 1 ? 's' : ''} on this day`}
+                    onClick={(e) => { e.stopPropagation(); onSelectDay(dateKey); }}
+                    style={{
+                      fontSize:9, color:'var(--accent)', fontFamily:'var(--font-mono)', padding:'1px 4px',
+                      background:'none', border:'none', cursor:'pointer', textAlign:'left', textDecoration:'underline',
+                      textUnderlineOffset: 2,
+                    }}
+                  >
                     +{dayJobs.length-3} more
-                  </div>
+                  </button>
                 )}
                 <div className="sc-drop-hint">
                   {dragJobId ? '+ Schedule here' : ''}

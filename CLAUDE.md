@@ -262,7 +262,7 @@ ContentAgent is an **AI-powered social media content generation SaaS**. Given a 
 |---|---|
 | Framework | React 19.2.6 + Vite |
 | Language | TypeScript |
-| Styling | Tailwind CSS 4.3 (CSS-var-based, no `tailwind.config.js`) |
+| Styling | Tailwind CSS 4.3 (CSS-var-based, no `tailwind.config.js`); 6-theme UI system via `[data-theme]` custom properties — see §13 |
 | State | Zustand 5 (real-time SSE state), React Query 5 (server data) |
 | Routing | React Router DOM 6 |
 | Auth | Clerk (`@clerk/clerk-react`) |
@@ -372,7 +372,7 @@ All slides render in parallel (Promise.allSettled) → zipped with jszip → dow
 **Key files:**
 - `client/src/ssr/renderSlideHtml.tsx` — the React slide component, source of truth for both the on-screen preview and the exported PNG
 - `client/scripts/build-ssr.mjs` — esbuild bundles the above into `server/src/generated/slideRenderer.js` (run via `npm run build:ssr`, part of `server`'s `npm run build`)
-- `server/src/lib/carousel.ts` (247 lines) — Puppeteer browser pool + PNG cache + `stripScriptsAndEventHandlers()` only; no longer generates HTML
+- `server/src/lib/carousel.ts` (331 lines) — Puppeteer browser pool + PNG cache + `stripScriptsAndEventHandlers()` only; no longer generates HTML
 - `server/src/lib/carouselSsr.ts` — bridges the SSR bundle to the Puppeteer renderer above
 - `server/src/routes/jobs/render.ts` — the single remaining route: `POST /:jobId/export/carousel-png`
 
@@ -390,10 +390,8 @@ e:/AGContentAgent/
 ├── docker-compose.yml      ← LOCAL DEV ONLY — Postgres/Redis stand-ins for Neon/Upstash (see §12)
 ├── .gitignore
 │
-├── docs/
-│   └── archive/            ← Closed-out point-in-time audits (see §10)
-│       ├── FUNCTIONAL_AUDIT_2026-07.md
-│       └── UI_UX_AUDIT_2026-07.md
+│ (no docs/ directory today — see §10; CHANGELOG.md records a docs/archive/ folder being
+│  created 2026-07-28, but it and its two archived audit files are absent from the repo now)
 │
 ├── client/                 ← React + Vite SPA (port 5173)
 │   ├── .env.example        ← client-side env vars (VITE_-prefixed only, see §12)
@@ -409,6 +407,7 @@ e:/AGContentAgent/
 │       │   ├── AuthLayout.tsx          ← Protected route wrapper + nav sidebar
 │       │   ├── BrandIcons.tsx          ← SVG brand icons
 │       │   ├── OnboardingModal.tsx     ← First-run onboarding flow
+│       │   ├── ThemeSwitcher.tsx       ← Shared 6-theme picker (sidebar + landing nav) — see §13
 │       │   └── ToolsDropdown.tsx       ← Nav tools dropdown
 │       │
 │       ├── lib/
@@ -429,7 +428,11 @@ e:/AGContentAgent/
 │           │   ├── LandingStyles.tsx
 │           │   └── navLinks.ts
 │           ├── Dashboard.tsx           ← Job overview, stats, quick actions
-│           ├── Create.tsx              ← Single-screen job creation form (thin orchestrator; rewritten 2026-07 from a 2-step wizard — see §UI/UX audit note below)
+│           ├── Create.tsx              ← Single-screen job creation form (thin orchestrator); also owns the
+│           │                              batch-mode toggle (single ↔ multi-topic) added 2026-08-04
+│           ├── BatchResult.tsx         ← Landing page for a batch submission (polls each job, shows per-item
+│           │                              status/score) — reached only via router state from Create's batch
+│           │                              mode, not a standalone nav destination
 │           ├── Create/                 ← Sub-components for the Create form
 │           │   ├── AdvancedOptions.tsx    ← Carousel theme picker only (Saved Templates removed — feature was dead, no templates existed)
 │           │   ├── PlatformSelector.tsx   ← Full card grid (`PlatformSelector`) + compact chosen-platform row (`PlatformSummary`)
@@ -439,6 +442,7 @@ e:/AGContentAgent/
 │           │   ├── TopicSuggestions.tsx   ← Recent-topics dropdown with keyboard nav (arrows/Enter/Escape)
 │           │   ├── useDraft.ts            ← sessionStorage draft (topic/platform/tone/audience) surviving a trip to /brand and back; cleared on submit
 │           │   ├── errorMessages.ts       ← Maps server `{ error, code, retryable, retryAfterMs }` to actionable copy
+│           │   ├── BatchTopicList.tsx     ← Up to 7 topic+platform rows, submitted together via POST /jobs/batch
 │           │   └── TopicStep.tsx          ← Page body (platform summary/grid, topic, tone, brand-voice banner, audience, advanced, generate)
 │           ├── Brand.tsx               ← Brand settings page (thin orchestrator)
 │           ├── Brand/                  ← Sub-components for Brand settings
@@ -448,14 +452,12 @@ e:/AGContentAgent/
 │           │   ├── PublishingConnectionsCard.tsx
 │           │   ├── DangerZoneCard.tsx
 │           │   └── DeleteAccountModal.tsx
-│           ├── History.tsx             ← Paginated job list with bulk delete
+│           ├── History.tsx             ← Redirects to Library (merged into Library as content tab)
 │           ├── Library.tsx             ← Saved content library
 │           ├── Calendar.tsx            ← Content calendar view
-│           ├── Templates.tsx           ← Save/load/manage content templates
 │           ├── Ideate.tsx              ← AI topic brainstorming
 │           ├── Repurpose.tsx           ← URL → content (skips research phase)
 │           ├── Competitor.tsx          ← @handle competitor analysis
-│           ├── BatchResult.tsx         ← Multi-job (week planning) results
 │           └── Result.tsx              ← Main result viewer (thin orchestrator)
 │               └── Result/
 │                   ├── Result.css
@@ -466,7 +468,7 @@ e:/AGContentAgent/
 │                   │   ├── useMultiplier.ts    ← Content multiplication mutation
 │                   │   └── useSocial.ts        ← OAuth redirect + post
 │                   └── components/
-│                       ├── ActionDrawer.tsx        ← Consolidated drawer: feedback/post/hashtags/template
+│                       ├── ActionDrawer.tsx        ← Consolidated drawer: feedback/post/hashtags
 │                       ├── ContentColumn.tsx       ← Dispatches to platform renderer by job.platform
 │                       ├── ContentMultiplier.tsx   ← "Adapt to platform" UI
 │                       ├── ExportModal.tsx         ← Export options dialog
@@ -485,13 +487,21 @@ e:/AGContentAgent/
 │                       │   └── carousel/
 │                       │       ├── EditSlideModal.tsx
 │                       │       ├── IGCarouselPreview.tsx
-│                       │       ├── IGSlide.tsx         ← [REFACTOR CANDIDATE: 1157 lines — split by theme/section before next carousel change]
-│                       │       └── SlideVisual.tsx     ← Theme CSS applied to slide data
+│                       │       ├── IGSlide.tsx         ← 68 lines — thin dispatcher; per-theme rendering lives in igslide/
+│                       │       ├── SlideVisual.tsx     ← Theme CSS applied to slide data
+│                       │       └── igslide/            ← IGSlide.tsx's split-out theme/section pieces (was 1157 lines pre-split)
+│                       │           ├── constants.ts
+│                       │           ├── contentPieces.tsx
+│                       │           ├── decorativePrimitives.tsx
+│                       │           ├── presets.ts
+│                       │           ├── slideResolvers.ts
+│                       │           ├── types.ts
+│                       │           └── layouts/        ← CTALayout, ContentLayout, CoverLayout, FeaturesLayout,
+│                       │                                  HowToLayout, ProblemLayout, QuoteLayout, SolutionLayout, StatLayout
 │                       └── panels/
 │                           ├── FeedbackPanel.tsx
 │                           ├── HashtagPanel.tsx
-│                           ├── PostPanel.tsx
-│                           └── TemplatePanel.tsx
+│                           └── PostPanel.tsx
 │
 └── server/                 ← Express API + BullMQ worker (port 3001)
     ├── .env.example        ← server-side env vars, schema enforced by src/config.ts (see §12)
@@ -505,12 +515,15 @@ e:/AGContentAgent/
         │   │   ├── create.ts           ← POST /create, POST /batch + pipeline fallback
         │   │   ├── stream.ts           ← GET /:id/stream (SSE) + POST /:id/stream-token
         │   │   ├── render.ts           ← POST /:id/export/carousel-png (SSR-based ZIP export)
-        │   │   ├── manage.ts           ← GET list, GET /:id, DELETE, PATCH, regenerate, multiply
+        │   │   ├── list.ts             ← GET / — paginated/searchable/filterable/sortable job list
+        │   │   ├── versions.ts         ← GET /:id/versions, POST /:id/versions/:versionId/restore (Library version history)
+        │   │   ├── manage.ts           ← GET /:id, DELETE, PATCH, regenerate (snapshots a version), multiply
         │   │   └── ownership.ts        ← requireJobOwnership(); jobsMemory Map
         │   ├── content.ts              ← ideate, hashtags, repurpose, competitor
         │   ├── users.ts                ← brand-voice, analyze-voice, /me
         │   ├── social.ts               ← OAuth + post (LinkedIn, Twitter)
-        │   ├── templates.ts            ← CRUD for saved templates
+        │   ├── scheduledPosts.ts       ← GET/POST /api/scheduled-posts, DELETE /:jobId (Calendar server-sync)
+        │   ├── collections.ts          ← GET/POST /api/collections, DELETE /:id, GET/POST/DELETE /:id/jobs[/:jobId] (Library folders)
         │   ├── demo.ts                 ← Public demo (no auth, rate-limited)
         │   └── imageGen.ts             ← Multi-provider image gen with fallback chain
         │
@@ -524,11 +537,13 @@ e:/AGContentAgent/
         │
         ├── lib/
         │   ├── ai.ts                   ← Gemini wrapper + Groq fallback + retry logic
-        │   ├── carousel.ts             ← Puppeteer browser pool + PNG cache + stripScriptsAndEventHandlers() (247 lines — rewritten 2026-07, no longer generates HTML)
+        │   ├── carousel.ts             ← Puppeteer browser pool + PNG cache + stripScriptsAndEventHandlers() (331 lines — rewritten 2026-07 to drop HTML generation; grew from 247 during later Render/Puppeteer Chrome-detection fixes)
         │   ├── carouselSsr.ts          ← Bridges the prebuilt React SSR bundle (server/src/generated/slideRenderer.js) to the Puppeteer renderer in carousel.ts
         │   ├── logger.ts               ← Structured JSON logger (info/warn/error) — use instead of console.log per code style rules
         │   ├── persistJob.ts           ← Insert agent outputs to contentOutputs
         │   ├── queue.ts                ← BullMQ Queue + createRedisConnection()
+        │   ├── publishQueue.ts         ← BullMQ 'scheduled-publish' delayed queue (Calendar auto-publish)
+        │   ├── socialPublish.ts        ← Shared LinkedIn/Twitter posting logic — used by both routes/social.ts's POST /post and workers/publishWorker.ts
         │   ├── redisClient.ts          ← Shared Redis client
         │   ├── sse.ts                  ← SSEManager: broadcast events to connected clients
         │   └── tokenEncryption.ts      ← AES-256-GCM for social OAuth tokens
@@ -539,14 +554,15 @@ e:/AGContentAgent/
         │
         ├── db/
         │   ├── index.ts
-        │   └── schema.ts               ← 7 tables: users, contentJobs, contentOutputs, agentLogs, templates, socialTokens, userOnboarding
+        │   └── schema.ts               ← 11 tables: users, contentJobs, contentOutputs, agentLogs, socialTokens, userOnboarding, scheduledPosts, competitorAnalyses, collections, collectionJobs, jobOutputVersions
         │       (migrations tracked in server/drizzle/ via drizzle-kit — see `npm run db:generate` / `db:migrate`)
         │
         ├── lib/
         │   └── pipeline.ts             ← shared 5-stage pipeline (runContentPipeline/runAndPersistPipeline) — the single implementation both create.ts and contentWorker.ts call
         │
         ├── workers/
-        │   └── contentWorker.ts        ← BullMQ Worker; calls lib/pipeline.ts (same pipeline as the direct-mode fallback in create.ts)
+        │   ├── contentWorker.ts        ← BullMQ Worker; calls lib/pipeline.ts (same pipeline as the direct-mode fallback in create.ts)
+        │   └── publishWorker.ts        ← BullMQ Worker for the 'scheduled-publish' queue; posts to LinkedIn/Twitter at a scheduled_posts row's publish time
         │
         └── scripts/
             ├── demo_flow.ts            ← Dev script
@@ -665,6 +681,7 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 | Template cache (24h TTL) | Gemini template gen costs ~$0.002 and takes 3-8s. Themes rarely change between requests. |
 | BullMQ concurrency 2 | Cost control — each job burns Gemini + Tavily quota. Two concurrent is the deliberate cap. |
 | Social tokens AES-256-GCM | OAuth tokens grant write access to social accounts — plaintext storage is unacceptable. |
+| Single brand profile per user (no multi-workspace) | Intentional scope decision (2026-08-04) — `brandName`/`brandVoice`/`industry`/`contentDna` live directly as columns on `users`, no separate brand/workspace table. Do not build multi-brand/agency support unless this is explicitly revisited. |
 
 ---
 
@@ -682,23 +699,26 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   On an SSE connection error, the client now re-fetches a fresh stream-token and reopens the
   connection itself (`useJobData.ts`'s `connectToStream(..., onError)`) rather than relying solely
   on the browser's native retry, which kept reusing an eventually-expired token forever.
-- **Scheduled social posts are reminder-only** — `POST /api/social/schedule` saves the intent to
-  an in-memory `Map` (`server/src/routes/social.ts`); there is no delivery worker wired up yet to
-  actually publish at the scheduled time. The UI (`PostPanel.tsx`) discloses this explicitly
-  rather than implying auto-publishing. Wiring real delivery would mean a BullMQ delayed job that
-  calls the platform post APIs once a scheduler table exists.
-- **Calendar's day-schedule is browser-local only** — `Calendar/calendarHelpers.ts`'s
-  `loadSchedule`/`saveSchedule` read/write `localStorage` exclusively; there is no server sync, so
-  scheduled placements don't appear on another device and are lost if site data is cleared. The
-  Calendar page discloses this in its own UI. Fixing it would mean adding a `scheduledDate`-style
-  column and a real data-flow rework, not a small patch.
-- **Batch content generation has no UI entry point** — `POST /api/jobs/batch` and `BatchResult.tsx`
-  ("Week Generation") are both fully built and reachable directly, but the "Batch" nav item was
-  removed from `ToolsDropdown.tsx` because nothing in the app actually constructs a batch request
-  or the `?jobs=` URL that page expects, making it a guaranteed dead end. Re-add the nav entry once
-  a real batch-creation UI (e.g. a small form that POSTs to `/jobs/batch` and redirects to
-  `/batch?jobs=...`) is built.
-
+- **`POST /api/social/schedule` is still reminder-only** — saves the intent to an in-memory `Map`
+  (`server/src/routes/social.ts`); there is no delivery worker wired up for this specific entry
+  point. The UI (`PostPanel.tsx`) discloses this explicitly rather than implying auto-publishing.
+  This is a deliberately separate, narrower concept from the Calendar's real auto-publish below —
+  see `scheduledPosts.ts`'s WHY comment for why the two weren't unified in the same change.
+- **Calendar's day-schedule now supports real auto-publish (as of 2026-08-05)** — scheduling lives
+  in the `scheduled_posts` table (`server/src/db/schema.ts`, migration `0004_real_exodus.sql`,
+  extended by `0011_great_prima.sql` with `publishPlatform`/`publishStatus`/`publishedAt`/`postUrl`/
+  `publishError`) behind `server/src/routes/scheduledPosts.ts`, and `Calendar/calendarHelpers.ts`'s
+  `useSchedule()` hook reads/writes it via React Query. Placing a job on a date with no publish
+  platform stays exactly the old planning-only behavior. Choosing a platform (via `DayDetailPanel`'s
+  "Auto-publish…" control, only shown when the user has a connected LinkedIn/Twitter account) queues
+  a BullMQ delayed job (`lib/publishQueue.ts`, queue `scheduled-publish`) that fires at a fixed daily
+  hour (9am UTC — `PUBLISH_HOUR_UTC` in `scheduledPosts.ts`; no time-of-day picker yet) on the
+  scheduled date. `workers/publishWorker.ts` then calls the real platform post API, sharing the exact
+  same posting logic (`lib/socialPublish.ts`) as the interactive `POST /api/social/post` route, and
+  records the outcome back onto the row (`posted` + `postUrl`, or `failed` + `publishError`) so the
+  Calendar can show a status badge. Deliberately NOT unified with `social.ts`'s separate in-memory
+  schedule Map (see that route's own WHY comment) — this only wires the Calendar's existing
+  jobId+date table, not a merge of both scheduling concepts.
 ---
 
 ## 10. Docs Reference
@@ -712,18 +732,20 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 | `UI_UX_DOCUMENTATION.md` | Full design-system reference + differentiation analysis | Yes |
 | `ARCHITECTURE.md` | Accurate, current system architecture (companion to this file — see note below) | Yes |
 | `REVIEW_FINDINGS.md` | Open findings from the most recent full-codebase review; move fixed items to `CHANGELOG.md` | Yes |
-| `docs/archive/` | Closed-out, point-in-time audit docs kept for historical record (not living docs — see below) | Yes |
+| `docs/archive/` | Closed-out, point-in-time audit docs kept for historical record (not living docs — see below) | **No — see correction below** |
 
 There is no `ROADMAP.md` in this repo — don't add cross-references to it unless the file is
 created in the same change. This table used to list five planned-but-never-created `docs/*`
 files and a `ROADMAP.md`; the 2026-07-28 review (`REVIEW_FINDINGS.md` §1.9) found every reference
-to them was dangling, so they were removed rather than stubbed out. A real `docs/` directory was
-later added the same day (`docs/archive/`) once there was an actual reason for it — closed-out
-audit docs (`FUNCTIONAL_AUDIT_2026-07.md`, `UI_UX_AUDIT_2026-07.md`) moved out of the root during
-a production-readiness cleanup pass, since both had already been fully implemented per
-`CHANGELOG.md`. `REVIEW_FINDINGS.md` stayed at root — unlike those two, it's a **live** open-issues
-tracker updated in place, not a point-in-time snapshot, so archiving it would misrepresent open
-work as resolved history.
+to them was dangling, so they were removed rather than stubbed out. `CHANGELOG.md` records that a
+`docs/archive/` directory was added the same day, with `FUNCTIONAL_AUDIT_2026-07.md` and
+`UI_UX_AUDIT_2026-07.md` moved into it once both had been fully implemented — but a later doc-drift
+pass found neither `docs/` nor either archived file actually present in the repo today, despite
+that. **Treat `docs/archive/` as not existing until someone re-creates it** (either restore the
+directory and the two archived files, or strip the remaining references — see §4 folder listing
+above, which still shows it). `REVIEW_FINDINGS.md` stayed at root regardless — unlike those two,
+it's a **live** open-issues tracker updated in place, not a point-in-time snapshot, so archiving it
+would misrepresent open work as resolved history.
 
 **Why this file (CLAUDE.md) can drift from the real codebase:** architecture sections here are
 hand-written and only updated when someone remembers to. The 2026-07-28 review found this file
@@ -818,4 +840,61 @@ scripts, not from a Dockerfile).
 
 ---
 
-*Last updated: 2026-07-28 (all 21 Section 1 findings from `REVIEW_FINDINGS.md` fixed in this session — folder structure updated for the `Create`/`Brand`/`Landing` component splits, the `postEmbeddings` table removal, and the two dead-file deletions; `docs/`/`ROADMAP.md` cross-references removed repo-wide instead of stubbed; `IGSlide.tsx` flagged as the next oversized-file candidate. Later the same day: every fixable finding from `FUNCTIONAL_AUDIT_2026-07.md` was implemented — `users.content_dna` and `content_jobs.source_job_id`/`source_platform` added via migration `0002_cute_rogue.sql`, `GET /jobs` gained real server-side search/filter/sort, `VALID_TONES` extended to match the UI, the dead "Batch" nav entry removed, and `Section 9` above updated with the resulting known limitations. See `CHANGELOG.md` for the full dated entry. Later still: production deployment target confirmed as Vercel (client) + Render (server) + Neon + Upstash, all free tier; added `render.yaml`, `client/vercel.json`, split `client/.env.example` + `server/.env.example` out of the old root `.env.example`, relabeled `docker-compose.yml`/both Dockerfiles as local-dev-only, removed the `server/Dockerfile` line that baked `.env.example` into the image, and added this §12. See `CHANGELOG.md` for the full entry.)*
+## 13. UI Theme System
+
+> Six selectable color/font identities for app chrome (sidebar, landing page, every
+> authenticated page). **Not to be confused with** the pre-existing 9-theme carousel-slide
+> system (`CAROUSEL_THEMES` in `Result/constants.ts`, §11) — that's a separate, unrelated
+> concept for exported Instagram carousel visuals and is untouched by this system.
+
+**The 6 themes** (keys used in `data-theme` / `ThemeName`): `aurora` (default — the
+original gold/violet look), `deep-marine`, `obsidian-ember`, `nightshade`, `ink-verdigris`,
+`carbon-signal`.
+
+**Architecture:**
+- `client/src/index.css` defines all real color/font tokens as CSS custom properties in
+  `:root, [data-theme="aurora"] { ... }` plus one block per other theme (`--bg-base`,
+  `--bg-raised`, `--bg-card`, `--text-primary/secondary/muted`, `--rule`, `--accent`,
+  `--accent-2`, `--accent-glow`, `--on-accent`, `--font-display/heading/body/mono`).
+- The Tailwind 4 `@theme {}` block (further up the same file) no longer hardcodes values —
+  every `--color-*`/`--font-*` name inside it is aliased to one of the tokens above (e.g.
+  `--color-dark-900: var(--bg-base);`), so existing `bg-dark-900`-style utility classes
+  keep working unchanged while resolving through the active theme at runtime.
+- `data-theme` is set on `<html>`. `client/index.html` has a small inline `<script>` (before
+  any stylesheet/app code) that reads `localStorage['contentagent-theme']` and applies it
+  synchronously, preventing a flash of the Aurora default on reload.
+- `client/src/store.ts`'s Zustand store owns `themeName`/`setTheme(name)` — `setTheme`
+  writes `localStorage`, sets the `data-theme` attribute, and updates state so the switcher
+  UI re-renders. No portal usage exists in this codebase (all modals are `position: fixed`
+  divs in the normal tree), so custom-property inheritance reaches every surface without
+  special-casing.
+- `client/src/components/ThemeSwitcher.tsx` is the one shared switcher component, used in
+  both `AuthLayout.tsx` (sidebar, including a collapsed-state icon-only trigger) and
+  `Landing/Nav.tsx` + `Landing/MobileMenu.tsx`.
+
+**What stays fixed across all 6 themes (never themed):** success/error/warning colors,
+quality-score-tier colors (`StatusDisplay.tsx`'s `getTierInfo`, `QualityTierBadge.tsx`),
+platform-brand colors (Instagram/LinkedIn/Twitter/video), the `.badge-*` palette in
+`index.css`, `Result/constants.ts`'s `agentColors` and `CAROUSEL_THEMES`/`slideColors`, and
+naturally the entire carousel SSR render path (`renderSlideHtml.tsx`,
+`igslide/layouts/*.tsx`, `igslide/contentPieces.tsx`, `SlideVisual.tsx`) — these are
+meaningful signal colors or a deliberately separate design system, not brand decoration.
+
+**To add a 7th theme:**
+1. Add a new `[data-theme="your-key"] { ... }` block in `index.css` with all the tokens
+   listed above (pull real hex values from a design source — don't invent them).
+2. Add `'your-key'` to the `ThemeName` union in `store.ts`.
+3. Add an entry to `THEME_OPTIONS` in `ThemeSwitcher.tsx` (label + swatch hex, duplicated
+   there since only one `[data-theme]` block is active in the DOM at a time).
+4. Run the client build (`npm run build`) and spot-check contrast of `--text-secondary`/
+   `--text-muted` against the new `--bg-base` — don't assume opacity values tuned for
+   Aurora's near-black hold at a different base luminance.
+
+---
+
+*Last updated: 2026-08-02 (added the 6-theme UI system described in §13 — CSS custom
+properties per `[data-theme]`, `ThemeSwitcher.tsx`, flash-prevention script, and a
+color-token migration across ~75 `.tsx`/`.ts` files app-wide, leaving semantic/platform/
+carousel colors fixed. See `CHANGELOG.md` for the full dated entry.)*
+
+*Previously updated: 2026-07-28 (all 21 Section 1 findings from `REVIEW_FINDINGS.md` fixed in this session — folder structure updated for the `Create`/`Brand`/`Landing` component splits, the `postEmbeddings` table removal, and the two dead-file deletions; `docs/`/`ROADMAP.md` cross-references removed repo-wide instead of stubbed; `IGSlide.tsx` flagged as the next oversized-file candidate. Later the same day: every fixable finding from `FUNCTIONAL_AUDIT_2026-07.md` was implemented — `users.content_dna` and `content_jobs.source_job_id`/`source_platform` added via migration `0002_cute_rogue.sql`, `GET /jobs` gained real server-side search/filter/sort, `VALID_TONES` extended to match the UI, the dead "Batch" nav entry removed, and `Section 9` above updated with the resulting known limitations. See `CHANGELOG.md` for the full dated entry. Later still: production deployment target confirmed as Vercel (client) + Render (server) + Neon + Upstash, all free tier; added `render.yaml`, `client/vercel.json`, split `client/.env.example` + `server/.env.example` out of the old root `.env.example`, relabeled `docker-compose.yml`/both Dockerfiles as local-dev-only, removed the `server/Dockerfile` line that baked `.env.example` into the image, and added this §12. See `CHANGELOG.md` for the full entry.)*

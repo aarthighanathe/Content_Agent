@@ -40,17 +40,17 @@ export function TwitterContent({ content, onSave }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* A/B hook toggle */}
       {content.tweetOneAlt && !isEditing && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#08081A', border: '1px solid rgba(34,211,238,0.12)', borderRadius: 10, padding: '9px 14px' }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'rgba(255,255,255,0.28)', letterSpacing: 1, textTransform: 'uppercase' }}>Tweet 1 A/B</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-raised)', border: '1px solid rgba(34,211,238,0.12)', borderRadius: 10, padding: '9px 14px' }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Tweet 1 A/B</span>
           {(['A', 'B'] as const).map((v) => (
-            <button key={v} onClick={() => setUseAltHook(v === 'B')} style={{ padding: '3px 10px', borderRadius: 20, border: `1px solid ${(v === 'B') === useAltHook ? 'rgba(34,211,238,0.5)' : 'rgba(255,255,255,0.1)'}`, background: (v === 'B') === useAltHook ? 'rgba(34,211,238,0.1)' : 'none', color: (v === 'B') === useAltHook ? '#22D3EE' : 'var(--color-text-muted)', fontSize: 11, fontFamily: "var(--font-mono)", cursor: 'pointer', transition: 'all .15s' }}>{v}</button>
+            <button key={v} onClick={() => setUseAltHook(v === 'B')} style={{ padding: '3px 10px', borderRadius: 20, border: `1px solid ${(v === 'B') === useAltHook ? 'rgba(34,211,238,0.5)' : 'var(--rule)'}`, background: (v === 'B') === useAltHook ? 'rgba(34,211,238,0.1)' : 'none', color: (v === 'B') === useAltHook ? '#22D3EE' : 'var(--color-text-muted)', fontSize: 11, fontFamily: "var(--font-mono)", cursor: 'pointer', transition: 'all .15s' }}>{v}</button>
           ))}
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginLeft: 4 }}>Pick your opening hook</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 4 }}>Pick your opening hook</span>
         </div>
       )}
 
       {isEditing ? (
-        <div style={{ background: '#08081A', borderRadius: 14, border: '1px solid rgba(34,211,238,0.2)', overflow: 'hidden' }}>
+        <div style={{ background: 'var(--bg-raised)', borderRadius: 14, border: '1px solid rgba(34,211,238,0.2)', overflow: 'hidden' }}>
           <ContentEditShell label="Edit Twitter Thread" onClose={() => setIsEditing(false)} onSave={saveEdit}>
             {(editForm.tweets || []).map((tw, i) => (
               <div key={tw._key ?? i} style={{ display: 'flex', gap: 8 }}>
@@ -63,9 +63,9 @@ export function TwitterContent({ content, onSave }: Props) {
       ) : (
         <>
           {(content.tweets || []).map((tw, i) => (
-            <div key={tw.text || i} style={{ background: '#08081A', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(34,211,238,0.15)' }}>
+            <div key={tw.text || i} style={{ background: 'var(--bg-raised)', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(34,211,238,0.15)' }}>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'rgba(34,211,238,0.6)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10 }}>Tweet {i + 1}</div>
-              <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.8)', lineHeight: 1.65 }}>
+              <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.65 }}>
                 {i === 0 && useAltHook && content.tweetOneAlt ? content.tweetOneAlt : tw.text}
               </p>
             </div>

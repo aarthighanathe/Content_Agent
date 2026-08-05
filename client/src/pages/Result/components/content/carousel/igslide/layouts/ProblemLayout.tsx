@@ -3,11 +3,13 @@ import type { SlideData } from '../types';
 import { FONT, H_PAD, BOTTOM_PAD } from '../constants';
 import { GridLines, GlowBlob, LeftStripe } from '../decorativePrimitives';
 import { PillTag, StrikethroughPill } from '../contentPieces';
+import { stablePointKeys } from '../types';
 
 // ── Problem layout ────────────────────────────────────────────────────────────
 
 export function ProblemLayout({ slide, colors }: { slide: SlideData; colors: ColorSystem }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];
   const pad = H_PAD;
   const rp  = Math.max(pad, 50);
   return (
@@ -36,7 +38,7 @@ export function ProblemLayout({ slide, colors }: { slide: SlideData; colors: Col
         {hasPoints && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
             {slide.points!.map((pt, i) => (
-              <StrikethroughPill key={i} text={pt.label} />
+              <StrikethroughPill key={pointKeys[i]} text={pt.label} />
             ))}
           </div>
         )}

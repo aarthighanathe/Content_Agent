@@ -1,14 +1,18 @@
-import { searchTavily } from '../lib/ai.js';
+import { searchTavily, type TavilySearchResult } from '../lib/ai.js';
 import { sseManager } from '../lib/sse.js';
 import { ContentJob } from '../db/schema.js';
 
-interface ResearchResult {
+// WHY exported: writer.ts's WriterInput.researchReport reads this shape directly
+// (trendingAngles/keyFacts/suggestedHashtags/competitorHooks) — exporting it lets
+// writer.ts use the real type instead of a second, possibly-drifting copy of the
+// same shape.
+export interface ResearchResult {
   trendingAngles: string[];
   keyFacts: string[];
   suggestedHashtags: string[];
   competitorHooks: string[];
   sourceUrls: string[];
-  rawResults: any[];
+  rawResults: TavilySearchResult[];
 }
 
 export async function runResearcher(
@@ -23,10 +27,10 @@ export async function runResearcher(
     message: 'Searching the web for trends and insights...',
   });
 
-  const allResults: any[] = [];
+  const allResults: TavilySearchResult[] = [];
 
-  // AUDIT FIX #4 — run all 3 Tavily searches in parallel (was sequential, adding 6-9s latency)
-  // Partial failures are swallowed so one bad query doesn't abort the whole research stage
+  // WHY Promise.allSettled: running all 3 Tavily searches in parallel reduces latency from 6-9s (sequential) to ~2s.
+  // Partial failures are swallowed so one bad query doesn't abort the whole research stage.
   const searchResults = await Promise.allSettled(
     searchQueries.slice(0, 3).map((q) => searchTavily(q)),
   );
@@ -45,7 +49,7 @@ export async function runResearcher(
   const competitorHooks: string[] = [];
   const sourceUrls: string[] = [];
 
-  allResults.forEach((result: any) => {
+  allResults.forEach((result) => {
     if (result.url) sourceUrls.push(result.url);
     if (result.content) {
       // Extract potential hooks (first sentences)

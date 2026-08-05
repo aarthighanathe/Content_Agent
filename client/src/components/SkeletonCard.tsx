@@ -25,7 +25,7 @@ export function SkeletonBlock({ width = '100%', height = 10, radius = 5, delay =
       <style>{`@keyframes skel-shimmer { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }`}</style>
       <div
         style={{
-          width, height, borderRadius: radius, background: 'rgba(255,255,255,0.05)',
+          width, height, borderRadius: radius, background: 'var(--rule)',
           animation: `skel-shimmer 1.4s ease-in-out infinite${delay ? ` ${delay}s` : ''}`,
           flexShrink: 0, ...style,
         }}
@@ -47,7 +47,7 @@ const SIZES = {
 export function SkeletonCard({ size = 'md' }: SkeletonCardProps) {
   if (size === 'lines') {
     return (
-      <div style={{ background: '#08081A', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 13, padding: '16px 18px' }}>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--rule)', borderRadius: 13, padding: '16px 18px' }}>
         <SkeletonBlock height={12} radius={6} width="60%" style={{ marginBottom: 8 }} />
         <SkeletonBlock height={9} radius={5} width="40%" />
       </div>
@@ -56,7 +56,7 @@ export function SkeletonCard({ size = 'md' }: SkeletonCardProps) {
 
   const s = SIZES[size];
   return (
-    <div style={{ background: '#08081A', border: '1px solid rgba(255,255,255,0.05)', borderRadius: s.cardRadius, padding: s.pad, display: 'flex', alignItems: 'center', gap: s.gap }}>
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--rule)', borderRadius: s.cardRadius, padding: s.pad, display: 'flex', alignItems: 'center', gap: s.gap }}>
       <SkeletonBlock width={s.avatar} height={s.avatar} radius={s.avatarRadius} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <SkeletonBlock height={s.titleH} radius={5} width="65%" />

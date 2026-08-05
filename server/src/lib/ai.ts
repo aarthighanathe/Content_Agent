@@ -3,6 +3,19 @@ import Groq from 'groq-sdk';
 import { env } from '../config.js';
 import { logger } from './logger.js';
 
+// WHY exported here: agents/researcher.ts reads searchTavily's response shape
+// directly — this type lets that file use the real shape instead of `any`.
+export interface TavilySearchResult {
+  url?: string;
+  content?: string;
+  title?: string;
+  score?: number;
+}
+
+export interface TavilySearchResponse {
+  results: TavilySearchResult[];
+}
+
 let genAI: GoogleGenerativeAI | null = null;
 let groq: Groq | null = null;
 
@@ -24,24 +37,49 @@ function getGroq(): Groq {
   return groq;
 }
 
-function isRateLimitError(error: any): boolean {
+// WHY unknown + a local shape read, not a specific SDK error class: this function
+// classifies errors from BOTH Gemini (@google/generative-ai, which embeds status
+// codes in the message text, e.g. "[429 Too Many Requests]") and Groq
+// (groq-sdk's APIError, which has a real numeric .status) — no single imported
+// error class covers both, so a duck-typed read of optional .status/.message
+// fields is the honest common denominator rather than a false-precision cast to
+// either SDK's specific type.
+function getErrorStatus(error: unknown): number | undefined {
+  if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
+    return error.status;
+  }
+  return undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  return String(error);
+}
+
+function isRateLimitError(error: unknown): boolean {
+  const message = getErrorMessage(error);
   return Boolean(
-    error?.status === 429 ||
-    error?.message?.includes('429') ||
-    error?.message?.includes('quota') ||
-    error?.message?.includes('RESOURCE_EXHAUSTED')
+    getErrorStatus(error) === 429 ||
+    message.includes('429') ||
+    message.includes('quota') ||
+    message.includes('RESOURCE_EXHAUSTED')
   );
 }
 
-function isAuthError(error: any): boolean {
+function isAuthError(error: unknown): boolean {
+  const status = getErrorStatus(error);
+  const message = getErrorMessage(error);
   return Boolean(
-    error?.status === 400 ||
-    error?.status === 401 ||
-    error?.status === 403 ||
-    error?.message?.includes('API key not valid') ||
-    error?.message?.includes('API_KEY_INVALID') ||
-    error?.message?.includes('invalid') ||
-    error?.message?.includes('unauthorized')
+    status === 400 ||
+    status === 401 ||
+    status === 403 ||
+    message.includes('API key not valid') ||
+    message.includes('API_KEY_INVALID') ||
+    message.includes('invalid') ||
+    message.includes('unauthorized')
   );
 }
 
@@ -100,10 +138,19 @@ export async function generateWithAI(
       });
 
       // Race the API call against a hard timeout so a hanging request
-      // doesn't leave the user staring at an infinite spinner
-      const geminiCall = model.generateContent(prompt);
+      // doesn't leave the user staring at an infinite spinner. The
+      // AbortController is what actually stops the outbound HTTP request on
+      // timeout — without it, Promise.race only stops *waiting* for the
+      // loser, it doesn't cancel it, so the request kept running in the
+      // background under sustained provider slowness (compounding
+      // socket/fd pressure across retries and concurrent jobs).
+      const abortController = new AbortController();
+      const geminiCall = model.generateContent(prompt, { signal: abortController.signal });
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Gemini timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+        setTimeout(() => {
+          abortController.abort();
+          reject(new Error(`Gemini timed out after ${timeoutMs / 1000}s`));
+        }, timeoutMs)
       );
 
       const result = await Promise.race([geminiCall, timeoutPromise]);
@@ -116,9 +163,9 @@ export async function generateWithAI(
 
       recordGeminiSuccess();
       return text;
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (isAuthError(error)) {
-        console.error('Gemini auth/key error — check GEMINI_API_KEY in .env:', error?.message);
+        console.error('Gemini auth/key error — check GEMINI_API_KEY in .env:', getErrorMessage(error));
         recordGeminiFailure();
         break; // no point retrying an invalid key
       }
@@ -135,7 +182,7 @@ export async function generateWithAI(
         break;
       }
 
-      logger.warn('Gemini error', { attempt: attempt + 1, maxRetries, error: error?.message });
+      logger.warn('Gemini error', { attempt: attempt + 1, maxRetries, error: getErrorMessage(error) });
       recordGeminiFailure();
       if (attempt < maxRetries - 1) {
         await sleep(backoffs[attempt]);
@@ -148,8 +195,8 @@ export async function generateWithAI(
   // Groq fallback
   try {
     return await generateWithGroq(prompt, systemPrompt, { temperature, timeoutMs });
-  } catch (groqError: any) {
-    throw new Error(`All AI providers failed. Last error: ${groqError?.message}`, { cause: groqError });
+  } catch (groqError: unknown) {
+    throw new Error(`All AI providers failed. Last error: ${getErrorMessage(groqError)}`, { cause: groqError });
   }
 }
 
@@ -168,15 +215,22 @@ async function generateWithGroq(
       if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
       messages.push({ role: 'user', content: prompt });
 
+      // See the matching comment in generateWithAI's Gemini call — the
+      // AbortController is what actually cancels the outbound HTTP request
+      // on timeout, not just the local wait for it.
+      const abortController = new AbortController();
       const groqCall = client.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages,
         temperature,
         max_tokens: 8192,
-      });
+      }, { signal: abortController.signal });
 
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Groq timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+        setTimeout(() => {
+          abortController.abort();
+          reject(new Error(`Groq timed out after ${timeoutMs / 1000}s`));
+        }, timeoutMs)
       );
 
       const completion = await Promise.race([groqCall, timeoutPromise]);
@@ -187,8 +241,8 @@ async function generateWithGroq(
       }
 
       return text;
-    } catch (err: any) {
-      logger.warn('Groq error', { attempt: attempt + 1, maxRetries, error: err?.message });
+    } catch (err: unknown) {
+      logger.warn('Groq error', { attempt: attempt + 1, maxRetries, error: getErrorMessage(err) });
       if (attempt < maxRetries - 1) {
         await sleep(2000 * (attempt + 1));
         continue;
@@ -200,7 +254,7 @@ async function generateWithGroq(
   throw new Error('Groq exhausted all retries');
 }
 
-export async function searchTavily(query: string): Promise<any> {
+export async function searchTavily(query: string): Promise<TavilySearchResponse> {
   const apiKey = env.TAVILY_API_KEY;
   if (!apiKey) {
     console.warn('TAVILY_API_KEY not set, skipping search');
@@ -224,7 +278,17 @@ export async function searchTavily(query: string): Promise<any> {
       return { results: [] };
     }
 
-    return await response.json();
+    // WHY a shape check here (not a cast): response.json() is typed
+    // Promise<unknown> (Node's global fetch typings, not the DOM lib's looser
+    // Promise<any>) — an honest boundary to an external API response, same class
+    // as the LLM-response parsing this pass has been adding runtime checks to
+    // throughout. A malformed/unexpected Tavily response degrades to the same
+    // empty-results shape every other failure path in this function already uses.
+    const data: unknown = await response.json();
+    if (data && typeof data === 'object' && Array.isArray((data as { results?: unknown }).results)) {
+      return data as TavilySearchResponse;
+    }
+    return { results: [] };
   } catch (error) {
     console.warn('Tavily search error:', error);
     return { results: [] };

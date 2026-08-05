@@ -1,8 +1,9 @@
-import { useNavigate } from 'react-router-dom';
-import { RotateCcw, Copy, Download, ChevronLeft, Zap, Check } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { RotateCcw, Copy, Download, Zap, ChevronLeft, ExternalLink } from 'lucide-react';
 import { platNames } from '../constants';
-import { StatusDisplay } from './StatusDisplay';
 import { Button } from '../../../components/Button';
+import { QualityTierBadge } from '../../../components/QualityTierBadge';
+import { isSafeHttpUrl } from '../../../lib/utils';
 import type { ContentJob, CriticResult } from '../../../types/job';
 import type { SocialConnection } from '../../../types/api';
 import type { ResultContent } from './ContentColumn';
@@ -30,55 +31,68 @@ interface Props {
   };
 }
 
-// WHY unused params kept in the signature: content/jobId/isCarousel/social are part of
-// this component's stable prop contract (passed by Result.tsx) but not currently read in
-// the body — prefixed with `_` rather than dropped from Props to avoid changing the public
-// interface without tracing every caller's intent.
+// WHY content/isCarousel/social stay unread: they're part of this component's
+// stable prop contract (passed by Result.tsx) but genuinely not needed here —
+// prefixed with `_` rather than dropped from Props to avoid changing the
+// public interface without tracing every caller's intent. criticResult/
+// currentStage/progress ARE read below (quality-tier badge + in-progress
+// stage label), restoring the header-level status summary StatusDisplay.tsx
+// used to provide before its removal.
 export function ResultHeader({ jobData, content: _content, jobId: _jobId, isDone, regenerating, isCarousel: _isCarousel, copied, onCopyAll, onExport, onRegenerate, criticResult, currentStage, progress, onOpenActions, social: _social }: Props) {
-  const navigate = useNavigate();
-
   const platform = (jobData?.platform && platNames[jobData.platform]) || jobData?.platform || '';
   const audience = jobData?.targetAudience || '';
   const tone     = jobData?.tone || '';
+  const sourceUrl = jobData?.sourceUrl && isSafeHttpUrl(jobData.sourceUrl) ? jobData.sourceUrl : null;
 
   return (
     <>
       <div className="rp-hd">
-        {/* Breadcrumb */}
-        <div className="rp-breadcrumb">
-          <button onClick={() => navigate('/library')}>
-            <ChevronLeft size={8} /> History
-          </button>
-          <span className="rp-breadcrumb-sep">/</span>
-          <span>Result</span>
-          {isDone && !regenerating && <span className="rp-badge rp-badge-done" style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={9} /> Done</span>}
-          {((!isDone) || regenerating) && (
-            <span className="rp-badge rp-badge-gen" style={{ marginLeft: 6 }}>
-              <span className="rp-badge-dot" style={{ animation: 'rp-pulse 1.2s infinite' }} />
-              Generating
-            </span>
-          )}
-        </div>
+        {/* Breadcrumb back-link to Library */}
+        <Link
+          to="/library"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 12, color: 'var(--text-muted)', textDecoration: 'none',
+            marginBottom: 6,
+          }}
+        >
+          <ChevronLeft size={13} /> Library
+        </Link>
 
         {/* Full-width title */}
-        <div className="rp-title">
-          <div className="rp-eyebrow">
-            <span style={{ width: 16, height: 1, background: 'linear-gradient(90deg,#F59E0B,transparent)', display: 'inline-block' }} />
-            Content Result
-          </div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 'clamp(24px,4vw,48px)', fontWeight: 700, color: 'rgba(255,255,255,0.96)', lineHeight: 1.15, margin: '4px 0 0', letterSpacing: '-0.5px' }}>
+        <div className="rp-title" style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 'clamp(24px,4vw,48px)', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.15, margin: '4px 0 0', letterSpacing: '-0.5px', flex: '1 1 auto' }}>
             {jobData?.topic || 'Generating content…'}
           </h1>
+          {/* Header-level status summary: quality tier once scored, or the
+              current pipeline stage while still in progress. */}
+          {isDone && !regenerating && criticResult ? (
+            <QualityTierBadge score={criticResult.totalScore} size="md" />
+          ) : !isDone && currentStage ? (
+            <span
+              className="badge badge-blue"
+              style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', textTransform: 'capitalize', flexShrink: 0, marginTop: 8 }}
+            >
+              {currentStage} {progress > 0 ? `· ${progress}%` : ''}
+            </span>
+          ) : null}
         </div>
 
-        {/* Status display: stage, progress bar, quality tier */}
-        <StatusDisplay
-          isDone={isDone}
-          regenerating={regenerating}
-          currentStage={currentStage}
-          progress={progress}
-          criticResult={criticResult}
-        />
+        {/* Repurpose lineage — only present on jobs created from Repurpose's
+            "paste a URL" flow (see routes/content/repurpose.ts's sourceUrl). */}
+        {sourceUrl && (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6,
+              fontSize: 11.5, color: 'var(--text-muted)', textDecoration: 'none',
+            }}
+          >
+            <ExternalLink size={11} /> Repurposed from: {sourceUrl}
+          </a>
+        )}
 
         {/* Bottom row: meta pills + toolbar */}
         <div className="rp-hd-bottom">

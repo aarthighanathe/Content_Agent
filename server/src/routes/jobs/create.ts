@@ -1,15 +1,61 @@
 import * as Sentry from '@sentry/node';
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { eq, and } from 'drizzle-orm';
 import { AuthRequest } from '../../middleware/auth.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { sseManager } from '../../lib/sse.js';
 import { setJobInStore } from '../../workers/contentWorker.js';
-import { runAndPersistPipeline } from '../../lib/pipeline.js';
-import { userProfiles } from '../users.js';
+import { runAndPersistPipeline, type PipelineJob } from '../../lib/pipeline.js';
+import { getUserProfile } from '../users.js';
 import { jobsMemory } from './ownership.js';
-import { parseBody, createJobSchema, VALID_PLATFORMS } from '../../schemas/index.js';
+import { parseBody, createJobSchema, VALID_PLATFORMS, competitorResponseSchema } from '../../schemas/index.js';
 import { logger } from '../../lib/logger.js';
+import { db } from '../../db/index.js';
+import { competitorAnalyses } from '../../db/schema.js';
+import { isValidUUID } from '../../lib/uuid.js';
+
+// WHY a small standalone loader, not requireJobOwnership: that helper is
+// specific to contentJobs (jobsMemory/jobStore fallback, 404-not-403 IDOR
+// shape) — competitor analyses have no in-memory store and are never fetched
+// by :id anywhere else, so a focused query here avoids stretching that
+// helper's contract to cover a second, differently-shaped table. Returns null
+// on any failure (not owned, not found, DB unavailable, malformed content) —
+// competitor context is supplementary framing for the prompt, never required
+// for job creation to succeed, so every failure mode degrades to "no
+// competitor context" rather than blocking or erroring the request.
+async function loadOwnedCompetitorContext(
+  analysisId: string,
+  userId: string,
+): Promise<string | null> {
+  if (!db || !isValidUUID(userId)) return null;
+  try {
+    const row = await db.query.competitorAnalyses.findFirst({
+      where: and(
+        eq(competitorAnalyses.id, analysisId),
+        eq(competitorAnalyses.userId, userId),
+        eq(competitorAnalyses.deleted, 0),
+      ),
+    });
+    if (!row) return null;
+    const parsed = competitorResponseSchema.safeParse(row.analysis);
+    if (!parsed.success) return null;
+
+    const gaps = (parsed.data.contentGaps || [])
+      .map((g) => [g.gap, g.opportunity].filter(Boolean).join(': '))
+      .filter(Boolean);
+    const angles = (parsed.data.suggestedAngles || [])
+      .map((a) => [a.angle, a.rationale].filter(Boolean).join(': '))
+      .filter(Boolean);
+    const combined = [...gaps, ...angles].slice(0, 4).join('\n');
+    return combined || null;
+  } catch (err) {
+    logger.warn('Failed to load competitor analysis for job context (non-fatal)', {
+      analysisId, error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
 
 const router = Router({ mergeParams: true });
 
@@ -37,7 +83,7 @@ function releasePipelineSlot(): void {
   if (next) next();
 }
 
-async function _runPipelineDirect(jobId: string, job: any) {
+async function _runPipelineDirect(jobId: string, job: PipelineJob) {
   function emitProgress(stage: string, progress: number, agent: string, message: string, durationMs?: number) {
     const current = jobsMemory.get(jobId);
     if (current) {
@@ -61,7 +107,7 @@ async function _runPipelineDirect(jobId: string, job: any) {
 }
 
 // Public wrapper — enforces direct-pipeline concurrency limit
-export async function runPipelineDirect(jobId: string, job: any) {
+export async function runPipelineDirect(jobId: string, job: PipelineJob) {
   await acquirePipelineSlot();
   try {
     await _runPipelineDirect(jobId, job);
@@ -76,10 +122,25 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
     const body = parseBody(createJobSchema, req.body, res);
     if (!body) return;
 
-    const { topic, platform, tone, targetAudience } = body;
+    const { topic, platform, tone, targetAudience, competitorAnalysisId } = body;
     const jobId = uuidv4();
     const userId = req.dbUserId || req.userId || 'demo';
-    const userProfile = userProfiles.get(userId) || {};
+
+    // WHY Promise.all: getUserProfile and loadOwnedCompetitorContext are independent
+    // DB queries — neither depends on the other's result. Running them in parallel
+    // reduces latency on the job-creation hot path instead of awaiting sequentially.
+    const [userProfile, competitorContextRaw] = await Promise.all([
+      getUserProfile(userId),
+      competitorAnalysisId ? loadOwnedCompetitorContext(competitorAnalysisId, userId) : Promise.resolve(null),
+    ]);
+
+    // C3: when the job was created from a Competitor.tsx CTA, load that
+    // analysis's gaps/angles (ownership-checked) to inject as orchestrator
+    // context — see loadOwnedCompetitorContext's WHY above. Falls back to the
+    // client-supplied competitorContext string (already length-capped by
+    // sanitizeGenerationInput + createJobSchema) if the id lookup comes back
+    // empty, so a client that inlined the gap/angle text directly still works.
+    const competitorContext = competitorContextRaw || body.competitorContext;
 
     const job = {
       id: jobId, userId, topic, platform, tone, targetAudience,
@@ -87,6 +148,8 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
       phrasesUse: userProfile.phrasesUse || '',
       phrasesAvoid: userProfile.phrasesAvoid || '',
       contentDna: userProfile.contentDna || null,
+      competitorContext,
+      sourceCompetitorAnalysisId: competitorAnalysisId || null,
       status: 'pending', retryCount: 0, deleted: 0,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     };
@@ -99,6 +162,8 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
       userId, topic, platform, tone, targetAudience,
       brandVoice: job.brandVoice, phrasesUse: job.phrasesUse, phrasesAvoid: job.phrasesAvoid,
       contentDna: job.contentDna,
+      competitorContext: job.competitorContext,
+      sourceCompetitorAnalysisId: job.sourceCompetitorAnalysisId,
     });
 
     sseManager.sendEvent(jobId, { type: 'progress', stage: 'planning', progress: 1, agent: 'system', message: 'Starting content generation…' });
@@ -106,13 +171,18 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
     // NOTE: runPipelineDirect is intentionally NOT awaited — it runs as a background
     // promise so the 201 response is returned immediately and the client can subscribe
     // to SSE. Errors inside the pipeline are caught and written to jobsMemory/SSE.
+    // WHY .catch() here too: if acquirePipelineSlot() itself throws before
+    // runPipelineDirect's internal try/finally, the rejection would otherwise
+    // be unhandled at this call site — matches the batch-item path below.
     if (!queued) {
       logger.info('Queue unavailable, running pipeline directly');
-      runPipelineDirect(jobId, job);
+      runPipelineDirect(jobId, job).catch((err: unknown) => {
+        logger.error('Direct pipeline failed', { jobId, error: err instanceof Error ? err.message : String(err) });
+      });
     }
 
     return res.status(201).json({ jobId });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to create job:', error);
     Sentry.captureException(error, { tags: { route: 'POST /create' } });
     return res.status(500).json({ error: 'Failed to create job', code: 'SERVER_ERROR', retryable: true });
@@ -138,7 +208,7 @@ router.post('/batch', async (req: AuthRequest, res: Response) => {
 
     const { items, tone, targetAudience } = body;
     const userId = req.dbUserId || req.userId || 'demo';
-    const userProfile = userProfiles.get(userId) || {};
+    const userProfile = await getUserProfile(userId);
 
     // WHY Promise.allSettled over a for-await loop: each item does an independent
     // addJobToQueue() round-trip (Redis) plus a possible direct-pipeline kickoff;
@@ -190,10 +260,10 @@ router.post('/batch', async (req: AuthRequest, res: Response) => {
     }
 
     return res.status(201).json({ jobs: createdJobs });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to create batch jobs:', error);
     Sentry.captureException(error, { tags: { route: 'POST /batch' } });
-    return res.status(500).json({ error: 'Failed to create batch jobs', code: 'SERVER_ERROR' });
+    return res.status(500).json({ error: 'Failed to create batch jobs', code: 'SERVER_ERROR', retryable: true });
   }
 });
 

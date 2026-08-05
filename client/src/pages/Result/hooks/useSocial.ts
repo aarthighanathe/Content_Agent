@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getSocialConnections, postToSocial } from '../../../api';
 import type { PlatformContent, VideoScriptContentData } from '../../../types/job';
 import type { SocialConnection } from '../../../types/api';
@@ -23,11 +23,22 @@ export function useSocial(
   // successfully-posted link vanish while the user is still looking at the panel
   // (FUNCTIONAL_AUDIT_2026-07.md finding #10).
   const [postLinks, setPostLinks] = useState<Record<string, string>>({});
+  // WHY a ref-tracked Set, not a bare setTimeout: handlePostNow fires from a
+  // click handler, not an effect, so there's no natural cleanup point for its
+  // 4s "clear the ok/error badge" timer. Tracking every live timer here and
+  // clearing them all on unmount prevents a setState call landing after the
+  // component (or drawer) has unmounted.
+  const pendingTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   useEffect(() => {
     getSocialConnections()
       .then(({ connections }) => setSocialConnections(connections.filter((c) => c.connected)))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => () => {
+    pendingTimers.current.forEach(clearTimeout);
+    pendingTimers.current.clear();
   }, []);
 
   async function handlePostNow(platform: string) {
@@ -46,7 +57,11 @@ export function useSocial(
       setPostResult((p) => ({ ...p, [platform]: 'error' }));
     }
     setPostingTo(null);
-    setTimeout(() => setPostResult((p) => { const n = { ...p }; delete n[platform]; return n; }), 4000);
+    const timer = setTimeout(() => {
+      pendingTimers.current.delete(timer);
+      setPostResult((p) => { const n = { ...p }; delete n[platform]; return n; });
+    }, 4000);
+    pendingTimers.current.add(timer);
   }
 
   return { socialConnections, postingTo, postResult, postLinks, handlePostNow };

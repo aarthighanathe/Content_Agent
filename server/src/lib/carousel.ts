@@ -10,14 +10,20 @@
 import * as Sentry from '@sentry/node';
 import puppeteer from 'puppeteer';
 import type { Browser, LaunchOptions } from 'puppeteer';
+import { access } from 'fs/promises';
+import { constants } from 'fs';
 import { createHash } from 'crypto';
 import { logger } from './logger.js';
+import {
+  getPngCacheEntry,
+  isPngCacheEntryFresh,
+  touchAndGetPngCacheEntry,
+  removeStalePngCacheEntry,
+  addPngCacheEntry,
+  stopPngCacheSweep,
+} from './pngCache.js';
 
-// WHY: PNG cache — a Puppeteer screenshot takes 0.5-2s per slide. Re-exporting without
-// changing slide content returns the cached base64 PNG instantly.
-// Key includes jobId + slideIndex + theme + viewport + content hash to ensure correctness.
-const pngCache = new Map<string, { dataUrl: string; cachedAt: number }>();
-const PNG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export { stopPngCacheSweep };
 
 // Retained because the export route and PNG cache key still identify slides by theme.
 export type ThemeKey = 'aurora' | 'magazine' | 'split' | 'bold' | 'minimal' | 'neon' | 'violet' | 'crimson' | 'rose';
@@ -25,17 +31,24 @@ export type ThemeKey = 'aurora' | 'magazine' | 'split' | 'bold' | 'minimal' | 'n
 // SECURITY: strips scripts and event handlers from HTML before Puppeteer loads it.
 // setJavaScriptEnabled(false) in the renderer is the primary defense; this is a
 // defense-in-depth layer that removes JS before the page is even parsed.
+//
+// WHY <\/script\s*> not <\/script>: whitespace between a tag name and its
+// closing `>` is valid in an HTML end tag per the WHATWG tokenizer spec (e.g.
+// `</script >` or `</script\n>` both parse as a real closing </script> tag in
+// any conformant browser, including headless Chromium) — the original literal
+// `<\/script>` didn't tolerate that, so a payload like
+// `<script\n>fetch(...)</script\n>` slipped through unstripped. Caught by
+// tests/unit/carousel.test.ts's "irregular internal whitespace/newlines" case.
 export function stripScriptsAndEventHandlers(html: string): string {
   return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
     .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/javascript\s*:/gi, 'removed:')
     .replace(/data\s*:\s*text\/html/gi, 'removed:')
     .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '');
 }
 
-// AUDIT FIX #3 — Puppeteer browser pool (replaces single-instance singleton)
-// WHY: Browser pool — launching a new Chromium process takes ~800ms and ~150MB RAM.
+// WHY Browser pool: launching a new Chromium process takes ~800ms and ~150MB RAM.
 // Pre-warming POOL_MIN browsers at startup eliminates cold-start latency for the
 // first render requests. The pool auto-scales up to POOL_MAX and then queues.
 // Prevents OOM when many users render carousels concurrently.
@@ -43,7 +56,6 @@ export function stripScriptsAndEventHandlers(html: string): string {
 const POOL_MIN = 2;
 const POOL_MAX = 8;
 const RENDER_TIMEOUT_MS = 60_000;
-let puppeteerAvailable = true;
 // WHY: puppeteer.launch() and browser.close() have no built-in timeout — a hung
 // Chromium subprocess (OS-level stall, sandbox issue, zombie process) would block
 // the caller indefinitely with no error to recover from. Racing both against this
@@ -80,6 +92,61 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   ]);
 }
 
+// WHY resolved once and cached at module scope: spawnBrowser() runs on every pool
+// slot at initPool(), every replaceBrokenBrowser() respawn after a crash, and every
+// pool-growth event under load — re-running existsSync() over the same 3 fixed paths
+// each time is pure repeated filesystem I/O for an answer that can't change within
+// a process's lifetime. null = "not yet resolved", undefined = "resolved, none found".
+let _resolvedSystemChromePath: string | undefined | null = null;
+
+// WHY PUPPETEER_EXECUTABLE_PATH takes priority over the guessed paths below: an
+// explicit env var is a verified install contract (set by whoever configured the
+// deploy target), whereas the hardcoded paths are a guess specific to Render's
+// Debian/Ubuntu-based image that silently stops applying on any other platform.
+// WHY async fs.access instead of sync existsSync: avoids blocking the event loop
+// on the first call during pool initialization or browser respawn.
+async function resolveSystemChromePath(): Promise<string | undefined> {
+  if (_resolvedSystemChromePath !== null) return _resolvedSystemChromePath;
+
+  const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (envPath) {
+    try {
+      await access(envPath, constants.F_OK);
+      logger.info('[BrowserPool] Using Chrome from PUPPETEER_EXECUTABLE_PATH', { path: envPath });
+      _resolvedSystemChromePath = envPath;
+      return _resolvedSystemChromePath;
+    } catch {
+      // Path doesn't exist or isn't accessible, continue to fallback
+    }
+  }
+
+  // Only guess Render's known system-Chrome install locations when we have direct
+  // evidence we're actually running there — NODE_ENV=production alone is true on
+  // any production deploy target, not just Render, and these paths are Render-image-
+  // specific (see the note above re: PUPPETEER_EXECUTABLE_PATH being the portable fix).
+  if (process.env.RENDER === 'true') {
+    const possiblePaths = [
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+    ];
+    for (const path of possiblePaths) {
+      try {
+        await access(path, constants.F_OK);
+        logger.info('[BrowserPool] Using system Chrome at', { path });
+        _resolvedSystemChromePath = path;
+        return _resolvedSystemChromePath;
+      } catch {
+        // Path doesn't exist or isn't accessible, try next
+      }
+    }
+    logger.warn('[BrowserPool] RENDER=true but no known system Chrome path exists — falling back to Puppeteer auto-discovery', { checked: possiblePaths });
+  }
+
+  _resolvedSystemChromePath = undefined;
+  return _resolvedSystemChromePath;
+}
+
 async function spawnBrowser(): Promise<Browser> {
   // WHY: Configure Puppeteer to use Chrome with proper configuration for cloud environments.
   // Render provides system Chrome, so we try that first, then fall back to Puppeteer's bundled Chrome.
@@ -88,51 +155,33 @@ async function spawnBrowser(): Promise<Browser> {
     args: LAUNCH_ARGS,
   };
 
-  // On Render, try system Chrome first
-  if (process.env.RENDER === 'true' || process.env.NODE_ENV === 'production') {
-    const possiblePaths = [
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/chromium-browser',
-      '/usr/bin/chromium',
-    ];
-    
-    for (const path of possiblePaths) {
-      try {
-        const { existsSync } = await import('fs');
-        if (existsSync(path)) {
-          launchOptions.executablePath = path;
-          logger.info('[BrowserPool] Using Chrome at:', { path });
-          break;
-        }
-      } catch {
-        // Continue to next path
-      }
-    }
+  const systemChromePath = await resolveSystemChromePath();
+  if (systemChromePath) {
+    launchOptions.executablePath = systemChromePath;
   }
 
   try {
-    return await withTimeout(
+    const browser = await withTimeout(
       puppeteer.launch(launchOptions),
       BROWSER_LAUNCH_TIMEOUT_MS,
       'Browser launch',
     );
+    return browser;
   } catch (error) {
-    // If Chrome fails with explicit path, try without it (auto-discovery)
+    // If Chrome fails with explicit path, try without it (auto-discovery).
+    // Also invalidate the cached resolved path — a path that exists but fails
+    // to launch (stale/incompatible binary) shouldn't keep being retried by
+    // every subsequent spawnBrowser() call in this process.
     if (launchOptions.executablePath) {
-      logger.warn('[BrowserPool] Failed with explicit path, trying auto-discovery');
+      logger.warn('[BrowserPool] Failed with explicit path, trying auto-discovery', { path: launchOptions.executablePath });
+      _resolvedSystemChromePath = undefined;
       delete launchOptions.executablePath;
-      try {
-        return await withTimeout(
-          puppeteer.launch(launchOptions),
-          BROWSER_LAUNCH_TIMEOUT_MS,
-          'Browser launch (fallback)',
-        );
-      } catch (fallbackError) {
-        puppeteerAvailable = false;
-        throw fallbackError;
-      }
+      return await withTimeout(
+        puppeteer.launch(launchOptions),
+        BROWSER_LAUNCH_TIMEOUT_MS,
+        'Browser launch (fallback)',
+      );
     }
-    puppeteerAvailable = false;
     throw error;
   }
 }
@@ -275,7 +324,17 @@ export async function renderSlideWithPuppeteer(
 
     // networkidle2 = wait until ≤2 requests in-flight for 500ms; lets Google Font
     // requests complete in the background while the page is already visually ready.
-    const contentLoad = page.setContent(html, { waitUntil: 'networkidle2' as any, timeout: 25000 });
+    // WHY the cast: Puppeteer's SetContentWaitForOptions type deliberately
+    // excludes 'networkidle0'/'networkidle2' from setContent()'s waitUntil (they're
+    // typed as goto()-only), but setContent() still genuinely triggers real network
+    // activity here — the HTML references Google Fonts, so waiting on network
+    // idle is correct runtime behavior even though the type doesn't officially
+    // sanction it for this method. TS requires the through-unknown two-step (a
+    // direct cast is rejected as "insufficient overlap") — scoped to exactly this
+    // options object, not a blanket `any` that would loosen type-checking on
+    // anything else in this function.
+    const setContentOptions = { waitUntil: 'networkidle2', timeout: 25000 } as unknown as Parameters<typeof page.setContent>[1];
+    const contentLoad = page.setContent(html, setContentOptions);
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`Render timed out after ${RENDER_TIMEOUT_MS / 1000}s`)), RENDER_TIMEOUT_MS),
     );
@@ -308,8 +367,15 @@ export async function renderSlideWithCache(
   theme: ThemeKey,
   viewport: RenderViewport = DEFAULT_VIEWPORT,
 ): Promise<string> {
-  // NOTE: If Puppeteer is not available, throw a clear error for the caller
-  if (!puppeteerAvailable) {
+  // NOTE: gate on the pool actually having a browser (checked live), not a
+  // separately-tracked availability flag. POOL_MIN=2 browsers spawn
+  // concurrently in initPool() via Promise.allSettled; a flag independently
+  // written by each racing spawnBrowser() call has no ordering guarantee
+  // between them and could get stuck reporting unavailable even after a
+  // healthy browser landed in the pool. initPool() awaits allSettled before
+  // this check runs, so _pool.length here is race-free.
+  await initPool();
+  if (_pool.length === 0) {
     throw new Error('Carousel export is not available - Puppeteer browser pool could not be initialized');
   }
 
@@ -320,12 +386,13 @@ export async function renderSlideWithCache(
   const size = `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}`;
   const key = `png:${jobId}:${slideIndex}:${theme}:${size}:${contentHash}`;
 
-  const cached = pngCache.get(key);
-  if (cached && Date.now() - cached.cachedAt < PNG_CACHE_TTL_MS) {
-    return cached.dataUrl;
+  const cached = getPngCacheEntry(key);
+  if (cached && isPngCacheEntryFresh(cached)) {
+    return touchAndGetPngCacheEntry(key, cached); // bump recency
   }
+  if (cached) removeStalePngCacheEntry(key); // expired — remove rather than leave for the sweep
 
   const dataUrl = await renderSlideWithPuppeteer(html, viewport);
-  pngCache.set(key, { dataUrl, cachedAt: Date.now() });
+  addPngCacheEntry(key, dataUrl);
   return dataUrl;
 }

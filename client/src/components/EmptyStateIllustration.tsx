@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 
-export type EmptyStateVariant = 'dashboard' | 'history' | 'library' | 'templates' | 'search';
+export type EmptyStateVariant = 'dashboard' | 'history' | 'search';
 
 interface EmptyStateIllustrationProps {
   variant: EmptyStateVariant;
@@ -39,19 +39,6 @@ function DashboardIllustration() {
   );
 }
 
-// Faint stacked carousel-slide outlines — echoes the 9 Instagram carousel themes.
-function LibraryIllustration() {
-  return (
-    <svg viewBox="0 0 120 60" width="100%" height="100%" {...commonProps}>
-      <rect x="30" y="6" width="46" height="46" rx="6" opacity="0.35" />
-      <rect x="20" y="14" width="46" height="46" rx="6" opacity="0.6" />
-      <rect x="10" y="22" width="46" height="46" rx="6" strokeWidth="1.75" />
-      <line x1="20" y1="34" x2="42" y2="34" opacity="0.8" />
-      <line x1="20" y1="42" x2="36" y2="42" opacity="0.5" />
-    </svg>
-  );
-}
-
 // Faint clock-on-timeline — echoes History's chronological job list.
 function HistoryIllustration() {
   return (
@@ -60,17 +47,6 @@ function HistoryIllustration() {
       <path d="M60 19v11l8 6" strokeWidth="1.75" />
       <line x1="8" y1="30" x2="30" y2="30" strokeDasharray="1 5" opacity="0.6" />
       <line x1="90" y1="30" x2="112" y2="30" strokeDasharray="1 5" opacity="0.6" />
-    </svg>
-  );
-}
-
-// Faint bookmark/ribbon stack — echoes saved content templates.
-function TemplatesIllustration() {
-  return (
-    <svg viewBox="0 0 120 60" width="100%" height="100%" {...commonProps}>
-      <path d="M44 8h32a4 4 0 0 1 4 4v38l-20 -12l-20 12V12a4 4 0 0 1 4 -4z" opacity="0.7" />
-      <line x1="52" y1="20" x2="68" y2="20" opacity="0.6" />
-      <line x1="52" y1="27" x2="64" y2="27" opacity="0.4" />
     </svg>
   );
 }
@@ -93,8 +69,6 @@ function SearchIllustration() {
 const VARIANTS: Record<EmptyStateVariant, typeof DashboardIllustration> = {
   dashboard: DashboardIllustration,
   history: HistoryIllustration,
-  library: LibraryIllustration,
-  templates: TemplatesIllustration,
   search: SearchIllustration,
 };
 

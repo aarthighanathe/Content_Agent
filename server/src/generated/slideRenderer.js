@@ -473,7 +473,7 @@ var require_react_production = __commonJS({
     exports.useTransition = function() {
       return ReactSharedInternals.H.useTransition();
     };
-    exports.version = "19.2.6";
+    exports.version = "19.2.8";
   }
 });
 
@@ -634,7 +634,7 @@ var require_react_dom_production = __commonJS({
     exports.useFormStatus = function() {
       return ReactSharedInternals.H.useHostTransitionStatus();
     };
-    exports.version = "19.2.6";
+    exports.version = "19.2.8";
   }
 });
 
@@ -5598,7 +5598,7 @@ var require_react_dom_server_legacy_node_production = __commonJS({
         'The server used "renderToString" which does not support Suspense. If you intended for this Suspense boundary to render the fallback content on the server consider throwing an Error somewhere within the Suspense boundary. If you intended to have the server wait for the suspended component please switch to "renderToPipeableStream" which supports Suspense on the server'
       );
     };
-    exports.version = "19.2.6";
+    exports.version = "19.2.8";
   }
 });
 
@@ -10917,9 +10917,9 @@ var require_react_dom_server_node_production = __commonJS({
     }
     function ensureCorrectIsomorphicReactVersion() {
       var isomorphicReactPackageVersion = React2.version;
-      if ("19.2.6" !== isomorphicReactPackageVersion)
+      if ("19.2.8" !== isomorphicReactPackageVersion)
         throw Error(
-          'Incompatible React versions: The "react" and "react-dom" packages must have the exact same version. Instead got:\n  - react:      ' + (isomorphicReactPackageVersion + "\n  - react-dom:  19.2.6\nLearn more: https://react.dev/warnings/version-mismatch")
+          'Incompatible React versions: The "react" and "react-dom" packages must have the exact same version. Instead got:\n  - react:      ' + (isomorphicReactPackageVersion + "\n  - react-dom:  19.2.8\nLearn more: https://react.dev/warnings/version-mismatch")
         );
     }
     ensureCorrectIsomorphicReactVersion();
@@ -11442,7 +11442,7 @@ var require_react_dom_server_node_production = __commonJS({
         }
       };
     };
-    exports.version = "19.2.6";
+    exports.version = "19.2.8";
   }
 });
 
@@ -12326,6 +12326,17 @@ function CoverLayout({ slide, index, colors, brandName, handle, preset }) {
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CoverLayoutA, { slide, index, colors, brandName, handle });
 }
 
+// src/pages/Result/components/content/carousel/igslide/types.ts
+function stablePointKeys(points) {
+  const seen = /* @__PURE__ */ new Map();
+  return points.map((pt) => {
+    const base = `${pt.label}::${pt.desc}`;
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return `${base}#${occurrence}`;
+  });
+}
+
 // src/pages/Result/components/content/carousel/igslide/layouts/ContentLayout.tsx
 var import_jsx_runtime5 = __toESM(require_jsx_runtime(), 1);
 var CONTENT_PILL_LABELS = ["KEY POINTS", "INSIGHTS", "BREAKDOWN", "DEEP DIVE", "TAKEAWAY", "OVERVIEW"];
@@ -12336,6 +12347,7 @@ function ContentLayoutA({ slide, index, colors, bgMode }) {
   const numColor = isLight ? colors.BRAND_PRIMARY : colors.BRAND_LIGHT;
   const divColor = isLight ? colors.BRAND_PRIMARY + "22" : "rgba(255,255,255,0.07)";
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points) : [];
   const pillLabel = CONTENT_PILL_LABELS[index % CONTENT_PILL_LABELS.length];
   const pad = H_PAD;
   const rp = Math.max(pad, 50);
@@ -12351,7 +12363,7 @@ function ContentLayoutA({ slide, index, colors, bgMode }) {
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { style: { margin: hasPoints ? "0 0 8px" : "0 0 10px", fontSize: hasPoints ? 20 : 24, fontWeight: 700, lineHeight: 1.14, letterSpacing: -0.3, color: headColor, fontFamily: FONT, flexShrink: 0 }, children: slide.headline }),
       slide.body && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { style: { margin: hasPoints ? "0 0 10px" : "0", fontSize: 13, lineHeight: 1.55, color: bodyColor, fontFamily: FONT, flexShrink: 0 }, children: slide.body }),
       hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { height: 1, background: divColor, marginBottom: 4, flexShrink: 0 } }),
-      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden", flex: 1, minHeight: 0 }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FeatureCard, { fi: i, point: pt, colors, isLight, isLast: i === slide.points.length - 1 }, i)) }),
+      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden", flex: 1, minHeight: 0 }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FeatureCard, { fi: i, point: pt, colors, isLight, isLast: i === slide.points.length - 1 }, pointKeys[i])) }),
       !hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { style: { marginTop: 20, flexShrink: 0 }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { borderRadius: 8, overflow: "hidden", height: 90, marginBottom: 10, border: `1px solid ${isLight ? colors.BRAND_PRIMARY + "18" : "rgba(255,255,255,0.07)"}`, opacity: 0.78 }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SlideVisual, { slide, index, colors, width: 360, height: 90, variant: "block" }) }),
         /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { height: 1, background: divColor, marginBottom: 12 } }),
@@ -12370,6 +12382,7 @@ function ContentLayoutB({ slide, index, colors, bgMode }) {
   const accent = isLight ? colors.BRAND_PRIMARY : colors.BRAND_LIGHT;
   const divColor = isLight ? colors.BRAND_PRIMARY + "22" : "rgba(255,255,255,0.07)";
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points) : [];
   const glowP = GLOW_PRESETS[(index + 1) % GLOW_PRESETS.length];
   return /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }, children: [
     /* @__PURE__ */ (0, import_jsx_runtime5.jsxs)("div", { style: {
@@ -12392,7 +12405,7 @@ function ContentLayoutB({ slide, index, colors, bgMode }) {
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { style: { margin: hasPoints ? "0 0 10px" : "0 0 12px", fontSize: hasPoints ? 22 : 26, fontWeight: 800, lineHeight: 1.1, letterSpacing: -0.5, color: headColor, fontFamily: FONT, flexShrink: 0 }, children: slide.headline }),
       slide.body && !hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { style: { margin: "0 0 14px", fontSize: 13, lineHeight: 1.6, color: bodyColor, fontFamily: FONT, flexShrink: 0 }, children: slide.body }),
       hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { height: 1, background: divColor, marginBottom: 8, flexShrink: 0 } }),
-      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, minHeight: 0, overflow: "hidden" }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FeatureCard, { fi: i, point: pt, colors, isLight, isLast: i === slide.points.length - 1 }, i)) }),
+      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, minHeight: 0, overflow: "hidden" }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FeatureCard, { fi: i, point: pt, colors, isLight, isLast: i === slide.points.length - 1 }, pointKeys[i])) }),
       !hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { marginTop: 20, flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { borderRadius: 8, overflow: "hidden", height: 88, border: `1px solid ${isLight ? colors.BRAND_PRIMARY + "18" : "rgba(255,255,255,0.07)"}`, opacity: 0.78 }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SlideVisual, { slide, index, colors, width: 360, height: 88, variant: "block" }) }) })
     ] })
   ] });
@@ -12403,6 +12416,7 @@ function ContentLayoutC({ slide, index, colors, bgMode }) {
   const bodyColor = isLight ? colors.BRAND_DARK + "AA" : "rgba(255,255,255,0.56)";
   const accent = isLight ? colors.BRAND_PRIMARY : colors.BRAND_LIGHT;
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points) : [];
   const cardBg = isLight ? "rgba(255,255,255,0.68)" : "rgba(255,255,255,0.05)";
   const cardBorder = isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.09)";
   const glowP = GLOW_PRESETS[(index + 2) % GLOW_PRESETS.length];
@@ -12430,7 +12444,7 @@ function ContentLayoutC({ slide, index, colors, bgMode }) {
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { width: 32, height: 3, background: accent, borderRadius: 2, marginBottom: 10, flexShrink: 0 } }),
       /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("h2", { style: { margin: hasPoints ? "0 0 10px" : "0 0 12px", fontSize: hasPoints ? 20 : 23, fontWeight: 700, lineHeight: 1.15, letterSpacing: -0.3, color: headColor, fontFamily: FONT, flexShrink: 0 }, children: slide.headline }),
       slide.body && !hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("p", { style: { margin: 0, fontSize: 13, lineHeight: 1.55, color: bodyColor, fontFamily: FONT, flexShrink: 0 }, children: slide.body }),
-      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, minHeight: 0, overflow: "hidden" }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FeatureCard, { fi: i, point: pt, colors, isLight, isLast: i === slide.points.length - 1 }, i)) }),
+      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, minHeight: 0, overflow: "hidden" }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(FeatureCard, { fi: i, point: pt, colors, isLight, isLast: i === slide.points.length - 1 }, pointKeys[i])) }),
       !hasPoints && /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { marginTop: 20, flexShrink: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)("div", { style: { borderRadius: 6, overflow: "hidden", height: 72, border: `1px solid ${isLight ? colors.BRAND_PRIMARY + "14" : "rgba(255,255,255,0.06)"}`, opacity: 0.72 }, children: /* @__PURE__ */ (0, import_jsx_runtime5.jsx)(SlideVisual, { slide, index, colors, width: 340, height: 72, variant: "block" }) }) })
     ] })
   ] });
@@ -12567,6 +12581,7 @@ function CTALayout({ slide, colors, brandName, handle }) {
 var import_jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
 function ProblemLayout({ slide, colors }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points) : [];
   const pad = H_PAD;
   const rp = Math.max(pad, 50);
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: `24px ${rp}px ${BOTTOM_PAD}px ${pad + 10}px`, position: "relative" }, children: [
@@ -12577,7 +12592,7 @@ function ProblemLayout({ slide, colors }) {
     /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", justifyContent: hasPoints ? "flex-start" : "center" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h2", { style: { margin: "20px 0 12px", fontSize: 28, fontWeight: 700, lineHeight: 1.1, letterSpacing: -0.5, color: "#fff", fontFamily: FONT, flexShrink: 0 }, children: slide.headline }),
       slide.body && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { style: { margin: "0 0 20px", fontSize: 13, lineHeight: 1.6, color: "rgba(255,255,255,0.52)", fontFamily: FONT, flexShrink: 0 }, children: slide.body }),
-      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, flexShrink: 0 }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(StrikethroughPill, { text: pt.label }, i)) })
+      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, flexShrink: 0 }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(StrikethroughPill, { text: pt.label }, pointKeys[i])) })
     ] })
   ] });
 }
@@ -12604,6 +12619,7 @@ function SolutionLayout({ slide, colors, brandName, handle }) {
 var import_jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 function HowToLayout({ slide, colors }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points) : [];
   const pad = H_PAD;
   const rp = Math.max(pad, 50);
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: `24px ${rp}px ${BOTTOM_PAD}px ${pad + 10}px`, position: "relative" }, children: [
@@ -12617,7 +12633,7 @@ function HowToLayout({ slide, colors }) {
       hasPoints && // WHY justifyContent: center — a short points list (e.g. 3-4 rows) in a tall
       // box otherwise packs to the top and leaves empty space below; centering keeps
       // it looking intentional whether there are 2 rows or enough to fill the box.
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden", flex: 1, minHeight: 0 }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(NumberedStep, { point: pt, stepNum: i + 1, colors, isLight: true, isLast: i === slide.points.length - 1 }, i)) })
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden", flex: 1, minHeight: 0 }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(NumberedStep, { point: pt, stepNum: i + 1, colors, isLight: true, isLast: i === slide.points.length - 1 }, pointKeys[i])) })
     ] })
   ] });
 }
@@ -12626,6 +12642,7 @@ function HowToLayout({ slide, colors }) {
 var import_jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 function FeaturesLayout({ slide, colors }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points) : [];
   const pad = H_PAD;
   const rp = Math.max(pad, 50);
   return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", padding: `24px ${rp}px ${BOTTOM_PAD}px ${pad + 10}px`, position: "relative" }, children: [
@@ -12635,7 +12652,7 @@ function FeaturesLayout({ slide, colors }) {
     /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", justifyContent: hasPoints ? "flex-start" : "center" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h2", { style: { margin: hasPoints ? "12px 0 4px" : "0 0 4px", fontSize: hasPoints ? 20 : 26, fontWeight: 700, lineHeight: 1.14, letterSpacing: -0.3, color: colors.BRAND_DARK, fontFamily: FONT, flexShrink: 0 }, children: slide.headline }),
       slide.body && !hasPoints && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { style: { margin: 0, fontSize: 13, lineHeight: 1.6, color: colors.BRAND_DARK + "AA", fontFamily: FONT, flexShrink: 0 }, children: slide.body }),
-      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, minHeight: 0, overflow: "hidden" }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(FeatureRow, { fi: i, point: pt, colors, isLight: true, isLast: i === slide.points.length - 1 }, i)) })
+      hasPoints && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, minHeight: 0, overflow: "hidden" }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(FeatureRow, { fi: i, point: pt, colors, isLight: true, isLast: i === slide.points.length - 1 }, pointKeys[i])) })
     ] })
   ] });
 }

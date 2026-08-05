@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Outlet, NavLink, Link } from 'react-router-dom';
-import { SignedIn, SignedOut, RedirectToSignIn, UserButton, useUser } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, RedirectToSignIn, UserButton, useUser, useAuth } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { OnboardingModal } from './OnboardingModal';
-import { ToolsDrawer } from './ToolsDropdown';
+import { ThemeSwitcher } from './ThemeSwitcher';
 import { getProfile } from '../api';
 import { useAppStore } from '../store';
 import {
@@ -24,18 +24,19 @@ const sidebarNav = [
   { to: '/brand',     icon: Palette,         label: 'Brand Voice' },
 ];
 
-// Mobile: 4-item bottom tab bar
+// Mobile: 5-item bottom tab bar (Tools integrated for simpler mobile UX)
 const mobileTabItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Home' },
   { to: '/create',    icon: Sparkles,        label: 'Create' },
   { to: '/library',   icon: Clock,           label: 'Library' },
+  { to: '/ideate',    icon: Lightbulb,       label: 'Ideate' },
   { to: '/brand',     icon: Palette,         label: 'Brand' },
 ];
 
 export default function AuthLayout() {
   const [collapsed, setCollapsed] = useState(false);
-  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const { user } = useUser();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const setUserProfile = useAppStore((s) => s.setUserProfile);
 
   // WHY fetched here, not just on Dashboard/Brand: userProfile (Zustand) previously
@@ -45,7 +46,16 @@ export default function AuthLayout() {
   // the wrong thing (FUNCTIONAL_AUDIT_2026-07.md finding #8). This runs once per
   // authenticated session, for every page, using the same ['dashboard','profile']
   // query key Dashboard/Brand already share so a save on Brand still invalidates it.
-  const profileQuery = useQuery({ queryKey: ['dashboard', 'profile'], queryFn: getProfile });
+  // WHY enabled: authLoaded && isSignedIn — without this, the query fires the instant
+  // AuthLayout mounts, before Clerk has hydrated window.Clerk.session. api.ts's request
+  // interceptor then finds no session, sends no Authorization header, and the server
+  // 401s. Gating on Clerk's own loaded/signed-in state means getToken() always has a
+  // real session to read from by the time this request goes out.
+  const profileQuery = useQuery({
+    queryKey: ['dashboard', 'profile'],
+    queryFn: getProfile,
+    enabled: authLoaded && isSignedIn,
+  });
   useEffect(() => {
     if (!profileQuery.data) return;
     const { brandName, brandVoice, phrasesUse, phrasesAvoid } = profileQuery.data;
@@ -68,7 +78,7 @@ export default function AuthLayout() {
                     <span style={{ fontSize: 15, fontFamily: "var(--font-mono)", fontWeight: 500 }}>✦</span>
                   </div>
                   <span className="sidebar-logo-text">
-                    Content<span style={{ color: '#F59E0B' }}>Agent</span>
+                    Content<span style={{ color: 'var(--accent)' }}>Agent</span>
                   </span>
                 </Link>
               )}
@@ -105,6 +115,11 @@ export default function AuthLayout() {
               ))}
             </nav>
 
+            {/* Theme switcher — stays visible collapsed via icon-only trigger */}
+            <div style={{ padding: collapsed ? '0 0 8px' : '0 10px 8px', display: 'flex', justifyContent: collapsed ? 'center' : undefined }}>
+              <ThemeSwitcher collapsed={collapsed} align="up" />
+            </div>
+
             {/* User section */}
             <div className="sidebar-user" style={{ justifyContent: collapsed ? 'center' : undefined }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -115,7 +130,9 @@ export default function AuthLayout() {
                   <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user?.firstName || 'User'}
                   </p>
-                  <p style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.26)', fontFamily: "var(--font-mono)", marginTop: 1 }}>
+                  {/* WHY var(--text-muted): was hardcoded white-alpha, which reads as too dim
+                      (or wrong-tinted) against non-aurora themes' warmer/cooler backgrounds. */}
+                  <p style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginTop: 1 }}>
                     Free plan
                   </p>
                 </div>
@@ -129,17 +146,15 @@ export default function AuthLayout() {
               <div className="sidebar-logo-icon" style={{ width: 30, height: 30, minWidth: 30, borderRadius: 8 }}>
                 <span style={{ fontSize: 13, fontFamily: "var(--font-mono)", fontWeight: 500 }}>✦</span>
               </div>
-              <span style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: '#fff', letterSpacing: '-0.3px' }}>
-                Content<span style={{ color: '#F59E0B' }}>Agent</span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>
+                Content<span style={{ color: 'var(--accent)' }}>Agent</span>
               </span>
             </Link>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ThemeSwitcher collapsed align="down" />
               <UserButton appearance={{ elements: { userButtonAvatarBox: 'w-8 h-8' } }} />
             </div>
           </header>
-
-          {/* ── Mobile Tools Drawer ── */}
-          <ToolsDrawer isOpen={mobileToolsOpen} onClose={() => setMobileToolsOpen(false)} />
 
           {/* ── Mobile Bottom Tab Bar ── */}
           <div className="mobile-tab-bar">
@@ -155,17 +170,6 @@ export default function AuthLayout() {
                 <span>{item.label}</span>
               </NavLink>
             ))}
-            <button
-              className={`mobile-tab${mobileToolsOpen ? ' mobile-tab-active' : ''}`}
-              onClick={() => setMobileToolsOpen(o => !o)}
-              aria-label="Tools"
-            >
-              {/* Wrench icon inline */}
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 19, height: 19 }}>
-                <path d="M14.4 14.4L9.6 9.6M12.6 2.2a2.3 2.3 0 0 1 3.2 3.2l-1.6 1.6a9 9 0 0 0-6.4 6.4l-1.6 1.6a2.3 2.3 0 0 1-3.2-3.2l1.6-1.6A9 9 0 0 0 12.6 2.2z"></path>
-              </svg>
-              <span>Tools</span>
-            </button>
           </div>
 
           {/* ── First-run onboarding modal ── */}

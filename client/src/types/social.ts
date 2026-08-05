@@ -26,17 +26,48 @@ export interface SchedulePostResponse {
   platform: string;
 }
 
+// WHY these exact fields, not a looser shape: mirrors server/src/schemas/contentResponses.ts's
+// competitorResponseSchema (the Zod schema POST /content/competitor actually validates its
+// response against) field-for-field, since server and client are separate TS projects with no
+// shared schema import. Keep these in sync if that schema changes.
 export interface CompetitorAnalysis {
-  strengths?: string[];
-  contentPatterns?: string[];
-  postingCadence?: string;
-  recommendedAngles?: string[];
-  // WHY unknown fallback: analysis shape comes from LLM output (agents/ competitor route)
-  // and isn't schema-enforced beyond these commonly-read fields.
-  [key: string]: unknown;
+  brandName?: string;
+  estimatedNiche?: string;
+  topThemes?: { theme?: string; frequency?: string; engagementLevel?: 'high' | 'medium' | 'low' }[];
+  contentPatterns?: {
+    formatPreference?: string;
+    hookStyle?: string;
+    ctaPattern?: string;
+  };
+  contentGaps?: { gap?: string; opportunity?: string }[];
+  suggestedAngles?: { angle?: string; rationale?: string }[];
+  keyTakeaway?: string;
+  dataQualityNote?: string;
 }
 
 export interface AnalyzeCompetitorResponse {
   handle: string;
   analysis: CompetitorAnalysis;
+  // WHY optional: absent when persistence failed server-side (best-effort —
+  // see server/src/routes/content/competitor.ts's non-fatal DB-write catch)
+  // or when no DB-backed user id was available. The result itself is still
+  // fully usable without it; only "reload this later from history" needs it.
+  analysisId?: string;
+}
+
+// WHY a separate history-row type, not AnalyzeCompetitorResponse reused: a
+// history row additionally carries id/createdAt/industry (persisted metadata
+// the live analyze response doesn't need to round-trip), and omits the
+// top-level `handle` duplication AnalyzeCompetitorResponse has for the
+// single-shot analyze call.
+export interface CompetitorAnalysisHistoryItem {
+  id: string;
+  handle: string;
+  industry?: string;
+  analysis: CompetitorAnalysis;
+  createdAt: string;
+}
+
+export interface CompetitorAnalysisHistoryResponse {
+  analyses: CompetitorAnalysisHistoryItem[];
 }

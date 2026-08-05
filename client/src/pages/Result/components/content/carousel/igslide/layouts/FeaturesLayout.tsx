@@ -3,11 +3,13 @@ import type { SlideData } from '../types';
 import { FONT, H_PAD, BOTTOM_PAD } from '../constants';
 import { DotGrid, LeftStripe } from '../decorativePrimitives';
 import { PillTag, FeatureRow } from '../contentPieces';
+import { stablePointKeys } from '../types';
 
 // ── Features layout ───────────────────────────────────────────────────────────
 
 export function FeaturesLayout({ slide, colors }: { slide: SlideData; colors: ColorSystem }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];
   const pad = H_PAD;
   const rp  = Math.max(pad, 50);
   return (
@@ -33,7 +35,7 @@ export function FeaturesLayout({ slide, colors }: { slide: SlideData; colors: Co
         {hasPoints && (
           <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {slide.points!.map((pt, i) => (
-              <FeatureRow key={i} fi={i} point={pt} colors={colors} isLight={true} isLast={i === slide.points!.length - 1} />
+              <FeatureRow key={pointKeys[i]} fi={i} point={pt} colors={colors} isLight={true} isLast={i === slide.points!.length - 1} />
             ))}
           </div>
         )}

@@ -5,6 +5,7 @@ import { FONT, BOTTOM_PAD, H_PAD, GLOW_PRESETS } from '../constants';
 import { SlideVisual } from '../../SlideVisual';
 import { DotGrid, GridLines, CrosshatchLines, GlowBlob, LeftStripe, DiagStripes, CornerRings, StatWatermark } from '../decorativePrimitives';
 import { PillTag, FeatureCard } from '../contentPieces';
+import { stablePointKeys } from '../types';
 
 // ── Content layouts ───────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ function ContentLayoutA({ slide, index, colors, bgMode }: ContentLayoutProps) {
   const numColor  = isLight ? colors.BRAND_PRIMARY           : colors.BRAND_LIGHT;
   const divColor  = isLight ? colors.BRAND_PRIMARY + '22'   : 'rgba(255,255,255,0.07)';
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];
   const pillLabel = CONTENT_PILL_LABELS[index % CONTENT_PILL_LABELS.length];
   const pad = H_PAD;
   const rp  = Math.max(pad, 50);
@@ -57,7 +59,7 @@ function ContentLayoutA({ slide, index, colors, bgMode }: ContentLayoutProps) {
         {hasPoints && (
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden', flex: 1, minHeight: 0 }}>
             {slide.points!.map((pt, i) => (
-              <FeatureCard key={i} fi={i} point={pt} colors={colors} isLight={isLight} isLast={i === slide.points!.length - 1} />
+              <FeatureCard key={pointKeys[i]} fi={i} point={pt} colors={colors} isLight={isLight} isLast={i === slide.points!.length - 1} />
             ))}
           </div>
         )}
@@ -87,6 +89,7 @@ function ContentLayoutB({ slide, index, colors, bgMode }: ContentLayoutProps) {
   const accent    = isLight ? colors.BRAND_PRIMARY      : colors.BRAND_LIGHT;
   const divColor  = isLight ? colors.BRAND_PRIMARY + '22' : 'rgba(255,255,255,0.07)';
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];
   const glowP     = GLOW_PRESETS[(index + 1) % GLOW_PRESETS.length];
 
   return (
@@ -126,7 +129,7 @@ function ContentLayoutB({ slide, index, colors, bgMode }: ContentLayoutProps) {
         {hasPoints && (
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {slide.points!.map((pt, i) => (
-              <FeatureCard key={i} fi={i} point={pt} colors={colors} isLight={isLight} isLast={i === slide.points!.length - 1} />
+              <FeatureCard key={pointKeys[i]} fi={i} point={pt} colors={colors} isLight={isLight} isLast={i === slide.points!.length - 1} />
             ))}
           </div>
         )}
@@ -150,6 +153,7 @@ function ContentLayoutC({ slide, index, colors, bgMode }: ContentLayoutProps) {
   const bodyColor = isLight ? colors.BRAND_DARK + 'AA' : 'rgba(255,255,255,0.56)';
   const accent    = isLight ? colors.BRAND_PRIMARY      : colors.BRAND_LIGHT;
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];
   const cardBg     = isLight ? 'rgba(255,255,255,0.68)' : 'rgba(255,255,255,0.05)';
   const cardBorder = isLight ? 'rgba(0,0,0,0.08)'       : 'rgba(255,255,255,0.09)';
   const glowP      = GLOW_PRESETS[(index + 2) % GLOW_PRESETS.length];
@@ -194,7 +198,7 @@ function ContentLayoutC({ slide, index, colors, bgMode }: ContentLayoutProps) {
         {hasPoints && (
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {slide.points!.map((pt, i) => (
-              <FeatureCard key={i} fi={i} point={pt} colors={colors} isLight={isLight} isLast={i === slide.points!.length - 1} />
+              <FeatureCard key={pointKeys[i]} fi={i} point={pt} colors={colors} isLight={isLight} isLast={i === slide.points!.length - 1} />
             ))}
           </div>
         )}

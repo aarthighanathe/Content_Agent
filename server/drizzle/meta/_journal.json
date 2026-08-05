@@ -22,6 +22,76 @@
       "when": 1785260552960,
       "tag": "0002_cute_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785526667667,
+      "tag": "0003_last_iceman",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785783967715,
+      "tag": "0004_real_exodus",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785788956236,
+      "tag": "0005_watery_lady_deathstrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785849753047,
+      "tag": "0006_peaceful_adam_warlock",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785862330571,
+      "tag": "0007_deep_mad_thinker",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785865164691,
+      "tag": "0008_square_tempest",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785869138243,
+      "tag": "0009_bored_naoko",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785870017840,
+      "tag": "0010_brown_nightcrawler",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785870914726,
+      "tag": "0011_great_prima",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785934058674,
+      "tag": "0012_panoramic_elektra",
+      "breakpoints": true
     }
   ]
 }

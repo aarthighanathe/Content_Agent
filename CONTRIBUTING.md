@@ -5,7 +5,7 @@ Thank you for your interest in contributing to ContentAgent! This document outli
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 20+
 - npm 9+
 - Clerk account (for development and testing)
 
@@ -21,8 +21,10 @@ cd ../client && npm install
 
 2. **Environment Setup**
 ```bash
-cp .env.example .env
-# Edit .env with your API keys and configuration
+# Env vars are split by side — there is no root-level .env.example
+cp server/.env.example server/.env
+cp client/.env.example client/.env
+# Edit both .env files with your API keys and configuration
 ```
 
 3. **Run the Application**
@@ -108,6 +110,8 @@ ContentAgent/
 │   │   ├── middleware/       # Express middleware
 │   │   └── ...              # Other source files
 │   ├── tests/               # Test files
+│   ├── Dockerfile            # Local-dev-only, used by docker-compose.yml
+│   ├── .env.example           # Server-side env vars (validated by src/config.ts)
 │   └── ...                  # Build and configuration files
 │
 ├── client/                    # Frontend application
@@ -116,6 +120,8 @@ ContentAgent/
 │   │   ├── components/       # React components
 │   │   ├── hooks/            # Custom hooks
 │   │   └── ...               # Other source files
+│   ├── Dockerfile            # Local-dev-only, used by docker-compose.yml
+│   ├── .env.example           # Client-side env vars (VITE_-prefixed only)
 │   └── ...                  # Build and configuration files
 │
 ├── .github/                  # GitHub configuration
@@ -126,9 +132,16 @@ ContentAgent/
 ├── CLAUDE.md                 # Full dev context
 ├── ARCHITECTURE.md           # Verified current-state data flows
 ├── CHANGELOG.md              # History of all changes
-├── .env.example              # Environment template
+├── REVIEW_FINDINGS.md         # Open findings from the most recent full-codebase review
+├── UI_UX_DOCUMENTATION.md     # Design-system reference + brand differentiation analysis
+├── render.yaml                # Render Blueprint for server deployment
+├── docker-compose.yml         # Local-dev-only Postgres/Redis stand-ins (not part of production)
 └── ...                       # Other project files
 ```
+
+> **Note:** there is no root-level `.env.example` — env vars are split into
+> `server/.env.example` and `client/.env.example` (see the Environment Setup
+> step above).
 
 ## Code of Conduct
 

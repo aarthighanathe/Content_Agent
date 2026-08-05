@@ -3,11 +3,13 @@ import type { SlideData } from '../types';
 import { FONT, H_PAD, BOTTOM_PAD } from '../constants';
 import { DotGrid, CornerRings, LeftStripe } from '../decorativePrimitives';
 import { PillTag, NumberedStep } from '../contentPieces';
+import { stablePointKeys } from '../types';
 
 // ── HowTo layout ──────────────────────────────────────────────────────────────
 
 export function HowToLayout({ slide, colors }: { slide: SlideData; colors: ColorSystem }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
+  const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];
   const pad = H_PAD;
   const rp  = Math.max(pad, 50);
   return (
@@ -37,7 +39,7 @@ export function HowToLayout({ slide, colors }: { slide: SlideData; colors: Color
           // it looking intentional whether there are 2 rows or enough to fill the box.
           <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden', flex: 1, minHeight: 0 }}>
             {slide.points!.map((pt, i) => (
-              <NumberedStep key={i} point={pt} stepNum={i + 1} colors={colors} isLight={true} isLast={i === slide.points!.length - 1} />
+              <NumberedStep key={pointKeys[i]} point={pt} stepNum={i + 1} colors={colors} isLight={true} isLast={i === slide.points!.length - 1} />
             ))}
           </div>
         )}

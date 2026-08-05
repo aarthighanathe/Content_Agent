@@ -2,6 +2,7 @@
 import axios from 'axios';
 import { Send, Clock, CheckCircle, AlertCircle, RefreshCw, ExternalLink, Calendar, ChevronRight, ChevronLeft } from 'lucide-react';
 import { schedulePost } from '../../../../api';
+import { flattenContentToPreview } from '../../../../lib/contentFlattener.js';
 import type { SocialConnection } from '../../../../types/api';
 import type { ContentJob, PlatformContent } from '../../../../types/job';
 import type { ResultContent } from '../ContentColumn';
@@ -58,37 +59,6 @@ const PLATFORM_COLORS: Record<string, string> = {
 
 const SCHEDULE_SUPPORTED = ['linkedin', 'twitter'];
 
-function getContentPreview(content: ResultContent | undefined, platform: string): string {
-  if (!content) return '';
-  try {
-    if (Array.isArray(content)) {
-      // WHY optional-chained headline/body: could be a carousel SlideData[] OR (in theory)
-      // a PlatformContent[] tweets-like array — SlideData is the only real array shape here,
-      // matches the previous untyped behavior's `content[0]?.headline`.
-      return `${content[0]?.headline ?? ''}\n${content[0]?.body ?? ''}`.slice(0, 300);
-    }
-    // WHY 'segments' exclusion: VideoScriptContentData.hook is an object, not a string —
-    // posting a video script through this flat-text preview isn't supported (Post panel
-    // targets LinkedIn/Twitter/Instagram, not a video platform), so fall through to ''.
-    if ('segments' in content) return '';
-    if (platform === 'linkedin') {
-      if (content.hook) return `${content.hook}\n\n${content.body || ''}`.slice(0, 300);
-      if (content.caption) return content.caption.slice(0, 300);
-    }
-    if (platform === 'twitter') {
-      if (content.tweets?.length) return content.tweets.map((t) => t.text).join('\n—\n').slice(0, 300);
-      if (content.hook) return content.hook.slice(0, 280);
-    }
-    if (platform === 'instagram' && content.caption) return content.caption.slice(0, 300);
-    if (content.hook) return `${content.hook}\n\n${content.cta || ''}`.slice(0, 300);
-    if (content.caption) return content.caption.slice(0, 300);
-  } catch {
-    // WHY: preview is best-effort display text — swallow malformed content shapes
-    // rather than crashing the drawer.
-  }
-  return '';
-}
-
 function getMinDateTime(): string {
   const d = new Date();
   d.setMinutes(d.getMinutes() + 5);
@@ -104,7 +74,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
   const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   const selected = connections.find((c) => c.platform === selectedPlatform);
-  const preview = useMemo(() => getContentPreview(content, selectedPlatform), [content, selectedPlatform]);
+  const preview = useMemo(() => flattenContentToPreview(content, selectedPlatform), [content, selectedPlatform]);
   const canSchedule = SCHEDULE_SUPPORTED.includes(selectedPlatform);
   const result = postResult[selectedPlatform];
   const isPosting = postingTo === selectedPlatform;
@@ -140,7 +110,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
   if (view === 'select') {
     return (
       <div style={{ padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: 1, textTransform: 'uppercase', fontFamily: "var(--font-mono)", marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', letterSpacing: 1, textTransform: 'uppercase', fontFamily: "var(--font-mono)", marginBottom: 4 }}>
           Select platform to publish
         </div>
         {connections.map((conn) => {
@@ -153,8 +123,8 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
               onClick={() => { setSelectedPlatform(conn.platform); setView('preview'); }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
-                background: isSelected ? `rgba(${hexToRgb(color)},0.12)` : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${isSelected ? color : 'rgba(255,255,255,0.08)'}`,
+                background: isSelected ? `rgba(${hexToRgb(color)},0.12)` : 'color-mix(in srgb, var(--text-primary) 3%, transparent)',
+                border: `1px solid ${isSelected ? color : 'var(--rule)'}`,
                 borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'all .18s',
               }}
             >
@@ -162,17 +132,17 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
                 {PIcon ? <PIcon size={18} /> : <Send size={16} />}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>{conn.label}</div>
-                {conn.displayName && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>{conn.displayName}</div>}
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{conn.label}</div>
+                {conn.displayName && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>{conn.displayName}</div>}
               </div>
-              <ChevronRight size={14} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
+              <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
             </button>
           );
         })}
         {connections.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12, padding: '20px 0' }}>
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, padding: '20px 0' }}>
             No connected accounts.<br />
-            <a href="/brand" style={{ color: '#F59E0B', textDecoration: 'none' }}>Connect accounts in Brand settings →</a>
+            <a href="/brand" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Connect accounts in Brand settings →</a>
           </div>
         )}
       </div>
@@ -183,7 +153,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
   if (view === 'preview') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <button onClick={() => setView('select')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: 0, alignSelf: 'flex-start' }}>
+        <button onClick={() => setView('select')} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: 0, alignSelf: 'flex-start' }}>
           <ChevronLeft size={12} /> Back
         </button>
 
@@ -193,19 +163,19 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
             {PlatIcon ? <PlatIcon size={14} /> : <Send size={13} />}
           </div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>{selected?.label}</div>
-            {selected?.displayName && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.38)' }}>{selected.displayName}</div>}
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{selected?.label}</div>
+            {selected?.displayName && <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>{selected.displayName}</div>}
           </div>
         </div>
 
         {/* Content preview */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: 12 }}>
-          <div style={{ fontSize: 9.5, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', fontFamily: "var(--font-mono)", marginBottom: 6 }}>Preview</div>
-          <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.78)', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto' }}>
-            {preview || <span style={{ color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>No preview available for this platform</span>}
+        <div style={{ background: 'color-mix(in srgb, var(--text-primary) 3%, transparent)', border: '1px solid var(--rule)', borderRadius: 10, padding: 12 }}>
+          <div style={{ fontSize: 9.5, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginBottom: 6 }}>Preview</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto' }}>
+            {preview || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No preview available for this platform</span>}
           </div>
           {preview.length >= 297 && (
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 6 }}>…truncated for preview</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>…truncated for preview</div>
           )}
         </div>
 
@@ -215,7 +185,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
             <AlertCircle size={14} style={{ color: 'var(--color-error)', flexShrink: 0, marginTop: 1 }} />
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-error)' }}>Post failed</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>There was an error posting to {selected?.label}. Check your connection and try again.</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>There was an error posting to {selected?.label}. Check your connection and try again.</div>
             </div>
           </div>
         )}
@@ -261,8 +231,8 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
                 disabled={!!postingTo}
                 style={{
                   flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                  color: 'rgba(255,255,255,0.7)', borderRadius: 9, padding: '10px 0',
+                  background: 'color-mix(in srgb, var(--text-primary) 4%, transparent)', border: '1px solid var(--rule)',
+                  color: 'var(--text-secondary)', borderRadius: 9, padding: '10px 0',
                   cursor: 'pointer', fontSize: 12.5, fontWeight: 500, transition: 'all .18s',
                 }}
               >
@@ -279,17 +249,17 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
   if (view === 'schedule') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <button onClick={() => setView('preview')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: 0, alignSelf: 'flex-start' }}>
+        <button onClick={() => setView('preview')} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: 0, alignSelf: 'flex-start' }}>
           <ChevronLeft size={12} /> Back
         </button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Clock size={14} style={{ color: platColor }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>Schedule for {selected?.label}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Schedule for {selected?.label}</span>
         </div>
 
         <div>
-          <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 6 }}>
+          <label style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
             Date and time
           </label>
           <input
@@ -299,12 +269,12 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
             onChange={(e) => setScheduleDate(e.target.value)}
             style={{
               width: '100%', boxSizing: 'border-box',
-              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 8, padding: '9px 12px', color: 'rgba(255,255,255,0.85)', fontSize: 13,
+              background: 'color-mix(in srgb, var(--text-primary) 5%, transparent)', border: '1px solid var(--rule)',
+              borderRadius: 8, padding: '9px 12px', color: 'var(--text-primary)', fontSize: 13,
               outline: 'none', colorScheme: 'dark',
             }}
           />
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)', marginTop: 5 }}>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 5 }}>
             Minimum 5 minutes from now
           </div>
         </div>
@@ -313,7 +283,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
             no delivery worker wired up yet to actually publish at the scheduled
             time (FUNCTIONAL_AUDIT_2026-07.md finding #5). The old "Post scheduled!"
             confirmation implied automatic publishing, which never happens. */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 8, padding: '9px 12px', fontSize: 11.5, color: 'rgba(245,158,11,0.85)', lineHeight: 1.5 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 8, padding: '9px 12px', fontSize: 11.5, color: 'color-mix(in srgb, var(--accent) 85%, transparent)', lineHeight: 1.5 }}>
           <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>This saves a reminder only — auto-publishing isn't available yet. Come back at the scheduled time and post it yourself from here.</span>
         </div>
@@ -329,9 +299,9 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
           disabled={!scheduleDate || scheduling}
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
-            background: scheduleDate && !scheduling ? `rgba(${hexToRgb(platColor)},0.15)` : 'rgba(255,255,255,0.05)',
-            border: `1px solid ${scheduleDate && !scheduling ? `rgba(${hexToRgb(platColor)},0.4)` : 'rgba(255,255,255,0.08)'}`,
-            color: scheduleDate && !scheduling ? platColor : 'rgba(255,255,255,0.3)',
+            background: scheduleDate && !scheduling ? `rgba(${hexToRgb(platColor)},0.15)` : 'color-mix(in srgb, var(--text-primary) 5%, transparent)',
+            border: `1px solid ${scheduleDate && !scheduling ? `rgba(${hexToRgb(platColor)},0.4)` : 'var(--rule)'}`,
+            color: scheduleDate && !scheduling ? platColor : 'var(--text-muted)',
             borderRadius: 9, padding: '11px 0', cursor: scheduleDate && !scheduling ? 'pointer' : 'default',
             fontSize: 13, fontWeight: 600, transition: 'all .18s',
           }}
@@ -349,18 +319,18 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         <CheckCircle size={22} style={{ color: 'var(--color-success)' }} />
       </div>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.9)', marginBottom: 4 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
           {scheduleResult ? 'Reminder saved!' : 'Posted!'}
         </div>
         {scheduleResult?.scheduledAt && (
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', maxWidth: 260 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 260 }}>
             We'll remind you on {formatScheduledDate(scheduleResult.scheduledAt)} — you'll need to come back and post it yourself.
           </div>
         )}
       </div>
       <button
         onClick={onClose}
-        style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+        style={{ fontSize: 12, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
       >
         Close
       </button>
@@ -386,6 +356,6 @@ function formatScheduledDate(iso: string): string {
 
 function Spinner() {
   return (
-    <div style={{ width: 11, height: 11, border: '1.5px solid rgba(255,255,255,0.2)', borderTopColor: 'currentColor', borderRadius: '50%', animation: 'rp-spin .7s linear infinite', flexShrink: 0 }} />
+    <div style={{ width: 11, height: 11, border: '1.5px solid var(--rule)', borderTopColor: 'currentColor', borderRadius: '50%', animation: 'rp-spin .7s linear infinite', flexShrink: 0 }} />
   );
 }

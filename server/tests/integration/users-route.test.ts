@@ -46,6 +46,10 @@ vi.mock('../../src/lib/ai.js', () => ({ generateWithAI: vi.fn() }));
 vi.mock('../../src/db/index.js', () => ({ db: null }));
 vi.mock('../../src/db/schema.js', () => ({ users: Symbol('users_table'), userOnboarding: Symbol('userOnboarding') }));
 vi.mock('../../src/middleware/auth.js', () => ({}));
+// Redis-backed rate limiter — bypass entirely, not what this test is about.
+vi.mock('../../src/middleware/rateLimit.js', () => ({
+  contentRateLimit: (_req: any, _res: any, next: any) => next(),
+}));
 vi.mock('../../src/routes/jobs/index.js', () => ({
   jobsMemory: mockJobsMemory,
   default: {},
@@ -115,7 +119,7 @@ describe('stats: avgScore computation', () => {
   });
 });
 
-describe('stats: bestPlatform computation', () => {
+describe('stats: mostUsedPlatform computation', () => {
   it('returns platform with the most jobs', () => {
     const platformCounts: Record<string, number> = {
       linkedin_post: 5,
@@ -309,10 +313,10 @@ describe('GET /api/users/me', () => {
     expect(res.body.stats.avgScore).toBe(0);
   });
 
-  it('stats.bestPlatform is "none" when no jobs', async () => {
+  it('stats.mostUsedPlatform is "none" when no jobs', async () => {
     const { app } = buildApp();
     const res = await supertest(app).get('/api/users/me');
-    expect(res.body.stats.bestPlatform).toBe('none');
+    expect(res.body.stats.mostUsedPlatform).toBe('none');
   });
 
   it('stats.quickTips is an array of max 3 strings', async () => {
@@ -373,7 +377,7 @@ describe('GET /api/users/me', () => {
     expect(res.body.stats.totalPosts).toBe(2); // only 'done' jobs
   });
 
-  it('bestPlatform reflects platform with most completed jobs', async () => {
+  it('mostUsedPlatform reflects platform with most completed jobs', async () => {
     const uid = `best-plat-${++userCounter}`;
     const { app } = buildApp(uid);
 
@@ -395,7 +399,7 @@ describe('GET /api/users/me', () => {
     });
 
     const res = await supertest(app).get('/api/users/me');
-    expect(res.body.stats.bestPlatform).toBe('linkedin_post');
+    expect(res.body.stats.mostUsedPlatform).toBe('linkedin_post');
   });
 });
 

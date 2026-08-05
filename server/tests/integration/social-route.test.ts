@@ -46,6 +46,10 @@ vi.mock('../../src/lib/tokenEncryption.js', () => ({
   encryptTokenOptional: (t: string) => t,
   decryptTokenOptional: (t: string) => t,
 }));
+// Redis-backed rate limiter — bypass entirely, not what this test is about.
+vi.mock('../../src/middleware/rateLimit.js', () => ({
+  socialRateLimit: (_req: any, _res: any, next: any) => next(),
+}));
 
 // ─── App factory ─────────────────────────────────────────────────────────────
 

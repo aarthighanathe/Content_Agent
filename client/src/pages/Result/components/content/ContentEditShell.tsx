@@ -61,12 +61,12 @@ export function ContentEditShell({ label, onClose, onSave, children }: ContentEd
   return (
     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Header row: label + close button */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 12, marginBottom: 4 }}>
-        <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.85)', fontSize: 14 }}>{label}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--rule)', paddingBottom: 12, marginBottom: 4 }}>
+        <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{label}</span>
         <button
           onClick={onClose}
           disabled={saving}
-          style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: saving ? 'default' : 'pointer', display: 'flex', alignItems: 'center' }}
+          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: saving ? 'default' : 'pointer', display: 'flex', alignItems: 'center' }}
           aria-label="Close editor"
         >
           <X size={16} />

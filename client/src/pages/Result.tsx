@@ -22,7 +22,7 @@ import { Copy, RotateCcw, Download, MoreHorizontal } from 'lucide-react';
 import type { CriticResult, PlatformContent } from '../types/job';
 import type { SlideData } from './Result/components/content/carousel/IGSlide';
 
-type ActionTab = 'feedback' | 'post' | 'hashtags' | 'template' | null;
+type ActionTab = 'feedback' | 'post' | 'hashtags' | null;
 
 // WHY guard instead of trusting JobOutput.content: `content: unknown` (job.ts) varies by
 // outputType; a 'critique' output's content is a CriticResult object with these fields —
@@ -40,12 +40,21 @@ function isCriticResult(value: unknown): value is CriticResult {
 export default function ResultPage() {
   const { jobId } = useParams<{ jobId: string }>();
 
-  const { jobData, setJobData, regenerating, handleRegenerate, currentJob } = useJobData(jobId);
+  const { jobData, setJobData, regenerating, handleRegenerate, currentJob, loadJob } = useJobData(jobId);
 
   // NOTE: the theme picker that called the setter lived in the removed AI-render UI.
   // The stored value still selects the palette for the preview and the PNG export.
+  // WHY clamped to 0-8: THEME_KEYS (ExportModal.tsx) and CAROUSEL_THEMES
+  // (Result/constants.ts) both only define 9 valid theme indices — an
+  // out-of-range or NaN stored value (e.g. left over from a future version
+  // with more themes, or manual localStorage tampering) would otherwise
+  // silently resolve to a theme the user never selected with no error
+  // surfaced, causing the exported PNG to diverge from the live preview.
   const [colorTheme]                            = useState<number>(() => {
-    try { return parseInt(localStorage.getItem('ca_carousel_theme') || '4', 10); } catch { return 4; }
+    try {
+      const parsed = parseInt(localStorage.getItem('ca_carousel_theme') || '4', 10);
+      return Number.isInteger(parsed) && parsed >= 0 && parsed <= 8 ? parsed : 4;
+    } catch { return 4; }
   });
   const [currentSlide, setCurrentSlide]         = useState(0);
   const [showMultiplier, setShowMultiplier]     = useState(false);
@@ -267,8 +276,8 @@ export default function ResultPage() {
         onClose={() => setActionDrawerOpen(false)}
         jobData={jobData}
         content={content}
-        criticResult={criticResult}
         onRegenerate={onRegenerate}
+        onRestored={() => { loadJob().catch(() => {}); }}
         defaultTab={actionDrawerTab ?? 'feedback'}
         social={social}
       />

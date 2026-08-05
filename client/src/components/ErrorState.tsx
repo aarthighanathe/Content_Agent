@@ -42,7 +42,7 @@ export function ErrorState({ title, message = 'Something went wrong while loadin
           {title}
         </h3>
       )}
-      <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', margin: 0, maxWidth: 340, lineHeight: 1.6 }}>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, maxWidth: 340, lineHeight: 1.6 }}>
         {message}
       </p>
       <button className="btn-secondary" onClick={onRetry} style={{ marginTop: 4 }}>

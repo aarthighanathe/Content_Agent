@@ -1,12 +1,18 @@
-// AUDIT FIX #7 — PostHog event tracking
+// WHY PostHog tracking: captures key user actions (job creation, platform selection, batch mode)
+// for analytics and conversion funnel monitoring. Events are sent to PostHog via the global
+// posthog instance initialized in main.tsx.
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { createJob } from '../api';
+import { useQuery } from '@tanstack/react-query';
+import { AlertCircle, CalendarRange, ArrowLeft } from 'lucide-react';
+import { createJob, createBatchJobs, getProfile, getAudienceDefaults } from '../api';
 import { posthog } from '../main';
 import { TopicStep } from './Create/TopicStep';
+import { BatchTopicList, type BatchRow } from './Create/BatchTopicList';
 import { useDraft } from './Create/useDraft';
 import { getSubmitError } from './Create/errorMessages';
 import { useAppStore } from '../store';
+import type { CreateHandoff } from '../lib/utils';
 
 const CAROUSEL_THEME_KEY = 'ca_carousel_theme';
 const RECENT_TOPICS_KEY  = 'ca_recent_topics';
@@ -35,15 +41,29 @@ const AUDIENCE_DEFAULTS: Record<string, string> = {
   video_script:       'short-form video viewers aged 18-35',
 };
 
+// WHY a shared helper: the same fallback chain (user input → learned defaults →
+// static defaults → 'general audience') is used in both handleSubmit and
+// handleBatchSubmit. Extracting it prevents drift if the rule changes.
+function resolveAudience(input: string, platform: string, learnedDefaults: Partial<Record<string, string>>): string {
+  const trimmed = input.trim();
+  if (trimmed) return trimmed;
+  return learnedDefaults[platform] || AUDIENCE_DEFAULTS[platform] || 'general audience';
+}
+
 export default function CreatePage() {
   const navigate    = useNavigate();
   const location    = useLocation();
-  const prefill     = (location.state as { topic?: string; platform?: string } | null) || {};
+  // WHY the real CreateHandoff type, not an inline hand-typed cast: this used
+  // to informally re-type location.state's shape locally, only kept in sync
+  // with lib/utils.ts's CreateHandoff by convention — see CreateHandoff's own
+  // WHY comment for the rule this now follows (widen the type and this read
+  // together, in the same change).
+  const prefill     = (location.state as CreateHandoff | null) || ({} as CreateHandoff);
   const userProfile = useAppStore((s) => s.userProfile);
 
   // Draft persists topic/platform/tone/audience across a trip to /brand and back;
   // cleared once a job is actually submitted (see handleSubmit).
-  const { draft, setDraft, clearDraft } = useDraft();
+  const { draft, setDraft, clearDraft, draftWriteFailed, dismissDraftWriteFailed } = useDraft();
 
   // Content inputs — prefill (nav state) wins over a saved draft, which wins over defaults
   const [platform, setPlatform] = useState(prefill.platform || draft.platform || 'instagram_carousel');
@@ -63,8 +83,28 @@ export default function CreatePage() {
 
   const [loading, setLoading] = useState(false);
   const [errorMsg,     setErrorMsg]     = useState('');
+
+  // WHY a separate mode, not folded into the single-topic form: batch submits
+  // up to 7 topic+platform pairs in one request (POST /jobs/batch, already
+  // built server-side — see server/src/routes/jobs/create.ts) — a genuinely
+  // different shape of input than the single TopicStep flow, not a variant of
+  // it. Kept off by default so the common single-topic path is unchanged.
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchRows, setBatchRows] = useState<BatchRow[]>(() => [
+    { id: crypto.randomUUID(), topic: '', platform: 'instagram_carousel' },
+  ]);
+  const [batchTone, setBatchTone] = useState('');
+  const [batchAudience, setBatchAudience] = useState('');
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState('');
+  // WHY clamped to 0-8: only 9 carousel themes exist (see Result/constants.ts's
+  // CAROUSEL_THEMES) — an out-of-range or NaN stored value should fall back to
+  // the default rather than silently selecting an undefined theme.
   const [carouselTheme, setCarouselTheme] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem(CAROUSEL_THEME_KEY) || '4', 10); } catch { return 4; }
+    try {
+      const parsed = parseInt(localStorage.getItem(CAROUSEL_THEME_KEY) || '4', 10);
+      return Number.isInteger(parsed) && parsed >= 0 && parsed <= 8 ? parsed : 4;
+    } catch { return 4; }
   });
 
   // Recent topics autocomplete
@@ -81,6 +121,29 @@ export default function CreatePage() {
 
   const hasBrandVoice = !!(userProfile.brandName || userProfile.brandVoice);
 
+  // WHY same query key as AuthLayout.tsx's profileQuery (['dashboard', 'profile']):
+  // React Query dedupes/caches by key, so this reads the already-fetched profile
+  // instead of firing a second /users/me request. AuthLayout only copies brand-voice
+  // fields into the Zustand store, not contentDna, so it's read directly off the
+  // query here — Content DNA is sent to every job (create.ts) but this page never
+  // confirmed on-screen that it's active.
+  const profileQuery = useQuery({ queryKey: ['dashboard', 'profile'], queryFn: getProfile });
+  const hasContentDna = !!profileQuery.data?.contentDna;
+
+  // WHY its own query, not folded into profileQuery: audience defaults are
+  // computed from job history (GET /jobs/audience-defaults), a different
+  // read than the user's brand-voice profile — keeping them separate means a
+  // brand-voice edit doesn't need to also invalidate/refetch this. Falls back
+  // to {} on error (same as the server route's own empty-response behavior
+  // for a brand-new/demo user), so a failed fetch just means "no learned
+  // default for this platform yet," not a broken Create page.
+  const audienceDefaultsQuery = useQuery({
+    queryKey: ['create', 'audienceDefaults'],
+    queryFn: getAudienceDefaults,
+    retry: false,
+  });
+  const learnedAudienceDefaults = audienceDefaultsQuery.data?.audienceDefaults || {};
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (suggestRef.current && !suggestRef.current.contains(e.target as Node)) {
@@ -91,7 +154,25 @@ export default function CreatePage() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const effectiveAudience = targetAudience.trim() || AUDIENCE_DEFAULTS[platform] || 'general audience';
+  // WHY auto-dismiss on a timer, matching Brand.tsx's flashToast duration: this
+  // draft-write failure is a low-stakes notice ("your topic won't survive a trip
+  // to /brand and back"), not something requiring the user to manually clear it.
+  useEffect(() => {
+    if (!draftWriteFailed) return undefined;
+    const t = setTimeout(() => dismissDraftWriteFailed(), 4000);
+    return () => clearTimeout(t);
+  }, [draftWriteFailed, dismissDraftWriteFailed]);
+
+  // WHY learned default before the static map: a user's own recent history
+  // (most-frequent targetAudience they've actually typed for this platform,
+  // see GET /jobs/audience-defaults) is a more accurate default than the
+  // same hardcoded string every user sees — the static AUDIENCE_DEFAULTS map
+  // still backs new users and platforms with no history yet.
+  const learnedOrStaticAudience = learnedAudienceDefaults[platform] || AUDIENCE_DEFAULTS[platform];
+  // WHY a shared helper: the same fallback chain (user input → learned defaults →
+  // static defaults → 'general audience') is used in both handleSubmit and
+  // handleBatchSubmit. Extracting it prevents drift if the rule changes.
+  const effectiveAudience = resolveAudience(targetAudience, platform, learnedAudienceDefaults);
   // WHY fallback here (not in state): the server's tone field is a strict zod enum
   // (server/src/schemas/jobs.ts) with no empty/optional case, so an unselected Tone
   // row can't be submitted as-is. 'professional' matches the writer agent's own
@@ -111,34 +192,109 @@ export default function CreatePage() {
     setLoading(true);
     setErrorMsg('');
     try {
-      const { jobId } = await createJob({ topic: trimmed, platform, tone: effectiveTone, targetAudience: effectiveAudience });
+      // WHY industry folded into competitorContext, not a new field: Create
+      // has no visible industry input, and createJobSchema only accepts
+      // competitorContext/competitorAnalysisId — this is the "simplest option
+      // that doesn't require new UI" the task calls for, matching how
+      // focusTopic already flows into ideate.ts as plain extra prompt text.
+      const competitorContext = [prefill.industry ? `Industry: ${prefill.industry}` : '', prefill.competitorContext || '']
+        .filter(Boolean)
+        .join(' — ') || undefined;
+      const { jobId } = await createJob({
+        topic: trimmed, platform, tone: effectiveTone, targetAudience: effectiveAudience,
+        competitorContext,
+        competitorAnalysisId: prefill.competitorAnalysisId,
+      });
       posthog.capture('content_generated', { platform, tone: effectiveTone });
       clearDraft();
       navigate(`/result/${jobId}`);
     } catch (err: unknown) {
-      console.error('Failed to create job:', err);
+      // NOTE: Error is displayed to user via setErrorMsg; no need for console.error in production
       const { message } = getSubmitError(err);
       setErrorMsg(message);
       setLoading(false);
     }
   }
 
+  async function handleBatchSubmit() {
+    if (batchLoading) return;
+    const validRows = batchRows.filter((r) => r.topic.trim().length >= 3);
+    if (validRows.length === 0) return;
+    setBatchLoading(true);
+    setBatchError('');
+    try {
+      const { jobs } = await createBatchJobs(
+        validRows.map((r) => ({
+          topic: r.topic.trim(), platform: r.platform,
+          tone: batchTone.trim() || 'professional',
+          targetAudience: resolveAudience(batchAudience, r.platform, learnedAudienceDefaults),
+        })),
+      );
+      posthog.capture('batch_content_generated', { count: jobs.length });
+      // WHY router state, not URL params: BatchResult.tsx reads its job list
+      // from location.state (same CreateHandoff-style pattern already used
+      // elsewhere in this app) instead of encoding it into the URL — simpler,
+      // and avoids re-deriving topic/platform from a compact URL format.
+      navigate('/batch-result', { state: { jobs } });
+    } catch (err: unknown) {
+      const { message } = getSubmitError(err);
+      setBatchError(message);
+      setBatchLoading(false);
+    }
+  }
+
   return (
-    <div>
+    <div className="create-page-container">
+      <style>{`
+        @media (max-width: 480px) {
+          .create-page-container {
+            padding: 0 16px !important;
+          }
+        }
+        @media (max-width: 375px) {
+          .create-page-container {
+            padding: 0 12px !important;
+          }
+        }
+      `}</style>
       {/* Page Header */}
-      <div className="section-header" style={{ marginBottom: 32, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 3, textTransform: 'uppercase', color: '#F59E0B', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ width: 18, height: 1, background: 'linear-gradient(90deg,#F59E0B,transparent)', display: 'inline-block' }} />
-          New generation
+      <div className="section-header" style={{ marginBottom: 32, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'var(--text-primary)' }}>
+            {batchMode ? 'Plan multiple posts' : 'Create new content'}
+          </h1>
+          <p style={{ fontSize: 'clamp(12px,2vw,13px)', color: 'var(--color-text-muted)', marginTop: 4 }}>
+            {batchMode
+              ? 'Generate up to 7 posts at once — one topic and platform per row'
+              : 'Choose a platform, enter your topic, and generate AI-powered content'}
+          </p>
         </div>
-        <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'rgba(255,255,255,0.92)' }}>
-          Create new content
-        </h1>
-        <p style={{ fontSize: 'clamp(12px,2vw,13px)', color: 'var(--color-text-muted)', marginTop: 4 }}>
-          Choose a platform, enter your topic, and generate AI-powered content
-        </p>
+        <button
+          type="button"
+          onClick={() => setBatchMode((v) => !v)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
+            background: 'transparent', border: '1px solid var(--rule)', borderRadius: 9,
+            padding: '8px 14px', color: 'var(--text-secondary)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          {batchMode ? <><ArrowLeft size={13} /> Back to single post</> : <><CalendarRange size={13} /> Plan multiple topics</>}
+        </button>
       </div>
 
+      {batchMode ? (
+        <BatchTopicList
+          rows={batchRows}
+          onRowsChange={setBatchRows}
+          tone={batchTone}
+          onToneChange={setBatchTone}
+          targetAudience={batchAudience}
+          onTargetAudienceChange={setBatchAudience}
+          loading={batchLoading}
+          errorMsg={batchError}
+          onSubmit={() => { handleBatchSubmit().catch(() => {}); }}
+        />
+      ) : (
       <TopicStep
         platform={platform}
         onPlatformChange={(p) => { setPlatform(p); setDraft({ platform: p }); }}
@@ -160,10 +316,11 @@ export default function CreatePage() {
         onToneChange={(t) => { setTone(t); setDraft({ tone: t }); }}
 
         hasBrandVoice={hasBrandVoice}
+        hasContentDna={hasContentDna}
 
         targetAudience={targetAudience}
         onTargetAudienceChange={(a) => { setTargetAudience(a); setDraft({ targetAudience: a }); }}
-        audiencePlaceholder={`e.g., ${AUDIENCE_DEFAULTS[platform]}`}
+        audiencePlaceholder={`e.g., ${learnedOrStaticAudience}`}
 
         carouselTheme={carouselTheme}
         onCarouselThemeChange={(theme) => {
@@ -176,6 +333,7 @@ export default function CreatePage() {
         generateLabel={GENERATE_LABELS[platform] || 'Content'}
         onSubmit={handleSubmit}
       />
+      )}
 
       <style>{`
         @keyframes spin {
@@ -183,6 +341,18 @@ export default function CreatePage() {
           to   { transform: rotate(360deg); }
         }
       `}</style>
+
+      {/* WHY surfaced instead of swallowed: sessionStorage.setItem can throw (private
+          mode, quota) — useDraft.ts used to catch and drop that silently, so a user
+          could lose their in-progress topic/tone/audience on a trip to /brand with no
+          warning. Reuses the same .toast/.toast-error classes Brand.tsx/Library.tsx
+          already use for this pattern. */}
+      {draftWriteFailed && (
+        <div className="toast toast-error" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <AlertCircle size={12} />
+          Couldn't save your draft — it may not survive leaving this page.
+        </div>
+      )}
     </div>
   );
 }

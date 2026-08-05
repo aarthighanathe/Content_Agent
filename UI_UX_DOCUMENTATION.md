@@ -72,21 +72,37 @@ Defined as inline `platformMeta` objects across Dashboard, Library, Ideate, Cale
 
 ### 1C. Carousel Theme Colors
 
-From `THEME_META` in `server/src/lib/carousel.ts` and `CAROUSEL_THEMES` / `THEME_ACCENTS` in `client/src/lib/colorSystem.ts` and `client/src/pages/Result/constants.ts`.
+**Corrected post carousel-rewrite (see `CLAUDE.md` §2/§11):** there is no server-side theme
+generation anymore, so there is no "server accent" to compare against — `THEME_META` (and the
+per-theme Gemini prompts it fed) was removed entirely. `CAROUSEL_THEMES` in
+`client/src/pages/Result/constants.ts` is now the single source of truth for theme accents (name,
+preview gradient/glow/emoji, and the color the theme-picker UI actually renders), consumed by both
+the live preview and the SSR export bundle.
 
-| Theme Key | Display Name | Server Accent | Client Accent | Visual Character |
-|---|---|---|---|---|
-| `aurora` | Neon Aurora / Futuristic Tech | `#00D4FF` | `#00F5FF` | Dark navy, cyan scan lines, sharp corners, digital |
-| `magazine` | Editorial | `#D4A017` | `#F59E0B` | Warm cream, gold hairlines, serif typography, luxury editorial |
-| `split` | Geometric | `#FF6B35` | `#8B5CF6` | Orange diagonal polygon splits, bold sans-serif, high energy |
-| `bold` | Luxury | `#C9A84C` | `#C9A84C` | Ivory/dark, concentric ring ornaments, Cormorant serif, opulent |
-| `minimal` | Minimal | `#6366F1` (client) | `#6366F1` | Light cream bg, indigo accent, clean whitespace |
-| `neon` | Neon Cyber | `#FF2D78` (from CLAUDE.md) | `#00FF94` (colorSystem) | Not exposed in UI picker (5 themes shown in constants.ts) |
-| `violet` | Violet Luxe | `#A855F7` | — | Deep violet |
-| `crimson` | Crimson Power | `#DC2626` | `#FF2D55` (colorSystem) | Red power |
-| `rose` | Rose Elegance | `#E11D48` | `#FF3CAC` (colorSystem) | Hot magenta |
+From `CAROUSEL_THEMES` in `client/src/pages/Result/constants.ts`.
 
-**Important discrepancy:** `constants.ts` only exposes 5 themes in `CAROUSEL_THEMES` (aurora, magazine, split, bold, minimal). The server defines 9. The remaining 4 (neon, violet, crimson, rose) appear in `colorSystem.ts` `THEME_ACCENTS` array (indices 5-8) but are not exposed in the theme picker UI component.
+| Theme Key | Display Name | Accent | Visual Character |
+|---|---|---|---|
+| `aurora` | Neon Aurora | `#00F5FF` | Dark navy, cyan scan lines, sharp corners, digital |
+| `magazine` | Editorial | `#F59E0B` | Warm cream, gold hairlines, serif typography, luxury editorial |
+| `split` | Geometric | `#8B5CF6` | Violet diagonal polygon splits, bold sans-serif, high energy |
+| `bold` | Luxury | `#C9A84C` | Ivory/dark, concentric ring ornaments, Cormorant serif, opulent |
+| `minimal` | Minimal | `#6366F1` | Light cream bg, indigo accent, clean whitespace |
+| `neon` | Neon Cyber | `#FF2D78` | Dark, hot-pink glow, cyberpunk |
+| `violet` | Violet Luxe | `#A855F7` | Deep violet |
+| `crimson` | Crimson Power | `#DC2626` | Red power |
+| `rose` | Rose Elegance | `#E11D48` | Hot magenta/rose |
+
+All 9 themes are exposed in the theme picker today — the previous version of this doc found only 5
+of 9 present in `CAROUSEL_THEMES` (`REVIEW_FINDINGS.md`-era finding); that gap has since been
+closed, so all 9 keys now render as real picker options, not just the first 5.
+
+**Note:** `client/src/lib/colorSystem.ts`'s `THEME_ACCENTS` array is a separate, secondary palette
+(index-ordered, not keyed) used for accent-color derivation elsewhere in `Result.tsx` — its values
+intentionally differ from `CAROUSEL_THEMES`' accents above (e.g. `neon` is `#00FF94` there vs
+`#FF2D78` here) since the two arrays serve different purposes. This is not itself a bug, but it is
+a second place a "theme color" question could be answered from — check which one a given call site
+actually reads before assuming they should match.
 
 ---
 
@@ -123,9 +139,15 @@ From `THEME_META` in `server/src/lib/carousel.ts` and `CAROUSEL_THEMES` / `THEME
 
 ### 1E. Color Consistency Issues
 
-1. **Split theme accent inconsistency:** Server defines `#FF6B35` (orange) for split theme; client `constants.ts` assigns `#8B5CF6` (violet) as its accent. These are entirely different colors for the same theme.
-2. **Aurora accent mismatch:** Server uses `#00D4FF`, client `colorSystem.ts` uses `#00F5FF`, client `constants.ts` uses `#00F5FF`. Minor but technically inconsistent.
-3. **Magazine accent:** Server `#D4A017`, client constants `#F59E0B` (a different gold tone). These both appear gold but are subtly different.
+> Items 1-3 below (server vs. client theme-accent mismatches) described the pre-carousel-rewrite
+> system, where a server-side `THEME_META` generated per-theme HTML and could disagree with the
+> client's own accent value for the same theme. That system no longer exists (see §1C above) — the
+> client's `CAROUSEL_THEMES` is now the only accent source, so there is nothing left to mismatch
+> against. Left here struck through for historical record rather than silently deleted.
+
+1. ~~**Split theme accent inconsistency:** Server defines `#FF6B35` (orange) for split theme; client `constants.ts` assigns `#8B5CF6` (violet) as its accent.~~ **Resolved — no server accent exists anymore.**
+2. ~~**Aurora accent mismatch:** Server uses `#00D4FF`, client `colorSystem.ts`/`constants.ts` use `#00F5FF`.~~ **Resolved — no server accent exists anymore.**
+3. ~~**Magazine accent:** Server `#D4A017`, client constants `#F59E0B`.~~ **Resolved — no server accent exists anymore.**
 4. **Hardcoded colors throughout:** The majority of color values are hardcoded as inline style strings (e.g., `color: '#F59E0B'`, `background: '#07071C'`) rather than using the CSS custom property tokens. This means the tokens in `@theme` are defined but largely unused in JSX.
 5. **Video script missing from dashboard `platformMeta`:** `video_script` is not in Dashboard's `platformMeta` — it falls back to `badge-purple`/`#A78BFA` instead of its proper red (`#F87171`).
 6. **Error color inconsistency:** Three red variants in use — `#EF4444`, `#F87171`, `#F43F5E` — for semantically identical error states with no clear rule for which to use where.
@@ -490,7 +512,7 @@ All icons are from `lucide-react`. The following table lists icons found across 
 - **Empty:** Demo area shows input + platform selector only (no result)
 - **Loading:** Demo button shows spinner + "Generating…" text
 - **Result:** Animated `demo-fadeUp` panel shows content preview with violet border, gradient top bar
-- **Error:** Red panel `rgba(244,63,94,0.07)` with `#F43F5E` text
+- **Error:** Red panel `rgba(239,68,68,0.07)` with `var(--color-error)` (`#EF4444`) text
 
 **Visual Issues Found:**
 - Hero "and ship." outline text may render poorly at small sizes (no fallback)
@@ -619,7 +641,7 @@ All icons are from `lucide-react`. The following table lists icons found across 
 - Two-column grid: `ContentColumn` (left, ~60%) + `InsightsSidebar` (right, 360px collapsed to 48px)
 - Sidebar collapses to a vertical strip (48px wide) showing score and label
 - Mobile footer action bar (Copy / Regen / Export / More)
-- Slide-out drawer for advanced actions (Feedback / Post / Hashtags / Template)
+- Slide-out drawer for advanced actions (Feedback / Post / Hashtags)
 
 **Color Usage:**
 - Result header border-bottom: `rgba(255,255,255,0.05)`
@@ -650,17 +672,14 @@ All icons are from `lucide-react`. The following table lists icons found across 
 
 ### Library Page — Route: /library
 
-**Purpose:** Paginated list of all generated content with search, filter, sort, bulk delete, and template management.
+**Purpose:** Paginated list of all generated content with search, filter, sort, and bulk delete.
 
 **Layout:**
-- Two tabs: "Content" and "Templates"
 - Search input + filter chips (platform) + sort menu + manage mode toggle
 - Job list rows (same style as Dashboard but with more detail)
 - Pagination controls
 
 **Key Color Notes:**
-- Active tab: gold border-bottom, gold text
-- Inactive tab: `rgba(255,255,255,0.3)` text
 - Platform filter chips: `.chip` / `.chip-active` (gold active state)
 - Job row background: `#08081A` (slightly different from dashboard's `#07071C`)
 - Score pill: same green/amber/red tier logic as dashboard
@@ -671,7 +690,6 @@ All icons are from `lucide-react`. The following table lists icons found across 
 **States:**
 - Loading: `CardSkeleton` components (3 shown)
 - Empty (content): illustration + message + Create CTA
-- Empty (templates): illustration + message + link
 - Populated: job rows list
 - Manage mode: checkboxes appear, "Delete Selected" button becomes available
 
@@ -853,9 +871,8 @@ All icons are from `lucide-react`. The following table lists icons found across 
 
 1. **History route redirects to Library** (`/history` → `/library`) but Dashboard still links to `/history` — could cause confusion if someone bookmarked `/history`
 2. **"Library" icon is `Clock`** — semantically misleading. Clock typically means history/time, not library/saved content
-3. **Tools dropdown vs sidebar items:** Repurpose, Ideate, Competitor, Templates are in the sidebar; the mobile "Tools" sheet contains overlapping items. Templates page is reachable via Tools but is not in the sidebar nav
-4. **Templates page (`/templates`) has no direct sidebar entry** — it only appears in the mobile "Tools" more sheet via `ToolsDropdown`
-5. **Active state contrast:** The gold left inset `3px` bar on active nav items is a strong indicator on desktop but provides no equivalent on mobile (only text color change)
+3. **Tools dropdown vs sidebar items:** Repurpose, Ideate, Competitor are in the sidebar; the mobile "Tools" sheet contains overlapping items
+4. **Active state contrast:** The gold left inset `3px` bar on active nav items is a strong indicator on desktop but provides no equivalent on mobile (only text color change)
 
 ---
 
@@ -965,8 +982,8 @@ All icons are from `lucide-react`. The following table lists icons found across 
 | 2 | Result page H1 font | Result page | Medium | Uses Space Grotesk instead of Playfair Display for job topic title |
 | 3 | Dashboard eyebrow uses violet | Dashboard | Medium | `#A78BFA` eyebrow color vs gold `#F59E0B` on all other pages |
 | 4 | Video script missing from platformMeta | Dashboard | Medium | Falls back to purple badge/icon instead of its documented red/coral color |
-| 5 | Split theme accent mismatch | Carousel theme picker | Medium | Server = `#FF6B35` (orange), client constants = `#8B5CF6` (violet) — completely different |
-| 6 | Only 5 themes in picker | Carousel theme picker | Medium | 9 server themes defined but only 5 exposed in `CAROUSEL_THEMES` in constants.ts |
+| 5 | ~~Split theme accent mismatch~~ **Resolved** | Carousel theme picker | — | No server-side theme accent exists anymore post carousel-rewrite (see §1C) — nothing left to mismatch against |
+| 6 | ~~Only 5 themes in picker~~ **Resolved** | Carousel theme picker | — | All 9 themes are now exposed in `CAROUSEL_THEMES` in constants.ts (verified: aurora, magazine, split, bold, minimal, neon, violet, crimson, rose) |
 | 7 | URL input focus: cyan instead of gold | Repurpose page | Low | `rgba(34,211,238,0.35)` focus border — inconsistent with standard gold focus ring on all other inputs |
 | 8 | Background shade inconsistency | Library vs Dashboard | Low | Library uses `#08081A`, Dashboard uses `#07071C` for row/card backgrounds |
 | 9 | Three red error variants | All pages | Low | `#EF4444`, `#F87171`, `#F43F5E` used interchangeably for semantically identical error states |
@@ -979,9 +996,9 @@ All icons are from `lucide-react`. The following table lists icons found across 
 | 16 | Letter-spacing values | All pages | Low | Same semantic purpose (section labels) uses `3px`, `2.5px`, `2px`, `letterSpacing: 3` (unitless) inconsistently |
 | 17 | Line-height body text | All pages | Low | Values range from 1.6 to 1.78 for body text with no clear semantic difference |
 | 18 | Wrench icon is inline SVG | AuthLayout mobile | Low | Only non-Lucide icon; breaks the icon system consistency |
-| 19 | No focus-visible states documented | All pages | Medium | Tab-key accessibility via keyboard focus rings is not styled — relies on browser default which may be invisible on dark bg |
+| 19 | ~~No focus-visible states documented~~ **Fixed** | All pages | — | `index.css` now has explicit `:focus-visible` rules (WCAG 2.4.7 cited in-line) applied globally plus per-component overrides (`.sidebar-link`, `.input`, `.selectable-tile`) — no longer relying on browser default |
 | 20 | Feature cards on landing have no border-radius | Landing page | Low | `.feat-new` has sharp corners; all other cards in the app use 14px radius — jarring inconsistency |
-| 21 | Templates page not in sidebar | App navigation | Medium | `/templates` only accessible via mobile Tools sheet, not the primary sidebar nav |
+| 21 | ~~Templates page not in sidebar~~ **Resolved** | App navigation | — | The Templates feature (page, `/templates` route, Library tab, backend CRUD) was removed entirely — nothing left to place in navigation |
 
 ---
 

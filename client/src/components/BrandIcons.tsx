@@ -1,4 +1,6 @@
-// Inline SVG brand icons — replaces react-icons brand icon dependency
+// WHY inline SVG brand icons: replaces react-icons brand icon dependency to reduce
+// bundle size and avoid version conflicts. Custom SVGs give exact control over icon
+// appearance and match the app's design system.
 import type { CSSProperties } from 'react';
 
 interface IconProps {

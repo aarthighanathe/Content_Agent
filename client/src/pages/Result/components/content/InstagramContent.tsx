@@ -27,7 +27,7 @@ export function InstagramContent({ content, onSave }: Props) {
   }
 
   return (
-    <div style={{ background: '#08081A', borderRadius: 14, border: '1px solid rgba(236,72,153,0.18)', overflow: 'hidden' }}>
+    <div style={{ background: 'var(--bg-raised)', borderRadius: 14, border: '1px solid rgba(236,72,153,0.18)', overflow: 'hidden' }}>
       {isEditing ? (
         <ContentEditShell label="Edit Caption" onClose={() => setIsEditing(false)} onSave={saveEdit}>
           <textarea className="input" value={editForm.caption || ''} onChange={(e) => setEditForm({ ...editForm, caption: e.target.value })} placeholder="Caption" style={{ minHeight: 140 }} />
@@ -35,15 +35,15 @@ export function InstagramContent({ content, onSave }: Props) {
         </ContentEditShell>
       ) : (
         <div style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-          <p style={{ color: 'rgba(255,255,255,0.85)', lineHeight: 1.75, whiteSpace: 'pre-line', fontSize: 14 }}>{content.caption}</p>
+          <p style={{ color: 'var(--text-secondary)', lineHeight: 1.75, whiteSpace: 'pre-line', fontSize: 14 }}>{content.caption}</p>
           {content.hashtags && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
               {content.hashtags.map((tag: string) => (
                 <span key={tag} style={{ padding: '4px 10px', borderRadius: 20, background: 'rgba(236,72,153,0.08)', color: '#F472B6', fontSize: 11, fontFamily: "var(--font-mono)", border: '1px solid rgba(236,72,153,0.18)' }}>{tag}</span>
               ))}
             </div>
           )}
-          <div style={{ paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ paddingTop: 10, borderTop: '1px solid var(--rule)' }}>
             <Button variant="secondary" size="sm" icon={<Pencil size={11} />} onClick={startEditing}>Edit caption</Button>
           </div>
         </div>

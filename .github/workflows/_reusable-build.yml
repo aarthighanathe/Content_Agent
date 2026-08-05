@@ -43,6 +43,11 @@ jobs:
         run: |
           cd server && npm run test:coverage
 
+      - name: Run client tests
+        if: inputs.run-tests
+        run: |
+          cd client && npm run test:coverage
+
       - name: Build applications
         run: |
           cd server && npm run build

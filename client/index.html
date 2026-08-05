@@ -9,6 +9,44 @@
     <title>ContentAgent — AI-powered content that converts</title>
     <meta name="description" content="Multi-agent AI system that researches trends, writes platform-optimized content, and self-improves until it meets quality standards." />
     <meta name="theme-color" content="#080808" />
+
+    <!-- WHY: sets data-theme synchronously before first paint, so a persisted
+         non-default theme never flashes the Aurora default on load. Must stay
+         inline and run before any stylesheet/app script.
+         WHY the allowlist check: store.ts's readStoredTheme() validates the
+         stored value against VALID_THEMES before trusting it and falls back
+         to 'aurora' otherwise — this script previously applied any stored
+         value unchecked, so a stale/invalid theme key (removed in a future
+         refactor, or manual tampering) would set a data-theme matching no
+         CSS block, producing exactly the unstyled-content flash this script
+         exists to prevent until React mounts and corrects it. Keep this list
+         in sync with store.ts's VALID_THEMES. -->
+    <script>
+      (function () {
+        try {
+          var validThemes = ['aurora', 'deep-marine', 'obsidian-ember', 'nightshade', 'ink-verdigris', 'carbon-signal'];
+          var t = localStorage.getItem('contentagent-theme');
+          if (t && validThemes.indexOf(t) !== -1) document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+
+    <link rel="canonical" href="https://content-agent-six-chi.vercel.app/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://content-agent-six-chi.vercel.app/" />
+    <meta property="og:title" content="ContentAgent — AI-powered content that converts" />
+    <meta property="og:description" content="Multi-agent AI system that researches trends, writes platform-optimized content, and self-improves until it meets quality standards." />
+    <meta property="og:image" content="https://content-agent-six-chi.vercel.app/og-image.png" />
+    <meta property="og:image:width" content="1918" />
+    <meta property="og:image:height" content="874" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ContentAgent — AI-powered content that converts" />
+    <meta name="twitter:description" content="Multi-agent AI system that researches trends, writes platform-optimized content, and self-improves until it meets quality standards." />
+    <meta name="twitter:image" content="https://content-agent-six-chi.vercel.app/og-image.png" />
   </head>
   <body>
     <div id="root"></div>

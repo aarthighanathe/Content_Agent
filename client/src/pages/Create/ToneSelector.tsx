@@ -1,11 +1,19 @@
-import { Briefcase, MessageCircle, Flame, Smile, Minus } from 'lucide-react';
+import { Briefcase, MessageCircle, Flame, Smile, Minus, Sparkles, GraduationCap, Star, ArrowRight } from 'lucide-react';
 
+// WHY all 9, matching VALID_TONES exactly (server/src/schemas/jobs.ts): this
+// previously only exposed 5 of the 9 tones the backend/zod schema accept —
+// witty/educational/inspirational/direct were silently unreachable from the UI
+// even though the server has always validated them.
 const tones = [
-  { id: 'professional', label: 'Professional', Icon: Briefcase    },
+  { id: 'professional', label: 'Professional', Icon: Briefcase     },
   { id: 'casual',       label: 'Casual',       Icon: MessageCircle },
+  { id: 'witty',        label: 'Witty',        Icon: Sparkles      },
+  { id: 'educational',  label: 'Educational',  Icon: GraduationCap },
+  { id: 'inspirational',label: 'Inspirational',Icon: Star          },
   { id: 'bold',         label: 'Bold',         Icon: Flame         },
   { id: 'playful',      label: 'Playful',      Icon: Smile         },
   { id: 'minimal',      label: 'Minimal',      Icon: Minus         },
+  { id: 'direct',       label: 'Direct',       Icon: ArrowRight    },
 ];
 
 interface ToneSelectorProps {
@@ -31,9 +39,9 @@ export function ToneSelector({ value, onChange }: ToneSelectorProps) {
             aria-pressed={sel}
             onClick={() => onChange(sel ? '' : t.id)}
             style={{
-              background: sel ? 'rgba(245,158,11,0.1)' : '#08081A',
-              border: `1.5px solid ${sel ? '#F59E0B' : 'rgba(255,255,255,0.07)'}`,
-              color: sel ? '#F59E0B' : 'rgba(255,255,255,0.45)',
+              background: sel ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'var(--bg-raised)',
+              border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--rule)'}`,
+              color: sel ? 'var(--accent)' : 'var(--text-muted)',
               fontSize: 'clamp(11px,2vw,13px)',
               padding: '8px 16px',
               borderRadius: 24,
@@ -44,7 +52,7 @@ export function ToneSelector({ value, onChange }: ToneSelectorProps) {
               gap: 6,
               whiteSpace: 'nowrap',
               fontWeight: sel ? 600 : 400,
-              boxShadow: sel ? '0 0 12px rgba(245,158,11,0.12)' : 'none',
+              boxShadow: sel ? '0 0 12px color-mix(in srgb, var(--accent) 12%, transparent)' : 'none',
             }}
           >
             <t.Icon size={13} style={{ flexShrink: 0 }} />

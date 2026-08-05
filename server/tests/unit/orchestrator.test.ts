@@ -1,74 +1,19 @@
 /**
- * agents/orchestrator.test.ts — P1
- * Tests orchestrator response parsing, fallback JSON on bad AI output,
- * PLATFORM_RULES coverage, and search query constraints.
+ * agents/orchestrator.ts — tests against the REAL exports.
+ *
+ * The previous version of this file tested a local transcription
+ * (parseOrchestratorResponse + a duplicated PLATFORM_RULES copy) rather than
+ * the real module — it passed even when it didn't reflect orchestrator.ts's
+ * actual behavior. This imports the real runOrchestrator() (mocking only
+ * generateWithAI/sseManager), so the schema-validation fix applied in this
+ * pass (a parseable-but-malformed response now falls to the same safe default
+ * as a JSON.parse() failure, instead of silently flowing through) is actually
+ * verified here, not just type-checked.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ─── Inline orchestrator parsing logic (mirrors orchestrator.ts) ──────────────
-
-const PLATFORM_RULES: Record<string, any> = {
-  instagram_carousel: {
-    format: 'carousel',
-    slides: '8 slides',
-    structure: 'cover → problem → solution → features → stat → quote → steps → cta',
-    maxWordsPerSlide: 60,
-  },
-  linkedin_post: {
-    format: 'post',
-    wordCount: '150-250 words',
-    hashtags: '3-5 hashtags',
-    structure: 'hook in first 2 lines, short paragraphs, CTA at end',
-  },
-  twitter_thread: {
-    format: 'thread',
-    tweets: '5-8 tweets',
-    maxCharsPerTweet: 280,
-    structure: 'tweet 1 standalone hook, numbered N/',
-  },
-  instagram_caption: {
-    format: 'caption',
-    wordCount: '100-150 words',
-    hashtags: '10-15 hashtags',
-    emojis: '3-5 inline emojis',
-  },
-  video_script: {
-    format: 'short-form video',
-    duration: '30-60 seconds',
-    structure: 'hook (0-3s) → 3-5 segments → CTA',
-  },
-};
-
-function parseOrchestratorResponse(result: string, job: any): {
-  taskPlan: string;
-  searchQueries: string[];
-  platformRules: Record<string, any>;
-} {
-  let parsed: any;
-  try {
-    const jsonMatch = result.match(/\{[\s\S]*\}/);
-    parsed = JSON.parse(jsonMatch ? jsonMatch[0] : result);
-  } catch {
-    parsed = {
-      taskPlan: `Create ${job.platform} content about ${job.topic} targeting ${job.targetAudience}`,
-      searchQueries: [
-        `${job.topic} latest trends and statistics`,
-        `best ${job.platform.replace('_', ' ')} content strategy for ${job.topic}`,
-        `${job.topic} audience pain points and motivations`,
-      ],
-    };
-  }
-
-  return {
-    taskPlan: parsed.taskPlan || '',
-    searchQueries: (parsed.searchQueries?.length >= 1 ? parsed.searchQueries : [
-      `${job.topic} latest trends and statistics`,
-      `best ${job.platform.replace('_', ' ')} content strategy for ${job.topic}`,
-      `${job.topic} audience pain points and motivations`,
-    ]).slice(0, 3),
-    platformRules: PLATFORM_RULES[job.platform] || {},
-  };
-}
+vi.mock('../../src/lib/ai.js', () => ({ generateWithAI: vi.fn() }));
+vi.mock('../../src/lib/sse.js', () => ({ sseManager: { sendEvent: vi.fn() } }));
 
 const MOCK_JOB = {
   id: 'job-1',
@@ -76,122 +21,193 @@ const MOCK_JOB = {
   platform: 'instagram_carousel',
   tone: 'professional',
   targetAudience: 'digital marketers',
-};
+} as any;
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+describe('runOrchestrator — response parsing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
-describe('Orchestrator — response parsing', () => {
-  it('parses valid JSON response correctly', () => {
-    const aiResponse = JSON.stringify({
+  it('parses a valid JSON response correctly', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
       taskPlan: 'Create a carousel about AI tools for marketers',
       searchQueries: ['AI tools 2024 stats', 'Instagram carousel best practices', 'marketers AI adoption'],
-    });
-    const result = parseOrchestratorResponse(aiResponse, MOCK_JOB);
+    }));
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
     expect(result.taskPlan).toBe('Create a carousel about AI tools for marketers');
     expect(result.searchQueries).toHaveLength(3);
   });
 
-  it('falls back to default search queries on malformed JSON', () => {
-    const result = parseOrchestratorResponse('not valid json', MOCK_JOB);
+  it('falls back to default search queries on malformed JSON', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('not valid json');
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
     expect(result.searchQueries).toHaveLength(3);
     expect(result.taskPlan).toContain('AI marketing tools');
   });
 
-  it('caps searchQueries to 3 even if AI returns more', () => {
-    const aiResponse = JSON.stringify({
+  it('falls back to the same default when JSON parses but the shape is invalid (schema-validation fix)', async () => {
+    // WHY this test matters: before this pass's fix, a parseable-but-malformed
+    // response (searchQueries sent as a single string instead of an array)
+    // would have flowed through as `parsed.searchQueries?.length >= 1` on a
+    // STRING's .length property — "some string".length is a number, so this
+    // could silently pass the >= 1 check and return a string where an array
+    // of queries was expected downstream. The schema now coerces/falls back
+    // this to a real array.
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      taskPlan: 'Test plan',
+      searchQueries: 'not an array at all',
+    }));
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
+    expect(Array.isArray(result.searchQueries)).toBe(true);
+    expect(result.searchQueries).toHaveLength(3);
+    result.searchQueries.forEach((q) => expect(typeof q).toBe('string'));
+  });
+
+  it('caps searchQueries to 3 even if the model returns more', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
       taskPlan: 'Test plan',
       searchQueries: ['q1', 'q2', 'q3', 'q4', 'q5'],
-    });
-    const result = parseOrchestratorResponse(aiResponse, MOCK_JOB);
+    }));
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
     expect(result.searchQueries.length).toBeLessThanOrEqual(3);
   });
 
-  it('falls back to 3 default queries when AI returns 0 queries', () => {
-    const aiResponse = JSON.stringify({ taskPlan: 'Test', searchQueries: [] });
-    const result = parseOrchestratorResponse(aiResponse, MOCK_JOB);
+  it('falls back to 3 default queries when the model returns 0 queries', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({ taskPlan: 'Test', searchQueries: [] }));
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
     expect(result.searchQueries).toHaveLength(3);
   });
 
-  it('attaches correct PLATFORM_RULES for instagram_carousel', () => {
-    const result = parseOrchestratorResponse('{}', MOCK_JOB);
+  it('attaches correct platform rules for instagram_carousel', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('{}');
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
     expect(result.platformRules.format).toBe('carousel');
     expect(result.platformRules.slides).toBe('8 slides');
   });
 
-  it('taskPlan falls back to empty string when AI response has no taskPlan', () => {
-    const aiResponse = JSON.stringify({ searchQueries: ['q1', 'q2', 'q3'] });
-    const result = parseOrchestratorResponse(aiResponse, MOCK_JOB);
+  it('taskPlan falls back to a topic-derived default when the model response has no taskPlan', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({ searchQueries: ['q1', 'q2', 'q3'] }));
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
     expect(typeof result.taskPlan).toBe('string');
+    expect(result.taskPlan.length).toBeGreaterThan(0);
   });
 
-  it('extracts JSON embedded in markdown fences', () => {
-    const aiResponse = '```json\n{"taskPlan":"Test plan","searchQueries":["q1","q2","q3"]}\n```';
-    const result = parseOrchestratorResponse(aiResponse, MOCK_JOB);
+  it('extracts JSON embedded in markdown fences', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('```json\n{"taskPlan":"Test plan","searchQueries":["q1","q2","q3"]}\n```');
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
     expect(result.taskPlan).toBe('Test plan');
   });
-});
 
-// ─── PLATFORM_RULES coverage ──────────────────────────────────────────────────
+  it('unknown platform returns empty platformRules', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('{}');
 
-describe('PLATFORM_RULES', () => {
-  const VALID_PLATFORMS = ['instagram_carousel', 'linkedin_post', 'twitter_thread', 'instagram_caption', 'video_script'];
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator({ ...MOCK_JOB, platform: 'tiktok' });
 
-  it('has rules for all 5 platforms', () => {
-    VALID_PLATFORMS.forEach(p => {
-      expect(PLATFORM_RULES[p]).toBeDefined();
-    });
-  });
-
-  it('instagram_carousel has 8-slide structure with correct narrative arc', () => {
-    const rules = PLATFORM_RULES.instagram_carousel;
-    expect(rules.slides).toBe('8 slides');
-    expect(rules.structure).toContain('cover');
-    expect(rules.structure).toContain('cta');
-    expect(rules.maxWordsPerSlide).toBe(60);
-  });
-
-  it('linkedin_post specifies word count range', () => {
-    const rules = PLATFORM_RULES.linkedin_post;
-    expect(rules.wordCount).toMatch(/\d+-\d+\s*words/);
-  });
-
-  it('twitter_thread enforces 280 char limit', () => {
-    const rules = PLATFORM_RULES.twitter_thread;
-    expect(rules.maxCharsPerTweet).toBe(280);
-  });
-
-  it('instagram_caption specifies hashtag count', () => {
-    const rules = PLATFORM_RULES.instagram_caption;
-    expect(rules.hashtags).toContain('10-15');
-  });
-
-  it('unknown platform returns empty object', () => {
-    const result = parseOrchestratorResponse('{}', { ...MOCK_JOB, platform: 'tiktok' });
     expect(result.platformRules).toEqual({});
   });
-});
 
-// ─── Default query construction ───────────────────────────────────────────────
+  it('default queries include the topic and use "latest" not a hardcoded year', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('not json');
 
-describe('Default search query construction', () => {
-  it('includes topic in default queries', () => {
-    const result = parseOrchestratorResponse('not json', MOCK_JOB);
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
     const allQueries = result.searchQueries.join(' ');
-    expect(allQueries).toContain('AI marketing tools');
-  });
 
-  it('all default queries are non-empty strings', () => {
-    const result = parseOrchestratorResponse('bad json %%%', MOCK_JOB);
-    result.searchQueries.forEach(q => {
+    expect(allQueries).toContain('AI marketing tools');
+    expect(allQueries).toContain('latest');
+    expect(allQueries).not.toMatch(/\b202[0-9]\b/);
+    result.searchQueries.forEach((q) => {
       expect(typeof q).toBe('string');
       expect(q.length).toBeGreaterThan(0);
     });
   });
+});
 
-  it('uses "latest" not hardcoded year in default queries', () => {
-    const result = parseOrchestratorResponse('bad json', MOCK_JOB);
-    const allQueries = result.searchQueries.join(' ');
-    expect(allQueries).toContain('latest');
-    expect(allQueries).not.toMatch(/\b202[0-9]\b/);
+describe('PLATFORM_RULES coverage (via runOrchestrator)', () => {
+  const VALID_PLATFORMS = ['instagram_carousel', 'linkedin_post', 'twitter_thread', 'instagram_caption', 'video_script'];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('has rules for all 5 platforms', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+
+    for (const platform of VALID_PLATFORMS) {
+      vi.mocked(generateWithAI).mockResolvedValueOnce('{}');
+      const result = await runOrchestrator({ ...MOCK_JOB, platform });
+      expect(Object.keys(result.platformRules).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('linkedin_post specifies a word count range', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('{}');
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator({ ...MOCK_JOB, platform: 'linkedin_post' });
+    expect(result.platformRules.wordCount).toMatch(/\d+-\d+\s*words/);
+  });
+
+  it('twitter_thread enforces a 280 char limit', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('{}');
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator({ ...MOCK_JOB, platform: 'twitter_thread' });
+    expect(result.platformRules.maxCharsPerTweet).toBe(280);
+  });
+
+  it('instagram_carousel has an 8-slide structure with a correct narrative arc', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('{}');
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator({ ...MOCK_JOB, platform: 'instagram_carousel' });
+    expect(result.platformRules.slides).toBe('8 slides');
+    expect(result.platformRules.structure).toContain('cover');
+    expect(result.platformRules.structure).toContain('cta');
+    expect(result.platformRules.maxWordsPerSlide).toBe(60);
+  });
+
+  it('instagram_caption specifies a 10-15 hashtag count', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('{}');
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator({ ...MOCK_JOB, platform: 'instagram_caption' });
+    expect(result.platformRules.hashtags).toContain('10-15');
   });
 });

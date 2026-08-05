@@ -44,7 +44,7 @@ Redis available? ──NO──▶ runPipelineDirect()           │  processCon
 
 **Which path runs depends only on whether Redis is configured** (`UPSTASH_REDIS_URL`/`UPSTASH_REDIS_TOKEN` or `REDIS_URL`) — checked at request time in `create.ts` via `addJobToQueue()`'s return value, not at server boot. If Redis is up when the server starts but drops mid-session, `addJobToQueue()` catches the failure and returns `false`, and `create.ts` falls back to `runPipelineDirect()` for that request only.
 
-**Content Multiplication** (`POST /:jobId/multiply` in `manage.ts`) does **not** go through `pipeline.ts` — it has its own inline copy of the Writer→Formatter→Critic loop (`runPipelineFromWriter()`), skipping Orchestrator+Researcher and reusing the source job's cached research. This is intentional (the whole point of multiplication is skipping re-research) but means a bug fixed in `pipeline.ts`'s retry/scoring logic must be separately fixed in `manage.ts`'s copy — these two loops have already drifted slightly (see `REVIEW_FINDINGS.md` for anything flagged here).
+**Content Multiplication** (`POST /:jobId/multiply` in `manage.ts`) goes through the same `runAndPersistPipeline()` as every other job — it is **not** a separate inline copy. `pipeline.ts` (`runContentPipeline`/`runAndPersistPipeline`) exposes a `skipResearch` option that lets `/multiply` start directly at the Writer stage, reusing the source job's cached research/task-plan/platform-rules instead of re-running Orchestrator+Researcher (the whole point of multiplication is skipping re-research). Everything else — the retry loop, `isSoftDeleted()` guard, progress emission, PerformancePredictor stage — is the canonical shared implementation, so a bug fixed in `pipeline.ts` is automatically fixed for `/multiply` too; there is no second copy to keep in sync (see `CHANGELOG.md` §1.11 for when this was consolidated).
 
 ---
 
@@ -86,7 +86,7 @@ security surface is smaller than it looks — but `stripScriptsAndEventHandlers(
 that get interpolated into inline SVG are hex-validated at the schema boundary
 (`colorSystemSchema` in `server/src/schemas/jobs.ts`) rather than trusted as arbitrary strings.
 
-**`lib/carousel.ts` today (247 lines) contains ONLY:**
+**`lib/carousel.ts` today (331 lines — grew from 247 during the 2026-07 Render/Puppeteer Chrome-detection fixes; see `git log` on this file) contains ONLY:**
 - The Puppeteer browser pool (min 2 / max 8, see §4 below)
 - The PNG cache (24h TTL, content-hash keyed)
 - `stripScriptsAndEventHandlers()` — the one canonical HTML sanitizer, used by both this file and `carouselSsr.ts`

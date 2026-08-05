@@ -61,18 +61,18 @@ export function ContentColumn({
   return (
     <div className={['rp-main', className].filter(Boolean).join(' ')}>
       {/* Platform header pill */}
-      <div className="rp-plat-hd" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: 14, marginBottom: 16 }}>
+      <div className="rp-plat-hd" style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 14, marginBottom: 16 }}>
         <div className="rp-platform-pill">
           {Icon && <Icon size={18} style={{ color: 'var(--color-text-secondary)' }} />}
-          <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.65)', letterSpacing: 0.2 }}>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', letterSpacing: 0.2 }}>
             {(jobData?.platform && platNames[jobData.platform]) || jobData?.platform}
           </span>
           {totalSlides > 0 && (
             <>
               <div className="rp-platform-pill-sep" />
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: 'rgba(255,255,255,0.32)' }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: 'var(--text-muted)' }}>
                 {isCarousel
-                  ? <>Slide <strong style={{ color: 'rgba(255,255,255,0.65)' }}>{currentSlide + 1}</strong> / {totalSlides}</>
+                  ? <>Slide <strong style={{ color: 'var(--text-secondary)' }}>{currentSlide + 1}</strong> / {totalSlides}</>
                   : <>{totalSlides} tweets</>
                 }
               </span>

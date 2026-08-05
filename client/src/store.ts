@@ -30,11 +30,148 @@ interface UserProfile {
   industry?: string;
 }
 
+// WHY prediction/sourceUrl are optional, not added to isIdeatedIdea's
+// required-field checks below: existing localStorage data from before this
+// change (I3/I4) has neither field — making them required would silently
+// drop every previously-saved/ideated idea the next time the type guard
+// runs. Old ideas without a tier/sourceUrl simply render without that extra
+// UI, same "prefer optional" guidance the task itself calls for.
+export interface IdeaPrediction {
+  tier: 'high' | 'medium' | 'low';
+  topReason: string;
+}
+
 export interface IdeatedIdea {
   title: string;
   platform: string;
   angle: string;
   why: string;
+  sourceUrl?: string;
+  prediction?: IdeaPrediction;
+}
+
+export type ThemeName =
+  | 'aurora'
+  | 'deep-marine'
+  | 'obsidian-ember'
+  | 'nightshade'
+  | 'ink-verdigris'
+  | 'carbon-signal';
+
+const THEME_STORAGE_KEY = 'contentagent-theme';
+const VALID_THEMES: readonly ThemeName[] = [
+  'aurora',
+  'deep-marine',
+  'obsidian-ember',
+  'nightshade',
+  'ink-verdigris',
+  'carbon-signal',
+];
+
+function readStoredTheme(): ThemeName {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored && (VALID_THEMES as readonly string[]).includes(stored)) {
+      return stored as ThemeName;
+    }
+  } catch {
+    // WHY: localStorage can throw in private-browsing/disabled-storage contexts — fall through to default
+  }
+  return 'aurora';
+}
+
+const IDEATED_IDEAS_STORAGE_KEY = 'contentagent-ideated-ideas';
+
+// WHY persisted (unlike currentJob/sseConnection): the user asked for generated
+// ideas to survive a hard refresh, not just in-app navigation — they should only
+// change when "Suggest 10 topics" / "Regenerate ideas" is clicked again.
+function isIdeatedIdea(value: unknown): value is IdeatedIdea {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.title === 'string' &&
+    typeof v.platform === 'string' &&
+    typeof v.angle === 'string' &&
+    typeof v.why === 'string'
+  );
+}
+
+function readStoredIdeas(): IdeatedIdea[] {
+  try {
+    const stored = localStorage.getItem(IDEATED_IDEAS_STORAGE_KEY);
+    if (!stored) return [];
+    const parsed: unknown = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isIdeatedIdea);
+  } catch {
+    // WHY: localStorage can throw in private-browsing/disabled-storage contexts,
+    // and stored JSON could be corrupted/stale-shaped — fall back to empty either way
+    return [];
+  }
+}
+
+function writeStoredIdeas(ideas: IdeatedIdea[]): void {
+  try {
+    localStorage.setItem(IDEATED_IDEAS_STORAGE_KEY, JSON.stringify(ideas));
+  } catch {
+    // WHY: same private-browsing guard as theme storage — ideas still apply for this session
+  }
+}
+
+const IDEAS_GENERATED_AT_STORAGE_KEY = 'contentagent-ideas-generated-at';
+
+function readStoredGeneratedAt(): string | null {
+  try {
+    return localStorage.getItem(IDEAS_GENERATED_AT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredGeneratedAt(iso: string | null): void {
+  try {
+    if (iso) {
+      localStorage.setItem(IDEAS_GENERATED_AT_STORAGE_KEY, iso);
+    } else {
+      localStorage.removeItem(IDEAS_GENERATED_AT_STORAGE_KEY);
+    }
+  } catch {
+    // WHY: same private-browsing guard as theme storage
+  }
+}
+
+const SAVED_IDEAS_STORAGE_KEY = 'contentagent-saved-ideas';
+
+// WHY a separate list from ideatedIdeas: the generated batch is always fully replaced on
+// regenerate, so anything worth keeping past the next click needs its own persisted list —
+// bookmarking an idea shouldn't be undone by clicking "Regenerate ideas" later.
+export interface SavedIdea extends IdeatedIdea {
+  savedAt: string;
+}
+
+function isSavedIdea(value: unknown): value is SavedIdea {
+  if (!isIdeatedIdea(value)) return false;
+  return typeof (value as unknown as Record<string, unknown>).savedAt === 'string';
+}
+
+function readStoredSavedIdeas(): SavedIdea[] {
+  try {
+    const stored = localStorage.getItem(SAVED_IDEAS_STORAGE_KEY);
+    if (!stored) return [];
+    const parsed: unknown = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isSavedIdea);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredSavedIdeas(ideas: SavedIdea[]): void {
+  try {
+    localStorage.setItem(SAVED_IDEAS_STORAGE_KEY, JSON.stringify(ideas));
+  } catch {
+    // WHY: same private-browsing guard as theme storage
+  }
 }
 
 interface AppState {
@@ -42,6 +179,9 @@ interface AppState {
   sseConnection: EventSource | null;
   userProfile: UserProfile;
   ideatedIdeas: IdeatedIdea[];
+  ideasGeneratedAt: string | null;
+  savedIdeas: SavedIdea[];
+  themeName: ThemeName;
 
   setCurrentJob: (job: CurrentJob | null) => void;
   updateFromSSE: (data: SSEEvent) => void;
@@ -49,6 +189,9 @@ interface AppState {
   disconnectStream: () => void;
   setUserProfile: (profile: Partial<UserProfile>) => void;
   setIdeatedIdeas: (ideas: IdeatedIdea[]) => void;
+  saveIdea: (idea: IdeatedIdea) => void;
+  unsaveIdea: (title: string) => void;
+  setTheme: (theme: ThemeName) => void;
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -70,7 +213,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     phrasesAvoid: '',
     industry: '',
   },
-  ideatedIdeas: [],
+  ideatedIdeas: readStoredIdeas(),
+  ideasGeneratedAt: readStoredGeneratedAt(),
+  savedIdeas: readStoredSavedIdeas(),
+  themeName: readStoredTheme(),
 
   setCurrentJob: (job) => set({ currentJob: job }),
 
@@ -144,8 +290,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (data.stage === 'done' || data.stage === 'failed' || data.type === 'state') {
           // Don't close — let the component handle it
         }
-      } catch (e) {
-        console.error('SSE parse error:', e);
+      } catch (_e) {
+        // NOTE: SSE parse errors are logged server-side; no need for console.error in production
       }
     };
 
@@ -186,5 +332,37 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  setIdeatedIdeas: (ideas) => set({ ideatedIdeas: ideas }),
+  setIdeatedIdeas: (ideas) => {
+    const generatedAt = new Date().toISOString();
+    writeStoredIdeas(ideas);
+    writeStoredGeneratedAt(generatedAt);
+    set({ ideatedIdeas: ideas, ideasGeneratedAt: generatedAt });
+  },
+
+  saveIdea: (idea) => {
+    set((state) => {
+      if (state.savedIdeas.some((s) => s.title === idea.title)) return state;
+      const next = [{ ...idea, savedAt: new Date().toISOString() }, ...state.savedIdeas];
+      writeStoredSavedIdeas(next);
+      return { savedIdeas: next };
+    });
+  },
+
+  unsaveIdea: (title) => {
+    set((state) => {
+      const next = state.savedIdeas.filter((s) => s.title !== title);
+      writeStoredSavedIdeas(next);
+      return { savedIdeas: next };
+    });
+  },
+
+  setTheme: (theme) => {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // WHY: same private-browsing guard as readStoredTheme — theme still applies for this session
+    }
+    document.documentElement.setAttribute('data-theme', theme);
+    set({ themeName: theme });
+  },
 }));

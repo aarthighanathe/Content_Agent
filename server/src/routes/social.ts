@@ -7,6 +7,8 @@ import { eq, and } from 'drizzle-orm';
 import { encryptTokenOptional, decryptTokenOptional } from '../lib/tokenEncryption.js';
 import { parseBody, postSocialSchema, scheduleSocialSchema } from '../schemas/index.js';
 import { env } from '../config.js';
+import { socialRateLimit } from '../middleware/rateLimit.js';
+import { publishToSocialPlatform } from '../lib/socialPublish.js';
 
 // ── OAuth state HMAC signing ───────────────────────────────────────────────────
 
@@ -46,14 +48,50 @@ function verifyOAuthState(state: string): Record<string, unknown> | null {
 
 const router = Router();
 
+// WHY this shape: mirrors exactly what dbUpsertToken already accepted as its
+// `data` parameter before this fix — extracting it as a named type replaces the
+// Record<string, any> the token map/fallback store used to carry.
+// WHY `| null` alongside `?:` on every optional field: dbGetTokens populates
+// this straight from Drizzle's nullable columns (`T | null`, not `T | undefined`)
+// — both mean "absent" here, so this accepts either rather than forcing an
+// unnecessary `?? undefined` coercion at every read site.
+export interface SocialTokenData {
+  accessToken: string;
+  refreshToken?: string | null;
+  expiresAt?: number | null;
+  displayName?: string | null;
+  platformUserId?: string | null;
+}
+
+// WHY these interfaces: each covers only the fields this file actually reads off
+// the corresponding OAuth provider's JSON response — not the full response shape
+// (both LinkedIn and Twitter return considerably more than this), matching the
+// same "type what you use" scope as the rest of this pass's response schemas.
+interface LinkedInTokenResponse {
+  access_token?: string;
+  expires_in?: number;
+}
+interface LinkedInProfileResponse {
+  id?: string;
+  localizedFirstName?: string;
+  localizedLastName?: string;
+}
+interface TwitterTokenResponse {
+  access_token?: string;
+  refresh_token?: string;
+}
+interface TwitterProfileResponse {
+  data?: { username?: string };
+}
+
 // Fallback in-memory store used only when DB is unavailable
-const _fallback = new Map<string, Record<string, any>>();
+const _fallback = new Map<string, Record<string, SocialTokenData>>();
 function fbGet(uid: string) {
   if (!_fallback.has(uid)) _fallback.set(uid, {});
   return _fallback.get(uid)!;
 }
 
-const PLATFORM_LABELS: Record<string, string> = {
+export const PLATFORM_LABELS: Record<string, string> = {
   linkedin:  'LinkedIn',
   twitter:   'Twitter / X',
   instagram: 'Instagram',
@@ -61,11 +99,11 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 // ── DB helpers ─────────────────────────────────────────────────────────────────
 
-async function dbGetTokens(userId: string): Promise<Record<string, any>> {
+async function dbGetTokens(userId: string): Promise<Record<string, SocialTokenData>> {
   if (!db) return fbGet(userId);
   try {
     const rows = await db.select().from(socialTokens).where(eq(socialTokens.userId, userId));
-    const map: Record<string, any> = {};
+    const map: Record<string, SocialTokenData> = {};
     for (const row of rows) {
       map[row.platform] = {
         accessToken: decryptTokenOptional(row.accessToken) ?? row.accessToken,
@@ -127,7 +165,7 @@ async function dbDeleteToken(userId: string, platform: string): Promise<void> {
   }
 }
 
-async function dbGetToken(userId: string, platform: string): Promise<any | null> {
+export async function dbGetToken(userId: string, platform: string): Promise<SocialTokenData | null> {
   const all = await dbGetTokens(userId);
   return all[platform] || null;
 }
@@ -141,14 +179,18 @@ router.get('/connections', async (req: AuthRequest, res: Response) => {
   const connections = Object.entries(tokens).map(([platform, data]) => ({
     platform,
     label: PLATFORM_LABELS[platform] || platform,
-    connected: !!(data as any).accessToken,
-    displayName: (data as any).displayName || null,
+    connected: !!data.accessToken,
+    displayName: data.displayName || null,
   }));
   res.json({ connections });
 });
 
 // GET /api/social/connect/:platform — initiate OAuth
-router.get('/connect/:platform', (req: AuthRequest, res: Response) => {
+// WHY rate-limited here, not at the /api/social router mount: the callback
+// route calls external LinkedIn/Twitter token + profile APIs and needs
+// backpressure, but /connections (a frequent read-only DB lookup, no external
+// call) and /post/schedule shouldn't share that same tight OAuth-dance budget.
+router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Response) => {
   const platform = req.params.platform as string;
   const userId = req.dbUserId || req.userId || 'demo';
   const callbackUrl = `${env.APP_URL}/api/social/callback/${platform}`;
@@ -173,9 +215,13 @@ router.get('/connect/:platform', (req: AuthRequest, res: Response) => {
       return;
     }
     const scopes = ['tweet.read', 'tweet.write', 'users.read', 'offline.access'].join('%20');
-    const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID() });
-    const challenge = Buffer.from(`${userId}-${Date.now()}`).toString('base64url');
-    const url = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${challenge}&code_challenge_method=plain`;
+    // SECURITY: code_challenge_method=plain requires code_verifier === code_challenge
+    // at token exchange. The verifier must be generated once here and carried through
+    // to the callback verbatim (via the signed state param) — recomputing it at
+    // callback time with a fresh value would never match.
+    const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
+    const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID(), codeVerifier });
+    const url = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${codeVerifier}&code_challenge_method=plain`;
     res.redirect(url);
     return;
   }
@@ -184,7 +230,7 @@ router.get('/connect/:platform', (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/social/callback/:platform — OAuth callback
-router.get('/callback/:platform', async (req: Request, res: Response) => {
+router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Response) => {
   const platform = req.params.platform as string;
   const { code, state, error: oauthError } = req.query as Record<string, string>;
   const frontendUrl = env.FRONTEND_URL;
@@ -213,13 +259,13 @@ router.get('/callback/:platform', async (req: Request, res: Response) => {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: callbackUrl, client_id: clientId, client_secret: clientSecret }).toString(),
       });
-      const tokenData = await tokenRes.json() as any;
+      const tokenData = await tokenRes.json() as LinkedInTokenResponse;
       if (!tokenData.access_token) throw new Error('No access token');
 
       let displayName = 'LinkedIn User';
       try {
         const profileRes = await fetch('https://api.linkedin.com/v2/me', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
-        const profile = await profileRes.json() as any;
+        const profile = await profileRes.json() as LinkedInProfileResponse;
         displayName = `${profile.localizedFirstName || ''} ${profile.localizedLastName || ''}`.trim() || displayName;
       } catch { /* ignore */ }
 
@@ -239,15 +285,15 @@ router.get('/callback/:platform', async (req: Request, res: Response) => {
           'Content-Type': 'application/x-www-form-urlencoded',
           ...(clientSecret ? { Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}` } : {}),
         },
-        body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: callbackUrl, code_verifier: Buffer.from(`${userId}-${Date.now()}`).toString('base64url') }).toString(),
+        body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: callbackUrl, code_verifier: (decoded.codeVerifier as string) || '' }).toString(),
       });
-      const tokenData = await tokenRes.json() as any;
+      const tokenData = await tokenRes.json() as TwitterTokenResponse;
       if (!tokenData.access_token) throw new Error('No access token');
 
       let displayName = 'Twitter User';
       try {
         const profileRes = await fetch('https://api.twitter.com/2/users/me', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
-        const profile = await profileRes.json() as any;
+        const profile = await profileRes.json() as TwitterProfileResponse;
         displayName = profile.data?.username ? `@${profile.data.username}` : displayName;
       } catch { /* ignore */ }
 
@@ -259,8 +305,8 @@ router.get('/callback/:platform', async (req: Request, res: Response) => {
     }
 
     res.redirect(`${frontendUrl}/brand?social_connected=${platform}`);
-  } catch (err: any) {
-    console.error(`OAuth callback failed for ${platform}:`, err.message);
+  } catch (err: unknown) {
+    console.error(`OAuth callback failed for ${platform}:`, err instanceof Error ? err.message : String(err));
     res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Connection failed — please try again')}`);
   }
 });
@@ -274,7 +320,11 @@ router.delete('/disconnect/:platform', async (req: AuthRequest, res: Response) =
 });
 
 // POST /api/social/post — post content to a connected platform
-router.post('/post', async (req: AuthRequest, res: Response) => {
+// WHY rate-limited: calls external LinkedIn/Twitter APIs via publishToSocialPlatform.
+// Without rate limiting, a user could script repeated posts and risk the OAuth app
+// being rate-limited/banned by the platform. This complies with CLAUDE.md's rule
+// that any endpoint calling external APIs must have a rate limiter.
+router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response) => {
   const body = parseBody(postSocialSchema, req.body, res);
   if (!body) return;
   const { platform, content } = body;
@@ -287,69 +337,9 @@ router.post('/post', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    // SECURITY: content is validated by postSocialSchema as record|array|string,
-    // but we narrow to a record for property access below.
-    const c = (typeof content === 'object' && !Array.isArray(content)) ? content as Record<string, unknown> : null;
-
-    if (platform === 'linkedin') {
-      let text = '';
-      if (c?.hook) text = `${c.hook}\n\n${c.body || ''}\n\n${c.cta || ''}\n\n${(c.hashtags as string[] || []).join(' ')}`;
-      else if (c?.caption) text = `${c.caption}\n\n${(c.hashtags as string[] || []).join(' ')}`;
-      else if (c?.tweets) text = ((c.tweets as Array<Record<string, unknown>>)[0]?.text as string) || '';
-      else if (Array.isArray(content)) text = `${content[0]?.headline}\n${content[0]?.body}`;
-
-      const meRes = await fetch('https://api.linkedin.com/v2/me', { headers: { Authorization: `Bearer ${conn.accessToken}` } });
-      const me = await meRes.json() as any;
-      const authorUrn = `urn:li:person:${me.id}`;
-
-      const postRes = await fetch('https://api.linkedin.com/v2/ugcPosts', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${conn.accessToken}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' },
-        body: JSON.stringify({ author: authorUrn, lifecycleState: 'PUBLISHED', specificContent: { 'com.linkedin.ugc.ShareContent': { shareCommentary: { text: text.slice(0, 3000) }, shareMediaCategory: 'NONE' } }, visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' } }),
-      });
-      const postData = await postRes.json() as any;
-      const linkedinPostId: string | undefined = postData.id || postData.value?.id;
-      if (linkedinPostId) {
-        // WHY build the URL server-side: FUNCTIONAL_AUDIT_2026-07.md finding #10 —
-        // the client used to receive a raw postId (an opaque URN, not a browsable
-        // link) and never turned it into anything, so "View post" never rendered.
-        // LinkedIn's share/update URNs resolve directly at this path.
-        const postUrl = `https://www.linkedin.com/feed/update/${encodeURIComponent(linkedinPostId)}/`;
-        res.json({ ok: true, postId: linkedinPostId, postUrl, platform });
-        return;
-      }
-      throw new Error(JSON.stringify(postData));
-    }
-
-    if (platform === 'twitter') {
-      let text = '';
-      if (c?.hook) text = `${c.hook}\n\n${c.cta || ''}`.slice(0, 280);
-      else if (c?.caption) text = (c.caption as string).slice(0, 280);
-      else if (c?.tweets) text = ((c.tweets as Array<Record<string, unknown>>)[0]?.text as string) || '';
-      else if (Array.isArray(content)) text = `${content[0]?.headline}\n${content[0]?.body}`.slice(0, 280);
-
-      const tweetRes = await fetch('https://api.twitter.com/2/tweets', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${conn.accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      const tweetData = await tweetRes.json() as any;
-      if (tweetData.data?.id) {
-        // WHY conn.displayName here: stored as "@username" when the account was
-        // connected (see the /callback/twitter handler below) — needed because
-        // Twitter's status URL requires a handle, not just the tweet ID. Falls
-        // back to the generic "i" path (still resolves, just via a redirect)
-        // if displayName is somehow missing.
-        const handle = conn.displayName?.replace(/^@/, '') || 'i';
-        const postUrl = `https://twitter.com/${encodeURIComponent(handle)}/status/${encodeURIComponent(tweetData.data.id)}`;
-        res.json({ ok: true, postId: tweetData.data.id, postUrl, platform });
-        return;
-      }
-      throw new Error(JSON.stringify(tweetData));
-    }
-
-    res.status(400).json({ error: `Posting to ${platform} is not yet supported.` });
-  } catch (err: any) {
+    const { postId, postUrl } = await publishToSocialPlatform(platform, content, conn);
+    res.json({ ok: true, postId, postUrl, platform });
+  } catch (err: unknown) {
     console.error(`[social] Failed to post to ${platform}:`, err);
     res.status(500).json({ error: 'Failed to post content', code: 'POST_FAILED', retryable: true });
   }
@@ -358,7 +348,29 @@ router.post('/post', async (req: AuthRequest, res: Response) => {
 // POST /api/social/schedule — store a scheduled post intent
 // Currently saves to an in-memory schedule (BullMQ delayed jobs can be wired
 // here once a scheduler table exists; for now the client shows scheduled state).
-const scheduledPosts = new Map<string, { userId: string; platform: string; scheduledAt: string; content: any; jobId?: string; createdAt: string }>();
+// WHY content: unknown: mirrors postSocialSchema's own validated shape
+// (record|array|string — content varies by platform, same reasoning as
+// schemas/jobs.ts's patchContentSchema) — this map only stores and later
+// forwards it, never reads a key off it directly.
+//
+// WHY this is a SEPARATE concept from routes/scheduledPosts.ts's DB-backed
+// scheduled_posts table, not the same thing under two names: this Map tracks
+// a platform+exact-datetime+content publish intent (no date-precision
+// requirement, no jobId requirement); scheduledPosts.ts's table tracks a
+// calendar date-placement tied to a jobId (no platform/content/time — the
+// platform and content already live on the referenced contentJobs row). A
+// user can place the same job on the Calendar (scheduledPosts.ts) AND queue a
+// social-schedule intent for it here independently — nothing currently
+// cross-checks the two. CLAUDE.md §9 "Known Limitations" describes the
+// eventual real auto-publish feature as unifying this Map with that table
+// into one concept once a real delivery worker exists; until then, treat
+// them as two separate, uncoordinated reminder mechanisms, not duplicates of
+// each other.
+// WHY renamed from scheduledPosts to socialScheduleIntents: the old name
+// shadowed the DB table name from db/schema.ts, making it easy to confuse
+// the two systems. The new name makes the distinction explicit in the type
+// system, not just in comments.
+const socialScheduleIntents = new Map<string, { userId: string; platform: string; scheduledAt: string; content: unknown; jobId?: string; createdAt: string }>();
 
 router.post('/schedule', async (req: AuthRequest, res: Response) => {
   const body = parseBody(scheduleSocialSchema, req.body, res);
@@ -379,14 +391,14 @@ router.post('/schedule', async (req: AuthRequest, res: Response) => {
   }
 
   const scheduleId = `${userId}:${platform}:${Date.now()}`;
-  scheduledPosts.set(scheduleId, {
+  socialScheduleIntents.set(scheduleId, {
     userId, platform, scheduledAt, content, jobId,
     createdAt: new Date().toISOString(),
   });
 
   // Auto-evict after scheduled time + 1 hour
   const msUntil = scheduledDate.getTime() - Date.now() + 60 * 60 * 1000;
-  setTimeout(() => scheduledPosts.delete(scheduleId), msUntil);
+  setTimeout(() => socialScheduleIntents.delete(scheduleId), msUntil);
 
   res.json({ ok: true, scheduleId, scheduledAt, platform });
 });

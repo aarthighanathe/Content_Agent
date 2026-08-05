@@ -36,8 +36,8 @@ export async function verifySSEToken(token: string | undefined): Promise<string 
         }
       }
     }
-  } catch (e) {
-    console.warn('[SSE] Redis lookup failed for token verification:', (e as any)?.message || e);
+  } catch (e: unknown) {
+    console.warn('[SSE] Redis lookup failed for token verification:', e instanceof Error ? e.message : e);
   }
 
   // Fallback: allow passing a full Clerk JWT directly (legacy support). This path
@@ -46,7 +46,7 @@ export async function verifySSEToken(token: string | undefined): Promise<string 
   if (!env.CLERK_SECRET_KEY) return null;
   try {
     const payload = await clerkVerifyToken(token, { secretKey: env.CLERK_SECRET_KEY });
-    const clerkUserId = (payload as any).sub;
+    const clerkUserId = payload.sub;
     if (!clerkUserId || !db) return null;
     const [dbUser] = await db.select({ id: users.id })
       .from(users)
@@ -116,8 +116,8 @@ router.post('/:jobId/stream-token', async (req: AuthRequest, res: Response) => {
     await client.set(key, payload, 'EX', 15 * 60);
 
     res.json({ token, expiresIn: 15 * 60 });
-  } catch (err: any) {
-    console.error('[SSE] Failed to create stream token:', err?.message || err);
+  } catch (err: unknown) {
+    console.error('[SSE] Failed to create stream token:', err instanceof Error ? err.message : err);
     res.status(500).json({ error: 'Failed to create stream token' });
   }
 });

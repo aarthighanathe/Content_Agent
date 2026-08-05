@@ -43,15 +43,15 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
           title="Show AI insights"
         >
           {/* Chevron pointing left (expand) */}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6" />
           </svg>
           {/* Rotated label */}
-          <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.2)' }}>
+          <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
             AI Insights
           </div>
           {/* Score pill */}
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: '#F59E0B' }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
             {criticResult.totalScore}
           </div>
         </div>
@@ -75,12 +75,12 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
 
         {/* Section label + collapse toggle */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.22)' }}>AI Quality Analysis</div>
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>AI Quality Analysis</div>
           {onToggle && (
             <button
               onClick={onToggle}
               title="Collapse insights"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.25)', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center', lineHeight: 1 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center', lineHeight: 1 }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="9 18 15 12 9 6" />
@@ -93,7 +93,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 24 }}>
           <div style={{ position: 'relative', width: RING_SIZE, height: RING_SIZE, flexShrink: 0 }}>
             <svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`} style={{ transform: 'rotate(-90deg)' }}>
-              <circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="6" />
+              <circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R} fill="none" stroke="var(--rule)" strokeWidth="6" />
               <circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R} fill="none" stroke="url(#qsGrad2)" strokeWidth="6" strokeLinecap="round"
                 strokeDasharray={RING_CIRC}
                 strokeDashoffset={RING_CIRC - (criticResult.totalScore / 100) * RING_CIRC}
@@ -101,18 +101,18 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
               />
               <defs>
                 <linearGradient id="qsGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#F59E0B" /><stop offset="100%" stopColor="#FBBF24" />
+                  <stop offset="0%" stopColor="var(--accent)" /><stop offset="100%" stopColor="var(--accent-2)" />
                 </linearGradient>
               </defs>
             </svg>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 700, color: '#F59E0B', lineHeight: 1 }}>{criticResult.totalScore}</span>
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.28)', fontFamily: "var(--font-mono)", marginTop: 2 }}>/ 100</span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 700, color: 'var(--accent)', lineHeight: 1 }}>{criticResult.totalScore}</span>
+              <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginTop: 2 }}>/ 100</span>
             </div>
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 8 }}>Quality Score</div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: criticResult.approved ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)', border: `1px solid ${criticResult.approved ? 'rgba(16,185,129,0.22)' : 'rgba(245,158,11,0.22)'}`, color: criticResult.approved ? '#34D399' : '#F59E0B', fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', padding: '4px 12px', borderRadius: 20 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: criticResult.approved ? 'rgba(16,185,129,0.08)' : 'color-mix(in srgb, var(--accent) 8%, transparent)', border: `1px solid ${criticResult.approved ? 'rgba(16,185,129,0.22)' : 'color-mix(in srgb, var(--accent) 22%, transparent)'}`, color: criticResult.approved ? '#34D399' : 'var(--accent)', fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', padding: '4px 12px', borderRadius: 20 }}>
               {criticResult.approved
                 ? <><Check size={10} /> Approved</>
                 : <><AlertTriangle size={10} /> Needs work</>}
@@ -128,14 +128,14 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
             return (
               <div key={k}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>{l}</span>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{l}</span>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
                     <span style={{ color: c, fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12 }}>{sc}</span>
-                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.22)', fontFamily: "var(--font-mono)" }}>/20</span>
-                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontFamily: "var(--font-mono)", marginLeft: 3 }}>{pct}%</span>
+                    <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "var(--font-mono)" }}>/20</span>
+                    <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginLeft: 3 }}>{pct}%</span>
                   </div>
                 </div>
-                <div style={{ height: 7, background: 'rgba(255,255,255,0.05)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ height: 7, background: 'var(--rule)', borderRadius: 4, overflow: 'hidden' }}>
                   <div style={{ height: '100%', background: `linear-gradient(90deg,${c},${c}80)`, borderRadius: 4, width: `${pct}%`, transition: 'width 1.2s cubic-bezier(.16,1,.3,1)', boxShadow: pct > 75 ? `0 0 6px ${c}60` : 'none' }} />
                 </div>
               </div>
@@ -145,9 +145,9 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
 
         {/* Critic feedback */}
         {criticResult.feedback && (
-          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 1.2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.2)', marginBottom: 8 }}>Critic Feedback</div>
-            <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)', fontStyle: 'italic', lineHeight: 1.65, margin: 0 }}>"{criticResult.feedback}"</p>
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>Critic Feedback</div>
+            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.65, margin: 0 }}>"{criticResult.feedback}"</p>
           </div>
         )}
 
@@ -156,11 +156,11 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
 
         {/* Actionable tip for weakest dimension */}
         {showTip && (
-          <div style={{ marginTop: 16, display: 'flex', gap: 9, background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.1)', borderRadius: 9, padding: '12px 13px' }}>
-            <Sparkles size={13} style={{ color: '#F59E0B', flexShrink: 0, marginTop: 1 }} />
+          <div style={{ marginTop: 16, display: 'flex', gap: 9, background: 'color-mix(in srgb, var(--accent) 4%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 10%, transparent)', borderRadius: 9, padding: '12px 13px' }}>
+            <Sparkles size={13} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }} />
             <div>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 0.8, textTransform: 'uppercase', color: 'rgba(245,158,11,0.55)', marginBottom: 6 }}>Tip · {worst.l}</div>
-              <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.42)', lineHeight: 1.55, margin: 0 }}>{worst.tip}</p>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 0.8, textTransform: 'uppercase', color: 'color-mix(in srgb, var(--accent) 55%, transparent)', marginBottom: 6 }}>Tip · {worst.l}</div>
+              <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0 }}>{worst.tip}</p>
             </div>
           </div>
         )}

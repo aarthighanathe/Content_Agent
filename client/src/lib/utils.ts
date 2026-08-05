@@ -6,9 +6,23 @@
 // would just recreate the "5 call sites disagree about what's supported" problem this helper
 // exists to fix. If Create.tsx's draft-handling grows to accept tone/audience/templateId as
 // real prefill, extend this type and Create.tsx's `prefill` read together, in the same change.
+//
+// WHY industry/competitorContext/competitorAnalysisId were added together (not
+// industry alone): Competitor.tsx's "Create content →" CTAs (content gap /
+// suggested angle) needed a way to carry enough competitor-analysis context
+// for POST /jobs/create to inject it into the writer's prompt (see
+// routes/jobs/create.ts's WHY comment on the same field names) — industry
+// alone wouldn't let the server thread the actual gap/angle text through.
+// All three are optional and silently flow through as extra prompt context
+// (no new Create.tsx UI field), same "simplest option" reasoning Create
+// already uses for tone/audience defaults. Widened here AND Create.tsx's
+// prefill read in the same change, per this comment's own rule above.
 export interface CreateHandoff {
   topic: string;
   platform?: string;
+  industry?: string;
+  competitorContext?: string;
+  competitorAnalysisId?: string;
 }
 
 // WHY this narrow navigate type, not react-router's NavigateFunction: some call sites
@@ -36,4 +50,19 @@ export function getScoreColor(score: number): string {
 
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// SECURITY: extracted from two near-identical inline copies (Ideate/IdeaCard.tsx's
+// idea.sourceUrl, Result/ResultHeader.tsx's job.sourceUrl) to avoid a third
+// diverging one here — every value rendered as an <a href> that ultimately
+// traces back to LLM output or a DB-echoed value (not a same-request literal)
+// needs this same check: a crafted javascript: URL executes on click despite
+// React's JSX escaping, since React only escapes markup, not URL schemes.
+export function isSafeHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }

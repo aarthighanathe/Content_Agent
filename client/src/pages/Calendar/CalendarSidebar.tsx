@@ -48,20 +48,20 @@ export function CalendarSidebar({
   const inner = (
     <div className="sc-sidebar-inner">
       <div className="sc-sidebar-hd">
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: '#F59E0B', marginBottom: 6 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 6 }}>
           Content Library
         </div>
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
           {loading ? '…' : `${unscheduled.length} unscheduled`}
         </div>
         {/* WHY updated hint (#12): old text said "Drag a card…" — now acknowledges both
             drag and the new click-to-schedule path so keyboard/touch users know they
             have an option. */}
-        <div style={{ marginTop: 8, fontSize: 11, color: 'rgba(255,255,255,0.25)', lineHeight: 1.5 }}>
-          Drag a card onto a date, or tap <strong style={{ color: 'rgba(255,255,255,0.38)' }}>Schedule…</strong> to pick a date.
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+          Drag a card onto a date, or tap <strong style={{ color: 'var(--text-secondary)' }}>Schedule…</strong> to pick a date.
         </div>
         {!loading && !isError && hitFetchCap && (
-          <div style={{ marginTop: 8, fontSize: 10.5, color: 'rgba(245,158,11,0.55)', lineHeight: 1.5 }}>
+          <div style={{ marginTop: 8, fontSize: 10.5, color: 'color-mix(in srgb, var(--accent) 55%, transparent)', lineHeight: 1.5 }}>
             Showing your most recent content only — older posts aren't in this list yet.
           </div>
         )}
@@ -69,20 +69,20 @@ export function CalendarSidebar({
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {loading && Array.from({ length: 5 }).map((_, i) => (
-          <SkeletonBlock key={i} height={68} radius={10} delay={i * 0.1} style={{ border: '1px solid rgba(255,255,255,0.05)' }} />
+          <SkeletonBlock key={i} height={68} radius={10} delay={i * 0.1} style={{ border: '1px solid var(--rule)' }} />
         ))}
         {!loading && isError && (
-          <div style={{ textAlign: 'center', padding: '32px 12px', color: 'rgba(239,68,68,0.6)', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', padding: '32px 12px', color: 'color-mix(in srgb, var(--color-error) 70%, transparent)', fontSize: 12 }}>
             Couldn't load your content library.
           </div>
         )}
         {!loading && !isError && jobs.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '32px 12px', color: 'rgba(255,255,255,0.2)', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', padding: '32px 12px', color: 'var(--text-muted)', fontSize: 12 }}>
             No finished content yet — create something first.
           </div>
         )}
         {!loading && !isError && jobs.length > 0 && unscheduled.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '32px 12px', color: 'rgba(255,255,255,0.2)', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', padding: '32px 12px', color: 'var(--text-muted)', fontSize: 12 }}>
             <CheckCircle2 size={28} style={{ marginBottom: 8, display: 'block', margin: '0 auto 8px' }} />
             All content is scheduled!
           </div>
@@ -103,20 +103,31 @@ export function CalendarSidebar({
                 // the card's purpose since its visual affordance is a grip icon.
                 aria-label={`${job.topic} — ${cfg.label}. Draggable. Use the Schedule button to pick a date with keyboard.`}
               >
-                <GripVertical size={13} style={{ color: 'rgba(255,255,255,0.2)', marginTop: 2, flexShrink: 0 }} aria-hidden />
-                <div style={{ width: 28, height: 28, borderRadius: 7, background: cfg.bg, border: `1px solid ${cfg.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <cfg.Icon size={13} style={{ color: cfg.color }} aria-hidden />
+                <GripVertical size={13} style={{ color: 'var(--text-muted)', marginTop: 2, flexShrink: 0 }} aria-hidden />
+                {/* WHY a platform-colored thumbnail, not raw content text: GET /jobs
+                    (the endpoint this sidebar's data comes from) intentionally omits
+                    each output's `content` column to keep the list response light
+                    (server/src/routes/jobs/manage.ts) — the topic string is the only
+                    content-derived text already fetched here. This thumbnail gives the
+                    card a stronger visual identity than the previous plain icon chip,
+                    and title="" surfaces the full topic on hover since the line below
+                    truncates with an ellipsis. */}
+                <div
+                  title={job.topic}
+                  style={{ width: 32, height: 32, borderRadius: 8, background: `linear-gradient(135deg, ${cfg.bg}, ${cfg.color}22)`, border: `1px solid ${cfg.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                >
+                  <cfg.Icon size={14} style={{ color: cfg.color }} aria-hidden />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div title={job.topic} style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {job.topic}
                   </div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
                     {cfg.label}{job.tone ? ` · ${job.tone}` : ''}
                   </div>
                 </div>
                 {score != null && (
-                  <div style={{ fontSize: 10, fontWeight: 700, color: score >= 80 ? 'var(--color-success)' : score >= 60 ? '#F59E0B' : 'var(--color-error)', flexShrink: 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: score >= 80 ? 'var(--color-success)' : score >= 60 ? 'var(--accent)' : 'var(--color-error)', flexShrink: 0 }}>
                     {score}
                   </div>
                 )}
@@ -157,10 +168,11 @@ export function CalendarSidebar({
         })}
       </div>
 
-      <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ padding: '10px 12px', borderTop: '1px solid var(--rule)' }}>
         <button
+          className="btn-primary"
           onClick={onCreateNew}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.22)', color: '#F59E0B', borderRadius: 9, padding: '9px 14px', cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: 0.5, transition: 'all .15s' }}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 14px', fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: 0.5 }}
         >
           <Sparkles size={13} /> Create new content
         </button>
@@ -188,15 +200,15 @@ export function CalendarSidebar({
       >
         <div className="sc-mobile-sheet-handle" />
         {/* Close button row */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: '#F59E0B' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 12px', borderBottom: '1px solid var(--rule)' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)' }}>
             Content Library
           </span>
           <button
             className="sc-btn-ghost"
             onClick={onMobileClose}
             aria-label="Close content library"
-            style={{ color: 'rgba(255,255,255,0.4)' }}
+            style={{ color: 'var(--text-secondary)' }}
           >
             ✕
           </button>

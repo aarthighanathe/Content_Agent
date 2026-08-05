@@ -42,6 +42,8 @@ export function ConfirmDeleteModal({
 }: ConfirmDeleteModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const titleId = 'confirm-delete-title';
+  const messageId = 'confirm-delete-message';
+  const errorId = 'confirm-delete-error';
   const [typedText, setTypedText] = useState('');
 
   useEffect(() => {
@@ -66,25 +68,26 @@ export function ConfirmDeleteModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={messageId}
         onClick={(e) => e.stopPropagation()}
         className="card-glow animate-scale-in"
         style={{ maxWidth: 400, width: '100%' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <AlertTriangle size={18} color="var(--color-error)" />
-          <h3 id={titleId} style={{ fontFamily: 'var(--font-heading)', fontSize: '1.05rem', fontWeight: 700, color: 'rgba(255,255,255,0.92)', margin: 0 }}>
+          <h3 id={titleId} style={{ fontFamily: 'var(--font-heading)', fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
             {title}
           </h3>
         </div>
-        <p style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.4)', marginBottom: typedConfirmation ? 16 : '1.5rem', lineHeight: 1.6 }}>
+        <p id={messageId} style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: typedConfirmation ? 16 : '1.5rem', lineHeight: 1.6 }}>
           {message}
         </p>
 
         {typedConfirmation && (
           <>
-            <label style={{ display: 'block', fontSize: 11.5, color: 'rgba(255,255,255,0.4)', marginBottom: 7 }}>
+            <label style={{ display: 'block', fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 7 }}>
               {typedConfirmation.label ?? (
-                <>Type <strong style={{ color: 'rgba(255,255,255,0.7)' }}>{typedConfirmation.requiredText}</strong> to confirm</>
+                <>Type <strong style={{ color: 'var(--text-primary)' }}>{typedConfirmation.requiredText}</strong> to confirm</>
               )}
             </label>
             <input
@@ -100,7 +103,7 @@ export function ConfirmDeleteModal({
           </>
         )}
 
-        {error && <p style={{ fontSize: 12.5, color: 'var(--color-error)', marginBottom: '1rem' }}>{error}</p>}
+        {error && <p id={errorId} role="alert" style={{ fontSize: 12.5, color: 'var(--color-error)', marginBottom: '1rem' }}>{error}</p>}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
           <button className="btn-secondary" onClick={onCancel} disabled={isPending}>Cancel</button>

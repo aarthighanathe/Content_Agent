@@ -58,7 +58,7 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
   return (
     <>
       <div
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, backdropFilter: 'blur(4px)' }}
+        style={{ position: 'fixed', inset: 0, background: 'color-mix(in srgb, var(--bg-base) 70%, transparent)', zIndex: 200, backdropFilter: 'blur(4px)' }}
         onClick={onClose}
       />
       <div
@@ -70,14 +70,14 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
         style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
           width: 440, maxWidth: '92vw', zIndex: 201,
-          background: '#131320',
-          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--rule)',
           borderRadius: 14, padding: '22px 24px',
           display: 'flex', flexDirection: 'column', gap: 14,
           boxShadow: '0 24px 64px rgba(0,0,0,0.75)',
         }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span id="edit-slide-modal-title" style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+          <span id="edit-slide-modal-title" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
             Edit Slide {index + 1}
           </span>
           <button
@@ -94,10 +94,10 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
           return (
             <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: "var(--font-mono)", letterSpacing: 1, textTransform: 'uppercase' }}>
+                <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", letterSpacing: 1, textTransform: 'uppercase' }}>
                   {key === 'headline' ? 'Headline' : 'Body'}
                 </label>
-                <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color: nearLimit ? 'var(--color-error)' : 'rgba(255,255,255,0.2)' }}>
+                <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color: nearLimit ? 'var(--color-error)' : 'var(--text-muted)' }}>
                   {form[key].length}/{max}
                 </span>
               </div>

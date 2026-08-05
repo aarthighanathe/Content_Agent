@@ -1,12 +1,17 @@
 import { useState } from 'react';
-import { X, CalendarDays, ExternalLink, Trash2, PlusCircle, ChevronDown } from 'lucide-react';
+import { X, CalendarDays, ExternalLink, Trash2, PlusCircle, ChevronDown, Send, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { platformMeta } from '../../lib/platformMeta';
+import { getSocialConnections } from '../../api';
 import type { CalendarJob } from './calendarHelpers';
 import { getScore } from './calendarHelpers';
+import type { PublishPlatform, ScheduledPost } from '../../types/scheduledPost';
 
 interface DayDetailPanelProps {
   selectedDay: string;
   jobs: CalendarJob[];
+  /** jobId → its scheduled_posts row, for reading publishPlatform/publishStatus. */
+  postsByJobId: Record<string, ScheduledPost>;
   onClose: () => void;
   onViewResult: (jobId: string) => void;
   onRemove: (jobId: string) => void;
@@ -14,7 +19,14 @@ interface DayDetailPanelProps {
   unscheduled: CalendarJob[];
   /** Called when user picks a piece of unscheduled content to add to this day. */
   onAddContent: (jobId: string) => void;
+  /** Called when user sets/changes/clears which platform to auto-publish this job to. */
+  onSetPublishPlatform: (jobId: string, platform: PublishPlatform | undefined) => void;
 }
+
+const PUBLISH_PLATFORM_LABELS: Record<PublishPlatform, string> = {
+  linkedin: 'LinkedIn',
+  twitter: 'Twitter / X',
+};
 
 // WHY both directions are worth building (#12):
 // - Card → day (sidebar Schedule… button): works well when the user is browsing their
@@ -27,9 +39,24 @@ interface DayDetailPanelProps {
 //   the same allocate() function via their respective callbacks so there is no parallel
 //   scheduling code path.
 export function DayDetailPanel({
-  selectedDay, jobs, onClose, onViewResult, onRemove, unscheduled, onAddContent,
+  selectedDay, jobs, postsByJobId, onClose, onViewResult, onRemove, unscheduled, onAddContent, onSetPublishPlatform,
 }: DayDetailPanelProps) {
   const [addPickerOpen, setAddPickerOpen] = useState(false);
+  const [platformMenuJobId, setPlatformMenuJobId] = useState<string | null>(null);
+
+  // WHY fetched here, not passed as a prop from Calendar.tsx: only this panel
+  // needs the connected-accounts list (to populate the publish-platform
+  // picker) — staleTime matches ResultHeader/PostPanel's own profile-style
+  // queries elsewhere in this codebase (a 5-minute-stale connections list is
+  // an acceptable staleness for a picker menu, not data driving a decision).
+  const { data: connectionsData } = useQuery({
+    queryKey: ['social', 'connections'],
+    queryFn: getSocialConnections,
+    staleTime: 5 * 60 * 1000,
+  });
+  const connectedPlatforms = (connectionsData?.connections || [])
+    .filter((c) => c.connected && (c.platform === 'linkedin' || c.platform === 'twitter'))
+    .map((c) => c.platform as PublishPlatform);
 
   const formatted = new Date(selectedDay + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -39,10 +66,10 @@ export function DayDetailPanel({
     <div className="sc-detail">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'rgba(245,158,11,0.7)', marginBottom: 4 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'color-mix(in srgb, var(--accent) 70%, transparent)', marginBottom: 4 }}>
             {formatted}
           </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
             {jobs.length === 0
               ? 'No content scheduled'
               : `${jobs.length} post${jobs.length !== 1 ? 's' : ''} scheduled`}
@@ -63,7 +90,7 @@ export function DayDetailPanel({
               <ChevronDown size={11} aria-hidden style={{ transform: addPickerOpen ? 'rotate(180deg)' : undefined, transition: 'transform .15s' }} />
             </button>
           )}
-          <button className="sc-btn-ghost" onClick={onClose} aria-label="Close day detail" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          <button className="sc-btn-ghost" onClick={onClose} aria-label="Close day detail" style={{ color: 'var(--text-muted)' }}>
             <X size={15} />
           </button>
         </div>
@@ -91,10 +118,10 @@ export function DayDetailPanel({
                   <cfg.Icon size={12} style={{ color: cfg.color }} aria-hidden />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.8)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {job.topic}
                   </div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: 'var(--font-mono)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                     {cfg.label}
                   </div>
                 </div>
@@ -105,7 +132,7 @@ export function DayDetailPanel({
       )}
 
       {jobs.length === 0 && !addPickerOpen ? (
-        <div style={{ textAlign: 'center', padding: '28px 0', color: 'rgba(255,255,255,0.18)' }}>
+        <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-muted)' }}>
           <CalendarDays size={30} style={{ display: 'block', margin: '0 auto 10px', opacity: 0.4 }} aria-hidden />
           <div style={{ fontSize: 12 }}>
             {unscheduled.length > 0
@@ -117,26 +144,96 @@ export function DayDetailPanel({
         jobs.map(job => {
           const cfg = platformMeta[job.platform] || platformMeta['linkedin_post'];
           const score = getScore(job);
+          const post = postsByJobId[job.id];
+          const isPlatformMenuOpen = platformMenuJobId === job.id;
           return (
-            <div key={job.id} className="sc-detail-job">
-              <div style={{ width: 38, height: 38, borderRadius: 9, background: cfg.bg, border: `1px solid ${cfg.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <cfg.Icon size={17} style={{ color: cfg.color }} aria-hidden />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.topic}</div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>{cfg.label}{job.tone ? ` · ${job.tone}` : ''}</div>
-              </div>
-              {score != null && (
-                <div style={{ flexShrink: 0, fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, color: score >= 80 ? 'var(--color-success)' : score >= 60 ? '#F59E0B' : 'var(--color-error)', background: score >= 80 ? 'rgba(16,185,129,0.1)' : score >= 60 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${score >= 80 ? 'rgba(16,185,129,0.25)' : score >= 60 ? 'rgba(245,158,11,0.25)' : 'rgba(239,68,68,0.25)'}`, borderRadius: 20, padding: '2px 8px' }}>
-                  {score}
+            <div key={job.id} className="sc-detail-job-wrap">
+              <div className="sc-detail-job">
+                <div style={{ width: 38, height: 38, borderRadius: 9, background: cfg.bg, border: `1px solid ${cfg.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <cfg.Icon size={17} style={{ color: cfg.color }} aria-hidden />
                 </div>
-              )}
-              <button className="sc-btn-ghost" title="View result" onClick={() => onViewResult(job.id)} style={{ color: 'rgba(255,255,255,0.3)' }} aria-label={`View result for "${job.topic}"`}>
-                <ExternalLink size={13} />
-              </button>
-              <button className="sc-btn-ghost" title="Remove from schedule" onClick={() => onRemove(job.id)} style={{ color: 'rgba(239,68,68,0.5)' }} aria-label={`Remove "${job.topic}" from this day`}>
-                <Trash2 size={13} />
-              </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.topic}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>{cfg.label}{job.tone ? ` · ${job.tone}` : ''}</div>
+                </div>
+                {score != null && (
+                  <div style={{ flexShrink: 0, fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 700, color: score >= 80 ? 'var(--color-success)' : score >= 60 ? 'var(--accent)' : 'var(--color-error)', background: score >= 80 ? 'color-mix(in srgb, var(--color-success) 10%, transparent)' : score >= 60 ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'color-mix(in srgb, var(--color-error) 10%, transparent)', border: `1px solid ${score >= 80 ? 'color-mix(in srgb, var(--color-success) 25%, transparent)' : score >= 60 ? 'color-mix(in srgb, var(--accent) 25%, transparent)' : 'color-mix(in srgb, var(--color-error) 25%, transparent)'}`, borderRadius: 20, padding: '2px 8px' }}>
+                    {score}
+                  </div>
+                )}
+                <button className="sc-btn-ghost" title="View result" onClick={() => onViewResult(job.id)} style={{ color: 'var(--text-muted)' }} aria-label={`View result for "${job.topic}"`}>
+                  <ExternalLink size={13} />
+                </button>
+                <button className="sc-btn-ghost" title="Remove from schedule" onClick={() => onRemove(job.id)} style={{ color: 'color-mix(in srgb, var(--color-error) 50%, transparent)' }} aria-label={`Remove "${job.topic}" from this day`}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+
+              {/* Publish platform control + status badge — reminder-only (post === undefined
+                  or post.publishPlatform === null) shows just the "Set publish platform"
+                  affordance; once a platform is chosen this also shows pending/posted/failed. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px 10px 60px', flexWrap: 'wrap' }}>
+                {post?.publishPlatform ? (
+                  <>
+                    {post.publishStatus === 'pending' && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                        <Loader2 size={10} style={{ animation: 'sc-spin .8s linear infinite' }} />
+                        Will auto-publish to {PUBLISH_PLATFORM_LABELS[post.publishPlatform]}
+                      </span>
+                    )}
+                    {post.publishStatus === 'posted' && (
+                      <a
+                        href={post.postUrl ?? undefined}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--color-success)', textDecoration: 'none' }}
+                      >
+                        <CheckCircle2 size={10} />
+                        Posted to {PUBLISH_PLATFORM_LABELS[post.publishPlatform]}
+                      </a>
+                    )}
+                    {post.publishStatus === 'failed' && (
+                      <span title={post.publishError ?? undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--color-error)' }}>
+                        <AlertCircle size={10} />
+                        Failed to publish to {PUBLISH_PLATFORM_LABELS[post.publishPlatform]}
+                      </span>
+                    )}
+                    <button
+                      className="sc-btn-ghost"
+                      onClick={() => onSetPublishPlatform(job.id, undefined)}
+                      style={{ color: 'var(--text-muted)', fontSize: 10, padding: '2px 6px' }}
+                      title="Stop auto-publishing this post"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className="sc-btn-ghost"
+                      onClick={() => setPlatformMenuJobId(isPlatformMenuOpen ? null : job.id)}
+                      disabled={connectedPlatforms.length === 0}
+                      title={connectedPlatforms.length === 0 ? 'Connect a social account in Brand settings to enable auto-publish' : 'Auto-publish this post'}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: connectedPlatforms.length === 0 ? 'var(--text-muted)' : 'var(--accent)', opacity: connectedPlatforms.length === 0 ? 0.5 : 1 }}
+                    >
+                      <Send size={10} /> Auto-publish…
+                    </button>
+                    {isPlatformMenuOpen && connectedPlatforms.length > 0 && (
+                      <div className="sc-publish-menu">
+                        {connectedPlatforms.map((p) => (
+                          <button
+                            key={p}
+                            className="sc-publish-menu-item"
+                            onClick={() => { onSetPublishPlatform(job.id, p); setPlatformMenuJobId(null); }}
+                          >
+                            {PUBLISH_PLATFORM_LABELS[p]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })

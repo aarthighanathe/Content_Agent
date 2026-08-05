@@ -2,17 +2,134 @@
 
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════
+   UI THEME TOKENS — 6 selectable themes
+   WHY: Tailwind 4's @theme {} block bakes values into utility classes at build
+   time and can't be swapped live. Real tokens live here as plain CSS custom
+   properties, keyed by [data-theme] on <html>; @theme below only aliases to
+   them so existing bg-dark-900-style utility classes keep working unchanged.
+   See CLAUDE.md "UI Theme System" for the full token list and how to add a 7th.
+══════════════════════════════════════════ */
+:root,
+[data-theme="aurora"] {
+  --bg-base: #030310;
+  --bg-raised: #07071C;
+  --bg-card: #0B0B26;
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-muted: rgba(255, 255, 255, 0.40);
+  --rule: rgba(255, 255, 255, 0.07);
+  --accent: #F59E0B;
+  --accent-2: #8B5CF6;
+  --accent-glow: rgba(245, 158, 11, 0.34);
+  --on-accent: #030310;
+  --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}
+
+[data-theme="deep-marine"] {
+  --bg-base: #0A1A1E;
+  --bg-raised: #0F2429;
+  --bg-card: #1B3339;
+  --text-primary: #E7F1F0;
+  --text-secondary: rgba(231, 241, 240, 0.62);
+  --text-muted: rgba(231, 241, 240, 0.36);
+  --rule: rgba(231, 241, 240, 0.12);
+  --accent: #FF6F59;
+  --accent-2: #3FA9A0;
+  --accent-glow: rgba(255, 111, 89, 0.4);
+  --on-accent: #0A1A1E;
+  --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}
+
+[data-theme="obsidian-ember"] {
+  --bg-base: #161311;
+  --bg-raised: #1D1815;
+  --bg-card: #292420;
+  --text-primary: #F3E9DD;
+  --text-secondary: rgba(243, 233, 221, 0.62);
+  --text-muted: rgba(243, 233, 221, 0.36);
+  --rule: rgba(243, 233, 221, 0.12);
+  --accent: #FF7A1A;
+  --accent-2: #E0A64E;
+  --accent-glow: rgba(255, 122, 26, 0.42);
+  --on-accent: #161311;
+  --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}
+
+[data-theme="nightshade"] {
+  --bg-base: #130F1A;
+  --bg-raised: #1A1424;
+  --bg-card: #262030;
+  --text-primary: #EDE8F5;
+  --text-secondary: rgba(237, 232, 245, 0.60);
+  --text-muted: rgba(237, 232, 245, 0.36);
+  --rule: rgba(237, 232, 245, 0.12);
+  --accent: #C6FF3D;
+  --accent-2: #9A7FE0;
+  --accent-glow: rgba(198, 255, 61, 0.4);
+  --on-accent: #130F1A;
+  --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}
+
+[data-theme="ink-verdigris"] {
+  --bg-base: #0D1512;
+  --bg-raised: #121C18;
+  --bg-card: #1E2823;
+  --text-primary: #E6EFE9;
+  --text-secondary: rgba(230, 239, 233, 0.62);
+  --text-muted: rgba(230, 239, 233, 0.36);
+  --rule: rgba(230, 239, 233, 0.12);
+  --accent: #4FBF9F;
+  --accent-2: #C99A4E;
+  --accent-glow: rgba(79, 191, 159, 0.4);
+  --on-accent: #0D1512;
+  --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}
+
+[data-theme="carbon-signal"] {
+  --bg-base: #0C0C0C;
+  --bg-raised: #151515;
+  --bg-card: #222221;
+  --text-primary: #F2F2EF;
+  --text-secondary: rgba(242, 242, 239, 0.62);
+  --text-muted: rgba(242, 242, 239, 0.36);
+  --rule: rgba(242, 242, 239, 0.13);
+  --accent: #F5C518;
+  --accent-2: #5B9BD1;
+  --accent-glow: rgba(245, 197, 24, 0.4);
+  --on-accent: #0C0C0C;
+  --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}
+
 @theme {
-  /* ── Backgrounds ── */
-  --color-dark-900: #030310;
-  --color-dark-800: #07071C;
-  --color-dark-700: #0B0B26;
+  /* ── Backgrounds (aliased to the active [data-theme] tokens above) ── */
+  --color-dark-900: var(--bg-base);
+  --color-dark-800: var(--bg-raised);
+  --color-dark-700: var(--bg-card);
   --color-dark-600: rgba(124, 58, 237, 0.10);
   --color-dark-500: rgba(245, 158, 11, 0.10);
   --color-dark-400: rgba(245, 158, 11, 0.24);
-  --color-dark-300: rgba(255, 255, 255, 0.22);
-  --color-dark-200: rgba(255, 255, 255, 0.52);
-  --color-dark-100: rgba(255, 255, 255, 0.92);
+  --color-dark-300: var(--rule);
+  --color-dark-200: var(--text-secondary);
+  --color-dark-100: var(--text-primary);
 
   /* ── Accents ── */
   --color-accent-purple: #8B5CF6;
@@ -23,39 +140,40 @@
   --color-accent-green: #10B981;
   --color-accent-orange: #F97316;
 
-  /* ── Gold (primary CTA) ── */
-  --color-gradient-start: #F59E0B;
-  --color-gradient-mid: #FBBF24;
-  --color-gradient-end: #F59E0B;
+  /* ── Gold (primary CTA) — SECTION KEPT FOR BACKWARD-COMPAT ALIASES ONLY;
+     themeable, now aliased to the active theme's --accent ── */
+  --color-gradient-start: var(--accent);
+  --color-gradient-mid: var(--accent-2);
+  --color-gradient-end: var(--accent);
 
-  /* ── Semantic states ── */
+  /* ── Semantic states — fixed across all themes, never themed ── */
   --color-error: #EF4444;
   --color-success: #10B981;
   --color-warning: #F59E0B;
 
-  /* ── Semantic text hierarchy ── */
-  --color-text-primary: rgba(255, 255, 255, 0.88);
-  --color-text-secondary: rgba(255, 255, 255, 0.55);
-  --color-text-muted: rgba(255, 255, 255, 0.40);
+  /* ── Semantic text hierarchy (aliased to active theme) ── */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
 
-  /* ── Typography ── */
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-heading: 'Playfair Display', Georgia, serif;
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --font-mono: 'DM Mono', monospace;
+  /* ── Typography (aliased to active theme) ── */
+  --font-sans: var(--font-body);
+  --font-heading: var(--font-heading);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
 
-  /* Semantic background scale */
-  --bg-base:     #030310;   /* page background — same as --color-dark-900 */
-  --bg-surface:  #07071C;   /* cards, rows — same as --color-dark-800 */
-  --bg-elevated: #0D0D28;   /* dropdowns, modals */
-  --bg-overlay:  rgba(3, 3, 16, 0.97); /* sidebar, mobile topbar */
+  /* Semantic background scale (aliased to active theme) */
+  --bg-base: var(--bg-base);
+  --bg-surface: var(--bg-raised);
+  --bg-elevated: var(--bg-card);
+  --bg-overlay: var(--bg-base);
 
-  /* Semantic accent aliases */
-  --accent-primary:   #F59E0B;  /* gold — same as --color-gradient-start */
-  --accent-secondary: #9B76F8;  /* violet — replaces 4 violet shades */
+  /* Semantic accent aliases (aliased to active theme) */
+  --accent-primary: var(--accent);
+  --accent-secondary: var(--accent-2);
 
   /* Card spacing */
-  --card-padding:         24px;
+  --card-padding: 24px;
   --card-padding-compact: 16px;
 }
 
@@ -76,8 +194,8 @@ html {
 
 body {
   font-family: var(--font-sans);
-  background: var(--color-dark-900);
-  color: rgba(255, 255, 255, 0.88);
+  background: var(--bg-base);
+  color: var(--text-primary);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -85,21 +203,31 @@ body {
   position: relative;
 }
 
-/* ── Ambient aurora (3-color orbs) ── */
-body::before {
+/* ── Ambient aurora (3-color orbs) ──
+   WHY scoped to [data-theme="aurora"] only: this glow is Aurora's own signature look
+   (named after it). The 5 other themes were designed as flat, clean solid backgrounds
+   with no ambient glow (confirmed against the original design artifact) — leaving the
+   orbs on for every theme made all 6 look visually similar instead of each having its
+   own distinct flat-background identity. */
+html[data-theme="aurora"] body::before,
+html:not([data-theme]) body::before {
   content: '';
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 60% at 0% 0%,   rgba(124, 58, 237, 0.11) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 100% 8%, rgba(245, 158, 11, 0.07) 0%, transparent 58%),
+    radial-gradient(ellipse 80% 60% at 0% 0%,   color-mix(in srgb, var(--accent-2) 11%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 100% 8%, color-mix(in srgb, var(--accent) 7%, transparent) 0%, transparent 58%),
     radial-gradient(ellipse 55% 70% at 50% 110%, rgba(34, 211, 238, 0.05) 0%, transparent 62%);
   pointer-events: none;
   z-index: 0;
 }
 
 /* ── Film grain ── */
-body::after {
+/* WHY scoped to Aurora only: same reasoning as the orb glow above — the film-grain
+   texture is part of Aurora's own textured look; the artifact's other 5 themes are
+   clean flat surfaces with no grain overlay. */
+html[data-theme="aurora"] body::after,
+html:not([data-theme]) body::after {
   content: '';
   position: fixed;
   inset: 0;
@@ -113,27 +241,27 @@ body::after {
 
 /* ── Selection ── */
 ::selection {
-  background: rgba(245, 158, 11, 0.25);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
   color: white;
 }
 
 /* ── Focus rings — keyboard navigation (WCAG 2.4.7) ── */
 :focus-visible {
-  outline: 2px solid var(--color-gradient-start);
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
   border-radius: 4px;
 }
 
 .sidebar-link:focus-visible {
-  outline: 2px solid var(--color-gradient-start);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 .input:focus-visible {
-  outline: 2px solid var(--color-gradient-start);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-color: rgba(245, 158, 11, 0.48);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 /* ── Screen-reader-only content (visually hidden, still announced) ── */
@@ -152,8 +280,8 @@ body::after {
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(124, 58, 237, 0.28); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(245, 158, 11, 0.38); }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent-2) 28%, transparent); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 38%, transparent); }
 
 /* ══════════════════════════════════════════
    LAYOUT: SIDEBAR + MAIN
@@ -164,7 +292,7 @@ body::after {
   top: 0;
   bottom: 0;
   width: 240px;
-  background: rgba(3, 3, 16, 0.97);
+  background: color-mix(in srgb, var(--bg-base) 97%, transparent);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
   display: flex;
@@ -184,8 +312,8 @@ body::after {
   width: 1px;
   background: linear-gradient(
     180deg,
-    rgba(124, 58, 237, 0.45) 0%,
-    rgba(245, 158, 11, 0.28) 50%,
+    color-mix(in srgb, var(--accent-2) 45%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 28%, transparent) 50%,
     rgba(34, 211, 238, 0.15) 100%
   );
   pointer-events: none;
@@ -202,7 +330,7 @@ body::after {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--rule);
   min-height: 54px;
   flex-shrink: 0;
 }
@@ -222,25 +350,25 @@ body::after {
   height: 32px;
   min-width: 32px;
   border-radius: 9px;
-  background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #030310;
-  box-shadow: 0 0 18px rgba(245, 158, 11, 0.35), 0 3px 10px rgba(0,0,0,0.35);
+  color: var(--on-accent);
+  box-shadow: 0 0 18px var(--accent-glow), 0 3px 10px rgba(0,0,0,0.35);
   transition: box-shadow 0.2s ease;
 }
 
 .sidebar-logo-icon:hover {
-  box-shadow: 0 0 28px rgba(245, 158, 11, 0.5), 0 4px 14px rgba(0,0,0,0.45);
+  box-shadow: 0 0 28px var(--accent-glow), 0 4px 14px rgba(0,0,0,0.45);
 }
 
 .sidebar-logo-text {
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-family: var(--font-display);
   font-size: 14.5px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   letter-spacing: -0.3px;
   white-space: nowrap;
   overflow: hidden;
@@ -254,7 +382,7 @@ body::after {
   border-radius: 7px;
   background: transparent;
   border: none;
-  color: rgba(255, 255, 255, 0.32);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -264,12 +392,12 @@ body::after {
 }
 
 .sidebar-header-toggle:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: rgba(255, 255, 255, 0.82);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-secondary);
 }
 
 .sidebar-header-toggle:active {
-  background: rgba(255, 255, 255, 0.11);
+  background: color-mix(in srgb, var(--text-primary) 11%, transparent);
 }
 
 /* Collapsed: only the toggle is visible in the header row */
@@ -294,7 +422,7 @@ body::after {
 /* Divider between main nav and settings */
 .sidebar-divider {
   height: 1px;
-  background: rgba(255,255,255,0.05);
+  background: var(--rule);
   margin: 6px 4px;
   flex-shrink: 0;
 }
@@ -308,7 +436,7 @@ body::after {
   border-radius: 9px;
   font-size: 13px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.55); /* WHY: was 0.38 (~2.4:1) — raised to meet WCAG AA 4.5:1 contrast on dark sidebar */
+  color: var(--text-secondary); /* WHY: was 0.38 (~2.4:1) — raised to meet WCAG AA 4.5:1 contrast on dark sidebar; re-verify per theme, not just Aurora's #030310 */
   text-decoration: none;
   transition: all 0.18s ease;
   border: 1px solid transparent;
@@ -318,22 +446,22 @@ body::after {
 }
 
 .sidebar-link:hover {
-  color: rgba(255, 255, 255, 0.82);
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border-color: var(--rule);
 }
 
 .sidebar-link-active {
-  color: #F59E0B !important;
-  background: linear-gradient(90deg, rgba(245, 158, 11, 0.12) 0%, rgba(245, 158, 11, 0.03) 100%);
-  border-color: rgba(245, 158, 11, 0.18) !important;
-  box-shadow: inset 3px 0 0 #F59E0B, 0 0 20px rgba(245, 158, 11, 0.06);
+  color: var(--accent) !important;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, transparent) 0%, color-mix(in srgb, var(--accent) 3%, transparent) 100%);
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  box-shadow: inset 3px 0 0 var(--accent), 0 0 20px color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 /* User section */
 .sidebar-user {
   padding: 12px 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid var(--rule);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -387,10 +515,10 @@ body::after {
   align-items: center;
   gap: 6px;
   padding: 7px 14px;
-  background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(124,58,237,0.1));
-  border: 1px solid rgba(245,158,11,0.3);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 15%, transparent), color-mix(in srgb, var(--accent-2) 10%, transparent));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 8px;
-  color: #F59E0B;
+  color: var(--accent);
   font-size: 12.5px;
   font-weight: 600;
   text-decoration: none;
@@ -398,7 +526,7 @@ body::after {
   transition: all .2s;
 }
 .mobile-create-btn:hover {
-  background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(124,58,237,0.16));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent-2) 16%, transparent));
 }
 
 /* ── Mobile more sheet ── */
@@ -417,19 +545,33 @@ body::after {
   -webkit-backdrop-filter: blur(4px);
 }
 
+/* ── Idea card action buttons (save/copy/dismiss) ── */
+.idea-card-action-btn { transition: background .15s, color .15s; }
+.idea-card-action-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
+.idea-card-action-btn:active { transform: scale(0.92); }
+.idea-card-action-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 6px; }
+
+/* ── Idea card (Ideate.tsx) — keyboard focus ring. Previously the card only had
+   onMouseEnter/onMouseLeave-driven border/background changes, so Tab-focusing a
+   card (it's role="button") gave no visible indication of focus at all. ── */
+.idea-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ── Mobile tab bar (bottom) ── */
 .mobile-tab-bar { display: none; }
 
 .mobile-create-pill {
   width: 38px;
   height: 38px;
-  background: linear-gradient(135deg, #F59E0B, #FBBF24);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #030310;
-  box-shadow: 0 0 16px rgba(245,158,11,0.4);
+  color: var(--on-accent);
+  box-shadow: 0 0 16px var(--accent-glow);
   margin-bottom: -6px;
 }
 
@@ -481,8 +623,8 @@ body::after {
     left: 0;
     right: 0;
     height: 56px;
-    background: rgba(3,3,16,0.97);
-    border-bottom: 1px solid rgba(124,58,237,0.18);
+    background: color-mix(in srgb, var(--bg-base) 97%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent-2) 18%, transparent);
     z-index: 48;
     align-items: center;
     justify-content: space-between;
@@ -498,8 +640,8 @@ body::after {
     bottom: 0;
     left: 0;
     right: 0;
-    background: rgba(8, 8, 28, 0.98);
-    border-top: 1px solid rgba(124, 58, 237, 0.25);
+    background: color-mix(in srgb, var(--bg-raised) 98%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--accent-2) 25%, transparent);
     border-radius: 20px 20px 0 0;
     z-index: 52;
     padding: 0 0 calc(80px + env(safe-area-inset-bottom));
@@ -517,7 +659,7 @@ body::after {
   .mobile-more-handle {
     width: 36px;
     height: 4px;
-    background: rgba(255,255,255,0.15);
+    background: color-mix(in srgb, var(--text-primary) 15%, transparent);
     border-radius: 2px;
     margin: 10px auto 0;
   }
@@ -532,10 +674,10 @@ body::after {
   .mobile-more-close {
     width: 28px;
     height: 28px;
-    background: rgba(255,255,255,0.07);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+    border: 1px solid var(--rule);
     border-radius: 8px;
-    color: rgba(255,255,255,0.55);
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -544,8 +686,8 @@ body::after {
   }
 
   .mobile-more-close:hover {
-    background: rgba(255,255,255,0.12);
-    color: #fff;
+    background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+    color: var(--text-primary);
   }
 
   .mobile-more-grid {
@@ -562,9 +704,9 @@ body::after {
     gap: 7px;
     padding: 14px 8px;
     border-radius: 14px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.06);
-    color: rgba(255,255,255,0.6);
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    border: 1px solid var(--rule);
+    color: var(--text-secondary);
     text-decoration: none;
     font-size: 11px;
     font-weight: 500;
@@ -573,21 +715,21 @@ body::after {
 
   .mobile-more-item:active,
   .mobile-more-item:hover {
-    background: rgba(124,58,237,0.12);
-    border-color: rgba(124,58,237,0.3);
-    color: rgba(255,255,255,0.9);
+    background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent-2) 30%, transparent);
+    color: var(--text-primary);
   }
 
   .mobile-more-item-active {
-    background: rgba(245,158,11,0.1) !important;
-    border-color: rgba(245,158,11,0.3) !important;
-    color: #F59E0B !important;
+    background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+    color: var(--accent) !important;
   }
 
   .mobile-more-item-icon {
     width: 40px;
     height: 40px;
-    background: rgba(255,255,255,0.06);
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
     border-radius: 12px;
     display: flex;
     align-items: center;
@@ -595,7 +737,7 @@ body::after {
   }
 
   .mobile-more-item-active .mobile-more-item-icon {
-    background: rgba(245,158,11,0.15);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
   }
 
   /* Mobile bottom tab bar */
@@ -604,8 +746,8 @@ body::after {
     bottom: 0;
     left: 0;
     right: 0;
-    background: rgba(3, 3, 16, 0.98);
-    border-top: 1px solid rgba(124, 58, 237, 0.2);
+    background: color-mix(in srgb, var(--bg-base) 98%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--accent-2) 20%, transparent);
     z-index: 50;
     display: flex;
     justify-content: space-around;
@@ -623,7 +765,7 @@ body::after {
     gap: 4px;
     padding: 6px 12px;
     border-radius: 10px;
-    color: rgba(255, 255, 255, 0.28);
+    color: color-mix(in srgb, var(--text-primary) 28%, transparent);
     text-decoration: none;
     transition: color 0.2s, background 0.2s;
     font-size: 10px;
@@ -637,11 +779,11 @@ body::after {
   }
 
   .mobile-tab-active {
-    color: #F59E0B;
+    color: var(--accent);
   }
 
   .mobile-tab-create {
-    color: rgba(255,255,255,0.45);
+    color: color-mix(in srgb, var(--text-primary) 45%, transparent);
     padding-bottom: 0;
   }
 
@@ -734,10 +876,9 @@ body::after {
     padding: 3px 8px;
   }
 
-  /* Single column on very small screens */
-  .grid-stats {
-    grid-template-columns: 1fr !important;
-  }
+  /* .grid-stats' single-column rule for this breakpoint lives in the later
+     @media (max-width: 480px) block near the end of this file — kept there so
+     there's exactly one declaration to edit, not two that can drift apart. */
 
   .rp-scores {
     grid-template-columns: repeat(2, 1fr) !important;
@@ -782,8 +923,8 @@ body::after {
 }
 
 @keyframes pulseRing {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35); }
-  50%       { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+  50%       { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 0%, transparent); }
 }
 
 @keyframes shimmer {
@@ -812,8 +953,8 @@ body::after {
 }
 
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 16px rgba(245, 158, 11, 0.18); }
-  50%       { box-shadow: 0 0 36px rgba(245, 158, 11, 0.45); }
+  0%, 100% { box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 18%, transparent); }
+  50%       { box-shadow: 0 0 36px color-mix(in srgb, var(--accent) 45%, transparent); }
 }
 
 @keyframes aurora-drift {
@@ -842,30 +983,30 @@ body::after {
   to   { opacity: 1; max-height: 60px; }
 }
 .row-expand-toggle {
-  background: none; border: none; color: rgba(255,255,255,0.22); cursor: pointer;
+  background: none; border: none; color: color-mix(in srgb, var(--text-primary) 22%, transparent); cursor: pointer;
   padding: 4px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; transition: color .15s, background .15s, transform .2s;
 }
-.row-expand-toggle:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.05); }
-.row-expand-toggle.open  { color: #F59E0B; transform: rotate(180deg); }
+.row-expand-toggle:hover { color: var(--text-secondary); background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+.row-expand-toggle.open  { color: var(--accent); transform: rotate(180deg); }
 .row-action-strip {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   padding: 10px 14px; margin-top: -1px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.015);
+  border-top: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--text-primary) 1.5%, transparent);
   animation: row-strip-expand .2s ease both;
   overflow: hidden;
 }
 .row-action-btn {
   display: flex; align-items: center; gap: 6px;
   padding: 7px 12px; border-radius: 8px; cursor: pointer;
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-  font-size: 11.5px; font-weight: 500; font-family: 'Inter', sans-serif;
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent); border: 1px solid var(--rule);
+  font-size: 11.5px; font-weight: 500; font-family: var(--font-sans);
   transition: background .15s, border-color .15s;
 }
-.row-action-btn:hover { background: rgba(245,158,11,0.09); border-color: rgba(245,158,11,0.25); }
+.row-action-btn:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
 .dash-row-icon-btn { transition: background .15s, color .15s; }
-.dash-row-icon-btn:hover { background: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.85) !important; }
+.dash-row-icon-btn:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent) !important; color: var(--text-secondary) !important; }
 @media (prefers-reduced-motion: reduce) {
   .row-action-strip { animation: none; }
   .row-expand-toggle { transition: none; }
@@ -876,45 +1017,45 @@ body::after {
    GLASS SURFACES
 ══════════════════════════════════════════ */
 .glass {
-  background: rgba(7, 7, 28, 0.85);
+  background: color-mix(in srgb, var(--bg-raised) 85%, transparent);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--rule);
 }
 
 .glass-strong {
-  background: rgba(3, 3, 14, 0.94);
+  background: color-mix(in srgb, var(--bg-base) 94%, transparent);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
-  border: 1px solid rgba(245, 158, 11, 0.16);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .glass-violet {
-  background: rgba(7, 7, 28, 0.88);
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(124, 58, 237, 0.18);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 18%, transparent);
 }
 
 /* ══════════════════════════════════════════
    GRADIENT TEXT
 ══════════════════════════════════════════ */
 .gradient-text {
-  background: linear-gradient(135deg, #F59E0B, #FBBF24 60%, #F59E0B);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2) 60%, var(--accent));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .gradient-text-violet {
-  background: linear-gradient(135deg, #8B5CF6, #A855F7 60%, #7C3AED);
+  background: linear-gradient(135deg, var(--accent-2), color-mix(in srgb, var(--accent-2) 60%, white) 60%, var(--accent-2));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .gradient-text-multi {
-  background: linear-gradient(135deg, #F59E0B 0%, #A855F7 50%, #22D3EE 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 50%, color-mix(in srgb, var(--accent-2) 60%, white) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -924,8 +1065,8 @@ body::after {
    BUTTONS
 ══════════════════════════════════════════ */
 .btn-primary {
-  background: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);
-  color: #030310;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: var(--on-accent);
   font-weight: 700;
   padding: 11px 24px;
   border-radius: 10px;
@@ -942,7 +1083,7 @@ body::after {
   letter-spacing: 0.2px;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 4px 24px rgba(245, 158, 11, 0.28), 0 1px 2px rgba(0,0,0,0.3);
+  box-shadow: 0 4px 24px var(--accent-glow), 0 1px 2px rgba(0,0,0,0.3);
 }
 
 .btn-primary::before {
@@ -958,7 +1099,7 @@ body::after {
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 36px rgba(245, 158, 11, 0.42), 0 2px 4px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 36px var(--accent-glow), 0 2px 4px rgba(0,0,0,0.4);
 }
 
 .btn-primary:active { transform: translateY(0); }
@@ -974,12 +1115,12 @@ body::after {
 
 /* Secondary button */
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.52);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  color: var(--text-secondary);
   font-weight: 500;
   padding: 10px 18px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--rule);
   cursor: pointer;
   transition: all 0.18s ease;
   font-size: 13px;
@@ -992,9 +1133,9 @@ body::after {
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.88);
-  border-color: rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--text-primary) 14%, transparent);
 }
 
 .btn-secondary:disabled {
@@ -1005,11 +1146,11 @@ body::after {
 /* Ghost button */
 .btn-ghost {
   background: transparent;
-  color: rgba(245, 158, 11, 0.72);
+  color: color-mix(in srgb, var(--accent) 72%, transparent);
   font-weight: 500;
   padding: 9px 16px;
   border-radius: 9px;
-  border: 1px solid rgba(245, 158, 11, 0.2);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
   cursor: pointer;
   transition: all 0.18s ease;
   font-size: 12.5px;
@@ -1021,9 +1162,9 @@ body::after {
 }
 
 .btn-ghost:hover {
-  background: rgba(245, 158, 11, 0.08);
-  color: #F59E0B;
-  border-color: rgba(245, 158, 11, 0.35);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 /* Danger button — added by Button component #34 to consolidate
@@ -1067,7 +1208,7 @@ body::after {
 ══════════════════════════════════════════ */
 .card {
   background: var(--color-dark-800);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--rule);
   border-radius: 14px;
   padding: 24px;
   transition: border-color 0.22s ease, box-shadow 0.22s ease;
@@ -1075,13 +1216,13 @@ body::after {
 }
 
 .card:hover {
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
   box-shadow: 0 8px 48px rgba(0, 0, 0, 0.45);
 }
 
 .card-glow {
   background: var(--color-dark-800);
-  border: 1px solid rgba(245, 158, 11, 0.15);
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
   border-radius: 14px;
   padding: 24px;
   position: relative;
@@ -1093,19 +1234,19 @@ body::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 88% 8%, rgba(245, 158, 11, 0.07), transparent 55%);
+  background: radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 55%);
   pointer-events: none;
 }
 
 .card-glow:hover {
-  border-color: rgba(245, 158, 11, 0.28);
-  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.06), 0 16px 56px rgba(0, 0, 0, 0.55);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 6%, transparent), 0 16px 56px rgba(0, 0, 0, 0.55);
 }
 
 /* Violet accent card */
 .card-violet {
   background: var(--color-dark-800);
-  border: 1px solid rgba(124, 58, 237, 0.18);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 18%, transparent);
   border-radius: 14px;
   padding: 24px;
   position: relative;
@@ -1117,21 +1258,21 @@ body::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 88% 8%, rgba(124, 58, 237, 0.07), transparent 55%);
+  background: radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--accent-2) 7%, transparent), transparent 55%);
   pointer-events: none;
 }
 
 .card-violet:hover {
-  border-color: rgba(124, 58, 237, 0.32);
-  box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.06), 0 16px 56px rgba(0, 0, 0, 0.55);
+  border-color: color-mix(in srgb, var(--accent-2) 32%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-2) 6%, transparent), 0 16px 56px rgba(0, 0, 0, 0.55);
 }
 
 /* Glass card */
 .card-glass {
-  background: rgba(7, 7, 28, 0.72);
+  background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--rule);
   border-radius: 16px;
   padding: 24px;
   position: relative;
@@ -1139,13 +1280,13 @@ body::after {
 }
 
 .card-glass:hover {
-  background: rgba(7, 7, 28, 0.85);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--bg-raised) 85%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
   box-shadow: 0 16px 56px rgba(0,0,0,0.5);
 }
 
 /* ══════════════════════════════════════════
-   BADGES
+   BADGES — colors here are semantic/fixed across all themes (not brand decoration)
 ══════════════════════════════════════════ */
 .badge {
   display: inline-flex;
@@ -1213,11 +1354,11 @@ body::after {
    INPUTS
 ══════════════════════════════════════════ */
 .input {
-  background: rgba(7, 7, 28, 0.85);
-  border: 1.5px solid rgba(255, 255, 255, 0.07);
+  background: color-mix(in srgb, var(--bg-raised) 85%, transparent);
+  border: 1.5px solid var(--rule);
   border-radius: 10px;
   padding: 13px 16px;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
   font-size: 14px;
   width: 100%;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -1226,12 +1367,12 @@ body::after {
 }
 
 .input:focus {
-  border-color: rgba(245, 158, 11, 0.48);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.08), 0 0 0 1px rgba(245, 158, 11, 0.12);
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .input::placeholder {
-  color: rgba(255, 255, 255, 0.2);
+  color: color-mix(in srgb, var(--text-primary) 20%, transparent);
 }
 
 textarea.input {
@@ -1250,19 +1391,19 @@ textarea.input {
   outline: none;
 }
 .selectable-tile:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.16) !important;
-  background: rgba(255, 255, 255, 0.045) !important;
+  border-color: color-mix(in srgb, var(--text-primary) 16%, transparent) !important;
+  background: color-mix(in srgb, var(--text-primary) 4.5%, transparent) !important;
 }
 .selectable-tile:focus-visible {
-  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px rgba(245, 158, 11, 0.6);
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 .selectable-tile[data-selected="true"]:hover:not(:disabled) {
   border-color: var(--accent-primary) !important;
-  background: rgba(245, 158, 11, 0.09) !important;
+  background: color-mix(in srgb, var(--accent) 9%, transparent) !important;
 }
 
 /* ══════════════════════════════════════════
-   TOAST
+   TOAST — status colors kept fixed/semantic
 ══════════════════════════════════════════ */
 .toast {
   position: fixed;
@@ -1295,17 +1436,17 @@ textarea.input {
 ══════════════════════════════════════════ */
 .progress-bar {
   height: 3px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--rule);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #F59E0B, #FBBF24, rgba(251, 191, 36, 0.7));
+  background: linear-gradient(90deg, var(--accent), var(--accent-2), color-mix(in srgb, var(--accent-2) 70%, transparent));
   border-radius: 2px;
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.45);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 /* ══════════════════════════════════════════
@@ -1316,7 +1457,7 @@ textarea.input {
   font-size: 10px;
   letter-spacing: 3px;
   text-transform: uppercase;
-  color: #F59E0B;
+  color: var(--accent);
   margin-bottom: 14px;
   display: flex;
   align-items: center;
@@ -1327,7 +1468,7 @@ textarea.input {
   content: '';
   width: 22px;
   height: 1px;
-  background: linear-gradient(90deg, #F59E0B, transparent);
+  background: linear-gradient(90deg, var(--accent), transparent);
 }
 
 /* ══════════════════════════════════════════
@@ -1335,7 +1476,7 @@ textarea.input {
 ══════════════════════════════════════════ */
 .divider {
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06) 50%, transparent);
+  background: linear-gradient(90deg, transparent, var(--rule) 50%, transparent);
   margin: 2rem 0;
 }
 
@@ -1351,17 +1492,17 @@ textarea.input {
   content: '';
   flex: 1;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06) 80%);
+  background: linear-gradient(90deg, transparent, var(--rule) 80%);
 }
 
 .divider-label::after {
-  background: linear-gradient(90deg, rgba(255,255,255,0.06) 20%, transparent);
+  background: linear-gradient(90deg, var(--rule) 20%, transparent);
 }
 
 .divider-text {
   font-family: var(--font-mono);
   font-size: 9.5px;
-  color: rgba(255, 255, 255, 0.2);
+  color: color-mix(in srgb, var(--text-primary) 20%, transparent);
   letter-spacing: 3px;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1376,10 +1517,10 @@ textarea.input {
   gap: 6px;
   padding: 6px 12px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border: 1px solid var(--rule);
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-secondary);
   transition: all 0.18s ease;
   cursor: pointer;
   white-space: nowrap;
@@ -1387,15 +1528,15 @@ textarea.input {
 }
 
 .chip:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.88);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  color: var(--text-primary);
 }
 
 .chip-active {
-  background: rgba(245, 158, 11, 0.10) !important;
-  border-color: rgba(245, 158, 11, 0.32) !important;
-  color: #F59E0B !important;
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent) !important;
+  color: var(--accent) !important;
 }
 
 /* ══════════════════════════════════════════
@@ -1403,7 +1544,7 @@ textarea.input {
 ══════════════════════════════════════════ */
 .stat-card {
   background: var(--color-dark-800);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--rule);
   border-radius: 14px;
   padding: 22px;
   position: relative;
@@ -1412,7 +1553,7 @@ textarea.input {
 }
 
 .stat-card:hover {
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
   box-shadow: 0 8px 40px rgba(0,0,0,0.4);
 }
 
@@ -1429,8 +1570,8 @@ textarea.input {
    FEATURE CARDS (Landing)
 ══════════════════════════════════════════ */
 .feat-new {
-  background: rgba(7, 7, 28, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--bg-raised) 98%, transparent);
+  border: 1px solid var(--rule);
   padding: 36px 32px;
   position: relative;
   overflow: hidden;
@@ -1439,8 +1580,8 @@ textarea.input {
 }
 
 .feat-new:hover {
-  background: rgba(11, 11, 36, 1);
-  border-color: rgba(245, 158, 11, 0.22);
+  background: var(--bg-card);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .feat-new:hover .feat-num-ghost {
@@ -1455,7 +1596,7 @@ textarea.input {
   font-family: var(--font-heading);
   font-size: 100px;
   font-weight: 900;
-  color: rgba(245, 158, 11, 1);
+  color: var(--accent);
   line-height: 1;
   pointer-events: none;
   user-select: none;
@@ -1482,14 +1623,14 @@ textarea.input {
   height: 38px;
   min-width: 38px;
   border-radius: 10px;
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(245, 158, 11, 0.04));
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, transparent), color-mix(in srgb, var(--accent) 4%, transparent));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
   font-size: 11px;
-  color: #F59E0B;
+  color: var(--accent);
   font-weight: 500;
   letter-spacing: 1px;
   flex-shrink: 0;
@@ -1557,8 +1698,14 @@ textarea.input {
 }
 
 @media (max-width: 480px) {
+  /* WHY 1 column, not repeat(2,1fr): .grid-stats holds 3 cards (Total Posts, Avg
+     Quality, Best Platform) — 2 columns leaves the 3rd card alone on its own row with
+     dead space beside it. This used to say repeat(2,1fr) and silently overrode an
+     earlier, correct 1fr rule elsewhere in the file (two @media (max-width: 480px)
+     blocks targeting the same selector — later one wins when both are !important).
+     Consolidated to this single declaration; don't add a second one elsewhere. */
   .grid-stats {
-    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-columns: 1fr !important;
     gap: 10px !important;
   }
 

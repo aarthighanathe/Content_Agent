@@ -1,6 +1,6 @@
 /**
  * routes/users — DELETE /me & GET /me/export (F-5)
- * Verifies account deletion cascades across all 7 user-scoped tables inside
+ * Verifies account deletion cascades across all 6 user-scoped tables inside
  * a single transaction, in-memory state is cleared, and export excludes
  * encrypted OAuth token secrets.
  */
@@ -79,8 +79,12 @@ vi.mock('../../src/db/schema.js', () => ({
   contentJobs: { id: 'contentJobs.id', userId: 'contentJobs.userId' },
   contentOutputs: { jobId: 'contentOutputs.jobId' },
   agentLogs: { jobId: 'agentLogs.jobId' },
-  templates: { userId: 'templates.userId' },
   socialTokens: { userId: 'socialTokens.userId', platform: 'socialTokens.platform', displayName: 'socialTokens.displayName', createdAt: 'socialTokens.createdAt', id: 'socialTokens.id' },
+  scheduledPosts: { userId: 'scheduledPosts.userId' },
+  collectionJobs: { jobId: 'collectionJobs.jobId', collectionId: 'collectionJobs.collectionId' },
+  collections: { userId: 'collections.userId' },
+  competitorAnalyses: { userId: 'competitorAnalyses.userId' },
+  jobOutputVersions: { jobId: 'jobOutputVersions.jobId' },
 }));
 
 function buildApp(userId?: string) {

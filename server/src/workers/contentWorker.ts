@@ -10,17 +10,22 @@ config({ path: resolve(process.cwd(), '../.env') });
 import { createRedisConnection } from '../lib/queue.js';
 import { env } from '../config.js';
 import { sseManager } from '../lib/sse.js';
-import { runAndPersistPipeline } from '../lib/pipeline.js';
+import { runAndPersistPipeline, type PipelineJob } from '../lib/pipeline.js';
 import { logger } from '../lib/logger.js';
+// WHY import type only: MemoryJob is declared in routes/jobs/ownership.ts,
+// which itself imports getJobFromStore from this file — a value-level import
+// here would create a real runtime require() cycle. `import type` is erased
+// at compile time, so the type is available with no such cycle.
+import type { MemoryJob } from '../routes/jobs/ownership.js';
 
 // In-memory job store for when DB is not available
-const jobStore = new Map<string, any>();
+const jobStore = new Map<string, MemoryJob>();
 
-export function getJobFromStore(jobId: string) {
+export function getJobFromStore(jobId: string): MemoryJob | undefined {
   return jobStore.get(jobId);
 }
 
-export function setJobInStore(jobId: string, data: any) {
+export function setJobInStore(jobId: string, data: MemoryJob | undefined): void {
   if (data === undefined) {
     jobStore.delete(jobId);
   } else {
@@ -28,15 +33,40 @@ export function setJobInStore(jobId: string, data: any) {
   }
 }
 
+// WHY unknown, not a typed interface: job.data is whatever the producer
+// (routes/jobs/create.ts's addJobToQueue call) serialized into BullMQ — this
+// function is the runtime boundary where that payload needs validating, not
+// trusting. Each field is narrowed individually below rather than trusting a
+// cast, since a malformed queue payload should fail loudly per-field instead
+// of silently propagating `undefined` through the whole pipeline.
+function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
+
 async function processContentJob(job: Job) {
-  const {
-    jobId, userId, topic, platform, tone, targetAudience,
-    brandVoice, phrasesUse, phrasesAvoid, contentDna, initialFeedback,
-  } = job.data;
+  const data: unknown = job.data;
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const jobId = asString(d.jobId) ?? '';
+  const userId = asString(d.userId) ?? '';
+  const topic = asString(d.topic) ?? '';
+  const platform = asString(d.platform) ?? '';
+  const tone = asString(d.tone);
+  const targetAudience = asString(d.targetAudience);
+  const brandVoice = asString(d.brandVoice);
+  const phrasesUse = asString(d.phrasesUse);
+  const phrasesAvoid = asString(d.phrasesAvoid);
+  const contentDna = d.contentDna;
+  const initialFeedback = asString(d.initialFeedback);
+  // WHY carried through the BullMQ payload too (C3): create.ts resolves
+  // competitorContext server-side before enqueueing, so the worker only
+  // needs to forward the already-sanitized string — same treatment as
+  // brandVoice/phrasesUse above.
+  const competitorContext = asString(d.competitorContext);
+  const sourceCompetitorAnalysisId = asString(d.sourceCompetitorAnalysisId);
 
   logger.info('Processing job', { jobId, topic, platform });
 
-  const jobData: any = {
+  const jobData: PipelineJob = {
     id: jobId,
     userId,
     topic,
@@ -48,6 +78,8 @@ async function processContentJob(job: Job) {
     phrasesAvoid,
     contentDna,
     initialFeedback,
+    competitorContext,
+    sourceCompetitorAnalysisId,
     status: 'pending',
     retryCount: 0,
   };
@@ -76,10 +108,20 @@ async function processContentJob(job: Job) {
     agent: 'system', message: 'Job picked up by worker…',
   });
 
-  await runAndPersistPipeline(jobData, emitProgress, {
-    set: (id, data) => setJobInStore(id, data),
-    evict: (id) => setJobInStore(id, undefined),
-  });
+  try {
+    await runAndPersistPipeline(jobData, emitProgress, {
+      set: (id, data) => setJobInStore(id, data),
+      evict: (id) => setJobInStore(id, undefined),
+    });
+  } catch {
+    // WHY swallow here: runAndPersistPipeline already persisted the job as
+    // 'failed' and emitted the terminal SSE event before rethrowing — the
+    // client has already been told this job is done (failed) and stopped
+    // listening. Letting this propagate would make BullMQ's `attempts: 3`
+    // retry an already-terminal job, burning provider quota a 2nd/3rd time
+    // and risking a stale DB overwrite back to 'done' with no client
+    // listening. Same contract as routes/jobs/create.ts's _runPipelineDirect.
+  }
 }
 
 // Create and start worker

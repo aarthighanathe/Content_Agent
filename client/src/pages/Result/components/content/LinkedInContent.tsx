@@ -27,15 +27,15 @@ export function LinkedInContent({ content, onSave }: Props) {
   }
 
   return (
-    <div style={{ background: '#08081A', borderRadius: 14, border: '1px solid rgba(245,158,11,0.18)', overflow: 'hidden' }}>
+    <div style={{ background: 'var(--bg-raised)', borderRadius: 14, border: '1px solid color-mix(in srgb, var(--accent) 18%, transparent)', overflow: 'hidden' }}>
       {/* A/B hook toggle */}
       {content.hookAlt && !isEditing && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'rgba(255,255,255,0.28)', letterSpacing: 1, textTransform: 'uppercase' }}>Hook A/B</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px 0', borderBottom: '1px solid var(--rule)' }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Hook A/B</span>
           {(['A', 'B'] as const).map((v) => (
-            <button key={v} onClick={() => setUseAltHook(v === 'B')} style={{ padding: '3px 10px', borderRadius: 20, border: `1px solid ${(v === 'B') === useAltHook ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.1)'}`, background: (v === 'B') === useAltHook ? 'rgba(245,158,11,0.1)' : 'none', color: (v === 'B') === useAltHook ? '#F59E0B' : 'var(--color-text-muted)', fontSize: 11, fontFamily: "var(--font-mono)", cursor: 'pointer', transition: 'all .15s' }}>{v}</button>
+            <button key={v} onClick={() => setUseAltHook(v === 'B')} style={{ padding: '3px 10px', borderRadius: 20, border: `1px solid ${(v === 'B') === useAltHook ? 'color-mix(in srgb, var(--accent) 50%, transparent)' : 'var(--rule)'}`, background: (v === 'B') === useAltHook ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'none', color: (v === 'B') === useAltHook ? 'var(--accent)' : 'var(--color-text-muted)', fontSize: 11, fontFamily: "var(--font-mono)", cursor: 'pointer', transition: 'all .15s' }}>{v}</button>
           ))}
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginLeft: 4 }}>Pick your best hook</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 4 }}>Pick your best hook</span>
         </div>
       )}
 
@@ -48,19 +48,19 @@ export function LinkedInContent({ content, onSave }: Props) {
         </ContentEditShell>
       ) : (
         <div style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-          <p style={{ color: 'rgba(255,255,255,0.92)', fontWeight: 700, fontSize: '1.1rem', lineHeight: 1.6 }}>
+          <p style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '1.1rem', lineHeight: 1.6 }}>
             {useAltHook && content.hookAlt ? content.hookAlt : content.hook}
           </p>
-          <div style={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'pre-line', lineHeight: 1.7, fontSize: 14 }}>{content.body}</div>
-          <p style={{ color: '#F59E0B', fontWeight: 700 }}>{content.cta}</p>
+          <div style={{ color: 'var(--text-secondary)', whiteSpace: 'pre-line', lineHeight: 1.7, fontSize: 14 }}>{content.body}</div>
+          <p style={{ color: 'var(--accent)', fontWeight: 700 }}>{content.cta}</p>
           {content.hashtags && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
               {content.hashtags.map((tag: string) => (
-                <span key={tag} style={{ padding: '4px 10px', borderRadius: 20, background: 'rgba(245,158,11,0.08)', color: '#F59E0B', fontSize: 11, fontFamily: "var(--font-mono)", border: '1px solid rgba(245,158,11,0.18)' }}>{tag}</span>
+                <span key={tag} style={{ padding: '4px 10px', borderRadius: 20, background: 'color-mix(in srgb, var(--accent) 8%, transparent)', color: 'var(--accent)', fontSize: 11, fontFamily: "var(--font-mono)", border: '1px solid color-mix(in srgb, var(--accent) 18%, transparent)' }}>{tag}</span>
               ))}
             </div>
           )}
-          <div style={{ paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ paddingTop: 10, borderTop: '1px solid var(--rule)' }}>
             <Button variant="secondary" size="sm" icon={<Pencil size={11} />} onClick={startEditing}>Edit post</Button>
           </div>
         </div>

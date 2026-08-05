@@ -28,6 +28,7 @@ interface TopicStepProps {
   onToneChange: (tone: string) => void;
 
   hasBrandVoice: boolean;
+  hasContentDna: boolean;
 
   targetAudience: string;
   onTargetAudienceChange: (value: string) => void;
@@ -47,15 +48,27 @@ export function TopicStep({
   topic, onTopicChange, topicPlaceholder, topicRef, suggestRef, showSuggestions, onFocusTopic, onCloseSuggestions,
   filteredSuggestions, onPickSuggestion,
   tone, onToneChange,
-  hasBrandVoice,
+  hasBrandVoice, hasContentDna,
   targetAudience, onTargetAudienceChange, audiencePlaceholder,
   carouselTheme, onCarouselThemeChange,
   errorMsg, loading, generateLabel, onSubmit,
 }: TopicStepProps) {
   return (
-    <div style={{ marginBottom: 32 }}>
+    <div className="create-topic-step" style={{ marginBottom: 32, padding: '0 16px' }}>
+      <style>{`
+        @media (max-width: 480px) {
+          .create-topic-step {
+            padding: 0 8px !important;
+          }
+        }
+        @media (max-width: 375px) {
+          .create-topic-step {
+            padding: 0 4px !important;
+          }
+        }
+      `}</style>
       {/* Platform — compact summary once chosen, full grid on first arrival or "Change" */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 20 }}>
         <SectionLabel>Platform</SectionLabel>
         {showPlatformGrid ? (
           <PlatformSelector value={platform} onChange={onPlatformChange} onSelect={onTogglePlatformGrid} />
@@ -64,10 +77,9 @@ export function TopicStep({
         )}
       </div>
 
-      <SectionLabel>Write your topic</SectionLabel>
-
       {/* Topic Input */}
       <div style={{ marginBottom: 20 }}>
+        <SectionLabel>Write your topic</SectionLabel>
         <div ref={suggestRef} style={{ position: 'relative' }}>
           <label htmlFor="create-topic" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap' }}>
             Topic
@@ -78,10 +90,22 @@ export function TopicStep({
             className="input"
             placeholder={topicPlaceholder}
             value={topic}
+            maxLength={250}
             onChange={(e) => onTopicChange(e.target.value)}
             onFocus={onFocusTopic}
-            style={{ minHeight: 92 }}
+            style={{ minHeight: 92, paddingBottom: 22 }}
           />
+          {/* WHY overlaid inside the textarea, not a block row below it: a trailing
+              row here added extra height only this section had, making the gap
+              before "Select a tone" visibly larger than every other section's
+              gap (which all end flush at their marginBottom:20 boundary). */}
+          <div style={{
+            position: 'absolute', right: 12, bottom: 8, pointerEvents: 'none',
+            fontSize: 10.5, fontFamily: "var(--font-mono)",
+            color: topic.length >= 250 ? 'var(--color-error)' : 'var(--text-muted)',
+          }}>
+            {topic.length}/250
+          </div>
           <TopicSuggestions
             suggestions={filteredSuggestions}
             open={showSuggestions}
@@ -99,7 +123,7 @@ export function TopicStep({
         <SectionLabel
           icon={<Mic size={13} style={{ flexShrink: 0 }} />}
           withRule={false}
-          trailing={<span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.22)', fontFamily: "var(--font-mono)", textTransform: 'none', letterSpacing: 0.3 }}>optional</span>}
+          trailing={<span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", textTransform: 'none', letterSpacing: 0.3 }}>optional</span>}
         >
           Select a tone
         </SectionLabel>
@@ -121,36 +145,47 @@ export function TopicStep({
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '9px 14px',
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'color-mix(in srgb, var(--text-primary) 3%, transparent)',
+            border: '1px solid var(--rule)',
             borderRadius: 9,
           }}>
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', fontWeight: 600 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
               Your voice, phrases &amp; style will be applied
             </span>
             <Link
               to="/brand"
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'rgba(245,158,11,0.6)', textDecoration: 'none', transition: 'color .15s', fontFamily: "var(--font-mono)", flexShrink: 0 }}
-              onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.color = '#F59E0B')}
-              onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.color = 'rgba(245,158,11,0.6)')}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'color-mix(in srgb, var(--accent) 60%, transparent)', textDecoration: 'none', transition: 'color .15s', fontFamily: "var(--font-mono)", flexShrink: 0 }}
+              onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.color = 'var(--accent)')}
+              onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.color = 'color-mix(in srgb, var(--accent) 60%, transparent)')}
             >
               <Settings size={11} /> Edit
             </Link>
           </div>
-        ) : (
+        ) : null}
+        {/* WHY a separate line, not folded into the banner above: Content DNA is sent to
+            every job (create.ts) regardless of whether the brand-voice banner is showing
+            the "configured" or "not set up" state — this confirms on-screen that it's
+            active independent of that banner's own state. */}
+        {hasContentDna && (
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: 'var(--accent-2)', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent-2)', flexShrink: 0 }} />
+            Content DNA is active — your writing fingerprint will shape this generation
+          </p>
+        )}
+        {!hasBrandVoice && (
           <Link
             to="/brand"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '9px 14px', textDecoration: 'none',
-              background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 9,
+              background: 'color-mix(in srgb, var(--text-primary) 2%, transparent)', border: '1px solid var(--rule)', borderRadius: 9,
               transition: 'border-color .18s',
             }}
-            onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(245,158,11,0.2)')}
-            onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.borderColor = 'rgba(255,255,255,0.06)')}
+            onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.borderColor = 'color-mix(in srgb, var(--accent) 20%, transparent)')}
+            onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--rule)')}
           >
             <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Add brand voice for better results</span>
-            <span style={{ fontSize: 11, color: 'rgba(245,158,11,0.55)', fontFamily: "var(--font-mono)" }}>Set up →</span>
+            <span style={{ fontSize: 11, color: 'color-mix(in srgb, var(--accent) 55%, transparent)', fontFamily: "var(--font-mono)" }}>Set up →</span>
           </Link>
         )}
       </div>
@@ -159,7 +194,7 @@ export function TopicStep({
       <div style={{ marginBottom: 20 }}>
         <SectionLabel icon={<ClipboardList size={13} style={{ flexShrink: 0 }} />} withRule={false}>
           Target audience
-          <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.22)', fontFamily: "var(--font-mono)", textTransform: 'none', letterSpacing: 0.3, marginLeft: 6 }}>optional</span>
+          <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", textTransform: 'none', letterSpacing: 0.3, marginLeft: 6 }}>optional</span>
         </SectionLabel>
         <input
           type="text"
@@ -179,7 +214,7 @@ export function TopicStep({
 
       {/* Error message */}
       {errorMsg && (
-        <div style={{ marginBottom: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 12, color: 'var(--color-error)', display: 'flex', alignItems: 'center', gap: 6 }} role="alert">
+        <div style={{ marginBottom: 20, padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 12, color: 'var(--color-error)', display: 'flex', alignItems: 'center', gap: 6 }} role="alert">
           <AlertTriangle size={13} /> {errorMsg}
         </div>
       )}
@@ -187,24 +222,20 @@ export function TopicStep({
       {/* Generate Button */}
       <button
         type="button"
+        className="btn-primary"
         disabled={!topic.trim() || loading}
         onClick={onSubmit}
         style={{
           width: '100%',
-          background: topic.trim() && !loading ? 'linear-gradient(135deg,#F59E0B,#FBBF24)' : 'rgba(245,158,11,0.25)',
-          color: topic.trim() && !loading ? '#050509' : 'rgba(245,158,11,0.5)',
-          fontFamily: "'Inter',sans-serif", fontWeight: 700, fontSize: 14,
-          padding: '13px 20px', border: 'none', borderRadius: 10,
+          fontFamily: "'Inter',sans-serif", fontSize: 14,
+          padding: '13px 20px',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           letterSpacing: 0.2,
-          cursor: topic.trim() && !loading ? 'pointer' : 'not-allowed',
-          transition: 'all .2s',
-          boxShadow: topic.trim() && !loading ? '0 6px 28px rgba(245,158,11,0.28)' : 'none',
         }}
       >
         {loading ? (
           <>
-            <div style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#050509', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            <div style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: 'var(--on-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
             <span role="status" aria-live="polite">Generating…</span>
           </>
         ) : (

@@ -55,7 +55,29 @@ export function TopicSuggestions({ suggestions, open, onClose, onPick, inputRef 
     return () => textarea.removeEventListener('keydown', handleKeyDown);
   }, [open, suggestions, activeIndex, onPick, onClose, inputRef]);
 
-  if (!open || suggestions.length === 0) return null;
+  if (!open) return null;
+
+  // WHY show an empty-state row instead of rendering nothing: a first-time user
+  // with no recent topics yet previously saw no feedback at all on focus, which
+  // read as broken rather than "you haven't generated anything yet."
+  if (suggestions.length === 0) {
+    return (
+      <div
+        role="listbox"
+        aria-label="Recent topics"
+        style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+          background: 'var(--bg-card)', border: '1px solid var(--rule)',
+          borderRadius: 10, boxShadow: '0 16px 48px rgba(0,0,0,0.65)',
+          zIndex: 30, overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+          Your recent topics will appear here
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -64,12 +86,12 @@ export function TopicSuggestions({ suggestions, open, onClose, onPick, inputRef 
       aria-label="Recent topics"
       style={{
         position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-        background: '#0D0D24', border: '1px solid rgba(245,158,11,0.22)',
+        background: 'var(--bg-card)', border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
         borderRadius: 10, boxShadow: '0 16px 48px rgba(0,0,0,0.65)',
         zIndex: 30, overflow: 'hidden', maxHeight: 200, overflowY: 'auto',
       }}
     >
-      <div style={{ padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontFamily: "var(--font-mono)", fontSize: 8.5, color: 'rgba(255,255,255,0.22)', letterSpacing: 1, textTransform: 'uppercase' }}>
+      <div style={{ padding: '7px 12px', borderBottom: '1px solid var(--rule)', fontFamily: "var(--font-mono)", fontSize: 8.5, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase' }}>
         Recent topics
       </div>
       {suggestions.map((t, i) => (
@@ -83,13 +105,13 @@ export function TopicSuggestions({ suggestions, open, onClose, onPick, inputRef 
           style={{
             width: '100%', display: 'flex', alignItems: 'center', gap: 10,
             padding: '9px 12px', border: 'none',
-            cursor: 'pointer', color: 'rgba(255,255,255,0.72)', fontSize: 12.5,
+            cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 12.5,
             textAlign: 'left', fontFamily: "'Inter',sans-serif",
-            borderBottom: '1px solid rgba(255,255,255,0.04)',
-            background: i === activeIndex ? 'rgba(245,158,11,0.07)' : 'none',
+            borderBottom: '1px solid var(--rule)',
+            background: i === activeIndex ? 'color-mix(in srgb, var(--accent) 7%, transparent)' : 'none',
           }}
         >
-          <RefreshCw size={10} style={{ color: 'rgba(245,158,11,0.5)', flexShrink: 0 }} />
+          <RefreshCw size={10} style={{ color: 'color-mix(in srgb, var(--accent) 50%, transparent)', flexShrink: 0 }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t}</span>
         </button>
       ))}

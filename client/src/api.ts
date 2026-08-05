@@ -7,17 +7,20 @@ import type {
   ExportDataResponse,
 } from './types/api';
 import type {
-  TemplateListResponse,
-  SaveTemplateInput,
-  SaveTemplateResponse,
-  RenameTemplateResponse,
-} from './types/template';
-import type {
   PostToSocialResponse,
   SchedulePostInput,
   SchedulePostResponse,
   AnalyzeCompetitorResponse,
+  CompetitorAnalysisHistoryResponse,
 } from './types/social';
+import type {
+  ScheduledPostListResponse,
+  CreateScheduledPostInput,
+  CreateScheduledPostResponse,
+} from './types/scheduledPost';
+import type { CollectionListResponse, CreateCollectionResponse } from './types/collection';
+import type { JobVersionListResponse } from './types/jobVersion';
+import type { IdeatedIdea } from './store';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -66,6 +69,13 @@ export async function createJob(data: {
   platform: string;
   tone: string;
   targetAudience: string;
+  // WHY optional (C3): only set when Create.tsx's location.state carries
+  // CreateHandoff's competitorContext/competitorAnalysisId (Competitor.tsx's
+  // "Create content →" CTAs) — see routes/jobs/create.ts's
+  // loadOwnedCompetitorContext for how the server resolves these into
+  // orchestrator prompt context.
+  competitorContext?: string;
+  competitorAnalysisId?: string;
 }): Promise<{ jobId: string }> {
   const response = await api.post('/jobs/create', data);
   return response.data;
@@ -102,6 +112,20 @@ export async function regenerateJob(jobId: string, feedback?: string): Promise<{
   return response.data;
 }
 
+// ── Version history ──────────────────────────────────────────────────────────
+// WHY a snapshot is taken only on regenerate/restore, not every save: see
+// server/src/db/schema.ts's jobOutputVersions WHY comment — this deliberately
+// does not touch the shared persistJobToDB write path every job goes through.
+export async function getJobVersions(jobId: string): Promise<JobVersionListResponse> {
+  const response = await api.get(`/jobs/${jobId}/versions`);
+  return response.data;
+}
+
+export async function restoreJobVersion(jobId: string, versionId: string): Promise<{ success: boolean }> {
+  const response = await api.post(`/jobs/${jobId}/versions/${versionId}/restore`);
+  return response.data;
+}
+
 // content is the platform-specific final output payload (see PlatformContent / carousel
 // slide array) being saved back after inline editing in the Result view.
 export async function updateJobContent(
@@ -119,6 +143,15 @@ export async function multiplyJob(jobId: string, targetPlatform: string): Promis
 
 export async function createBatchJobs(items: Array<{ topic: string; platform: string; tone: string; targetAudience: string }>): Promise<{ jobs: Array<{ jobId: string; topic: string; platform: string }> }> {
   const response = await api.post('/jobs/batch', { items });
+  return response.data;
+}
+
+// WHY partial, not Record<string,string>: a brand-new user (or one who hasn't
+// completed a job on a given platform yet) has no learned default for that
+// platform — Create.tsx falls back to its static AUDIENCE_DEFAULTS map per
+// platform, not just once for a totally-empty response.
+export async function getAudienceDefaults(): Promise<{ audienceDefaults: Partial<Record<string, string>> }> {
+  const response = await api.get('/jobs/audience-defaults');
   return response.data;
 }
 
@@ -181,8 +214,23 @@ export async function schedulePost(data: SchedulePostInput): Promise<SchedulePos
 }
 
 // ── Ideation ──────────────────────────────────────────────────────────────────
-export async function generateIdeas(count = 10): Promise<{ ideas: Array<{ title: string; platform: string; angle: string; why: string }> }> {
-  const response = await api.post('/content/ideate', { count });
+export async function generateIdeas(
+  count = 10,
+  focusTopic?: string,
+  competitorAnalysisId?: string,
+): Promise<{ ideas: IdeatedIdea[] }> {
+  const response = await api.post('/content/ideate', { count, focusTopic, competitorAnalysisId });
+  return response.data;
+}
+
+// I1: regenerate a single idea in place. excludeTitles should be the titles
+// currently visible on screen so the model avoids near-duplicates.
+export async function regenerateIdea(
+  focusTopic?: string,
+  excludeTitles?: string[],
+  competitorAnalysisId?: string,
+): Promise<IdeatedIdea> {
+  const response = await api.post('/content/ideate/regenerate-one', { focusTopic, excludeTitles, competitorAnalysisId });
   return response.data;
 }
 
@@ -206,30 +254,30 @@ export async function researchHashtags(data: {
 export async function repurposeUrl(data: {
   url: string;
   platform: string;
+  // WHY optional, additive to `platform`: a single-URL, multi-platform
+  // submission fetches/extracts the article once server-side and fans out
+  // to one job per platform — see routes/content/repurpose.ts. Omitting it
+  // keeps the original single-platform call shape unchanged.
+  platforms?: string[];
   tone: string;
   targetAudience: string;
-}): Promise<{ jobId: string; topic: string }> {
+}): Promise<{ jobId: string; topic: string; jobs?: Array<{ jobId: string; platform: string }> }> {
   const response = await api.post('/content/repurpose', data);
   return response.data;
 }
 
-// ── Templates ─────────────────────────────────────────────────────────────────
-export async function getTemplates(): Promise<TemplateListResponse> {
-  const response = await api.get('/templates');
-  return response.data;
-}
-
-export async function saveTemplate(data: SaveTemplateInput): Promise<SaveTemplateResponse> {
-  const response = await api.post('/templates', data);
-  return response.data;
-}
-
-export async function deleteTemplate(id: string): Promise<void> {
-  await api.delete(`/templates/${id}`);
-}
-
-export async function renameTemplate(id: string, name: string): Promise<RenameTemplateResponse> {
-  const response = await api.patch(`/templates/${id}`, { name });
+// WHY separate function (not overloading repurposeUrl with an items array):
+// batch repurpose is a different endpoint (/repurpose/batch) with a different
+// request shape — keeping them separate prevents callers from accidentally
+// merging the two result shapes.
+export async function repurposeBatchUrls(items: Array<{
+  url: string;
+  platform: string;
+  platforms?: string[];
+  tone: string;
+  targetAudience: string;
+}>): Promise<{ jobs: Array<{ jobId: string; platform: string; topic: string }>; failedItems: Array<{ url: string; error: string }> }> {
+  const response = await api.post('/content/repurpose/batch', { items });
   return response.data;
 }
 
@@ -242,6 +290,11 @@ export async function generateSlideImage(prompt: string, mode?: 'background' | '
 // ── Competitor Analysis ───────────────────────────────────────────────────────
 export async function analyzeCompetitor(data: { handle: string; industry?: string }): Promise<AnalyzeCompetitorResponse> {
   const response = await api.post('/content/competitor', data);
+  return response.data;
+}
+
+export async function getCompetitorHistory(): Promise<CompetitorAnalysisHistoryResponse> {
+  const response = await api.get('/content/competitor/history');
   return response.data;
 }
 
@@ -258,4 +311,122 @@ export async function completeOnboarding(data: { brandName?: string; preferredTo
 // NOTE: createCarouselRenderSession() was removed with the /render-slides SSE endpoint.
 // Carousel PNGs are produced by POST /jobs/:id/export/carousel-png (see ExportModal).
 
+// ── Scheduled Posts (server-synced Calendar) ─────────────────────────────────
+// WHY month optional: Calendar.tsx fetches one visible month at a time;
+// Dashboard's NextScheduledCard omits it to search across all of the user's
+// scheduled posts for the nearest future date.
+export async function getScheduledPosts(month?: string): Promise<ScheduledPostListResponse> {
+  const response = await api.get('/scheduled-posts', { params: month ? { month } : undefined });
+  return response.data;
+}
+
+// WHY one function for both create and move: the server upserts on jobId
+// (unique constraint), so scheduling an already-scheduled job onto a new
+// date is the same call as scheduling it for the first time.
+export async function scheduleJob(data: CreateScheduledPostInput): Promise<CreateScheduledPostResponse> {
+  const response = await api.post('/scheduled-posts', data);
+  return response.data;
+}
+
+export async function unscheduleJob(jobId: string): Promise<void> {
+  await api.delete(`/scheduled-posts/${jobId}`);
+}
+
+// ── Library tagging ───────────────────────────────────────────────────────────
+// WHY: PATCH /:jobId/tag and the tag column on contentJobs already exist server-side
+// (tagJobSchema: max 30 chars, trimmed). This is the only missing piece — nothing in
+// the client ever called the endpoint before this change.
+export async function tagJob(jobId: string, tag: string): Promise<{ success: boolean }> {
+  const response = await api.patch(`/jobs/${jobId}/tag`, { tag });
+  return response.data;
+}
+
+// WHY no removeTag / clearTag: the server treats tag as a nullable string; sending an
+// empty string '' would fail tagJobSchema's min(1). Instead, callers should PATCH with
+// a whitespace-only value — the server trims it and the schema rejects it, so the
+// correct idiom is to just not store a tag. If a "clear tag" affordance is ever
+// needed, a dedicated PATCH /tag with null handling should be added server-side first.
+
+// ── Library collections/folders ─────────────────────────────────────────────────
+export async function getCollections(): Promise<CollectionListResponse> {
+  const response = await api.get('/collections');
+  return response.data;
+}
+
+export async function createCollection(name: string): Promise<CreateCollectionResponse> {
+  const response = await api.post('/collections', { name });
+  return response.data;
+}
+
+export async function deleteCollection(collectionId: string): Promise<{ success: boolean }> {
+  const response = await api.delete(`/collections/${collectionId}`);
+  return response.data;
+}
+
+export async function getCollectionJobs(collectionId: string): Promise<JobListResponse> {
+  const response = await api.get(`/collections/${collectionId}/jobs`);
+  // WHY normalizing here, not a new response type: the server returns only
+  // { jobs } (a collection has no pagination — see routes/collections.ts),
+  // while JobListResponse also carries total/page/totalPages. Reusing
+  // JobListResponse lets ContentTab.tsx render collection jobs with zero
+  // changes to its props; the extra fields are simply computed client-side.
+  const jobs = response.data.jobs || [];
+  return { jobs, total: jobs.length, page: 1, totalPages: 1 };
+}
+
+export async function addJobToCollection(collectionId: string, jobId: string): Promise<{ success: boolean }> {
+  const response = await api.post(`/collections/${collectionId}/jobs`, { jobId });
+  return response.data;
+}
+
+export async function removeJobFromCollection(collectionId: string, jobId: string): Promise<{ success: boolean }> {
+  const response = await api.delete(`/collections/${collectionId}/jobs/${jobId}`);
+  return response.data;
+}
+
+// ── Feed Monitors (RSS/Atom monitoring) ──────────────────────────────────────
+export interface FeedMonitor {
+  id: string;
+  userId: string;
+  feedUrl: string;
+  platform: string;
+  tone: string;
+  targetAudience: string;
+  active: boolean;
+  lastCheckedAt: string | null;
+  lastItemGuid: string | null;
+  createdAt: string;
+}
+
+export async function getFeedMonitors(): Promise<{ monitors: FeedMonitor[] }> {
+  const response = await api.get('/feed-monitors');
+  return response.data;
+}
+
+export async function createFeedMonitor(data: {
+  feedUrl: string;
+  platform: string;
+  tone: string;
+  targetAudience: string;
+}): Promise<{ monitor: FeedMonitor }> {
+  const response = await api.post('/feed-monitors', data);
+  return response.data;
+}
+
+export async function toggleFeedMonitor(id: string, active: boolean): Promise<{ monitor: FeedMonitor }> {
+  const response = await api.patch(`/feed-monitors/${id}`, { active });
+  return response.data;
+}
+
+export async function deleteFeedMonitor(id: string): Promise<{ success: boolean }> {
+  const response = await api.delete(`/feed-monitors/${id}`);
+  return response.data;
+}
+
+export async function checkFeedMonitorNow(id: string): Promise<{ message: string }> {
+  const response = await api.post(`/feed-monitors/${id}/check`);
+  return response.data;
+}
+
 export { api, API_BASE };
+

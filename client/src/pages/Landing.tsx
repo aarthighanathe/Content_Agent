@@ -56,7 +56,7 @@ export default function LandingPage() {
   if (isLoaded && isSignedIn) return <Navigate to="/dashboard" replace />;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#030310', display: 'flex', flexDirection: 'column', fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-body)' }}>
       <LandingStyles />
 
       <MobileMenu open={mobileOpen} isSignedIn={isSignedIn} onClose={() => setMobileOpen(false)} />

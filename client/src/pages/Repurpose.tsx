@@ -1,9 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Link2, Loader2, Sparkles, Newspaper, Video, Mail, CheckCircle2 } from 'lucide-react';
+import { Loader2, Sparkles, RotateCcw } from 'lucide-react';
 import { Instagram, Linkedin, XTwitter } from '../components/BrandIcons';
-import { repurposeUrl } from '../api';
+import { repurposeUrl, repurposeBatchUrls } from '../api';
+import { useRepurposeHistory, type RepurposeHistoryEntry } from './Repurpose/useRepurposeHistory';
+import { RepurposeHistoryList } from './Repurpose/RepurposeHistoryList';
+import { InfoSidebar } from './Repurpose/InfoSidebar';
+import { PlatformPicker } from './Repurpose/PlatformPicker';
+import { UrlInput } from './Repurpose/UrlInput';
+import { FeedMonitorPanel } from './Repurpose/FeedMonitorPanel';
 
 const platforms = [
   { id: 'instagram_carousel', label: 'Instagram Carousel', Icon: Instagram, gradient: 'linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)', accent: '#ec4899' },
@@ -23,18 +29,6 @@ const AUDIENCE_DEFAULTS: Record<string, string> = {
   video_script:       'short-form video viewers aged 18-35',
 };
 
-const supportedSources = [
-  { Icon: Newspaper, title: 'Blog Posts',     desc: 'Medium, Substack, WordPress, Ghost' },
-  { Icon: Video,     title: 'YouTube Videos', desc: 'Auto-captions extracted automatically' },
-  { Icon: Mail,      title: 'Newsletters',    desc: 'Beehiiv, ConvertKit, Email archives' },
-];
-
-const howItWorks = [
-  'Paste any public URL from a supported source',
-  'AI extracts the key insights and research',
-  'Content is rewritten for your chosen platform and brand voice',
-];
-
 export default function RepurposePage() {
   const navigate = useNavigate();
   const [url, setUrl]           = useState('');
@@ -43,9 +37,62 @@ export default function RepurposePage() {
   const [audience, setAudience] = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  // Batch-URL mode state
+  const [batchMode, setBatchMode]   = useState(false);
+  const [batchUrls, setBatchUrls]   = useState('');
+  const { history, addEntry, removeEntry } = useRepurposeHistory();
+
+  // WHY separate multi-select set instead of reusing `platform` as an array:
+  // the single-platform picker (one selected pill) is the common path and
+  // stays untouched — multi-platform is an opt-in toggle that fans one URL
+  // fetch out to several jobs (routes/content/repurpose.ts), a genuinely
+  // different request shape worth keeping visually distinct rather than
+  // silently changing what clicking a platform pill does.
+  const [multiPlatform, setMultiPlatform] = useState(false);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(() => new Set(['linkedin_post']));
+
+  function togglePlatformSelection(id: string): void {
+    setSelectedPlatforms((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        if (next.size > 1) next.delete(id); // WHY guard: at least one platform must stay selected
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
 
   const effectiveAudience = audience.trim() || AUDIENCE_DEFAULTS[platform] || 'general audience';
-  const isValid = url.trim() && platform && tone;
+
+  // Parse batch textarea: one URL per non-empty line
+  const parsedBatchUrls = batchUrls.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  const isValid = batchMode
+    ? parsedBatchUrls.length > 0 && tone && platform
+    : multiPlatform
+      ? url.trim() && selectedPlatforms.size > 0 && tone
+      : url.trim() && platform && tone;
+
+  // WHY validate with `new URL()` before ever hitting the network: the server's own
+  // repurpose route does the identical `new URL(url)` try/catch (content/repurpose.ts)
+  // and rejects malformed input with a 400 — previously the only client-side check was
+  // the browser's built-in `type="url"`, which is easy to bypass (e.g. paste events,
+  // some mobile keyboards) and still cost a full request/response round trip to fail.
+  // This mirrors the server's exact validation logic (protocol must be http/https) so
+  // the client-side and server-side rules can't silently drift apart.
+  function validateUrl(value: string): string | null {
+    const trimmed = value.trim();
+    try {
+      const parsed = new URL(trimmed);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return 'Invalid URL — must start with http:// or https://';
+      }
+      return null;
+    } catch {
+      return 'That doesn\'t look like a valid URL — check for typos and try again.';
+    }
+  }
 
   // WHY a single "Processing…" state, not a two-phase "fetching then generating" one:
   // the server's POST /content/repurpose route does URL-fetch + job creation in one
@@ -55,39 +102,122 @@ export default function RepurposePage() {
   // showing invented progress (audit #32). One honest state instead.
   async function handleRepurpose() {
     if (!isValid || loading) return;
+
+    // ── Batch-URL mode: N URLs → one job each ────────────────────────────────────
+    if (batchMode) {
+      const badUrls = parsedBatchUrls.filter((u) => { try { const p = new URL(u); return !['http:', 'https:'].includes(p.protocol); } catch { return true; } });
+      if (badUrls.length > 0) {
+        setError(`Invalid URL(s): ${badUrls.slice(0, 2).join(', ')}${badUrls.length > 2 ? ' …' : ''}`);
+        return;
+      }
+      setLoading(true);
+      setError('');
+      try {
+        const items = parsedBatchUrls.map((u) => ({
+          url: u,
+          platform,
+          tone,
+          targetAudience: effectiveAudience,
+        }));
+        const { jobs, failedItems } = await repurposeBatchUrls(items);
+        for (const j of jobs) addEntry({ url: j.topic, platform: j.platform, outcome: 'success', jobId: j.jobId });
+        if (failedItems.length > 0) {
+          setError(`${failedItems.length} URL(s) failed: ${failedItems.map((f) => f.error).slice(0, 2).join('; ')}`);
+        }
+        if (jobs.length > 0) {
+          navigate('/batch-result', { state: { jobs } });
+        }
+      } catch (err: unknown) {
+        const msg = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
+        setError(msg || 'Batch failed — please try again.');
+        setLoading(false);
+      }
+      return;
+    }
+
+    // ── Single-URL (or multi-platform) mode ───────────────────────────────────
+    const clientError = validateUrl(url);
+    if (clientError) {
+      setError(clientError);
+      return;
+    }
     setLoading(true);
     setError('');
 
+    const trimmedUrl = url.trim();
+    const platformsToSubmit = multiPlatform ? Array.from(selectedPlatforms) : undefined;
     try {
-      const { jobId } = await repurposeUrl({ url: url.trim(), platform, tone, targetAudience: effectiveAudience });
-      navigate(`/result/${jobId}`);
+      const { jobId, topic, jobs } = await repurposeUrl({
+        url: trimmedUrl, platform, platforms: platformsToSubmit, tone, targetAudience: effectiveAudience,
+      });
+      if (multiPlatform && jobs && jobs.length > 1) {
+        // WHY one history entry per platform, not one for the whole batch:
+        // RepurposeHistoryList's retry/view-result actions are per-job (a
+        // single jobId to link to) — recording per-platform keeps that
+        // contract intact instead of teaching the history list a second,
+        // batch-shaped entry type for this one case.
+        for (const job of jobs) addEntry({ url: trimmedUrl, platform: job.platform, outcome: 'success', jobId: job.jobId });
+        // WHY BatchResult, not /result/:jobId: N jobs from one submission is
+        // exactly BatchResult.tsx's shape (built for Create's batch mode) —
+        // reusing it here instead of building a second "N jobs, one submission"
+        // results page, and it already polls/displays per-job status+score.
+        navigate('/batch-result', { state: { jobs: jobs.map((j) => ({ ...j, topic })) } });
+      } else {
+        addEntry({ url: trimmedUrl, platform, outcome: 'success', jobId });
+        navigate(`/result/${jobId}`);
+      }
     } catch (err: unknown) {
       // WHY axios.isAxiosError: narrows `unknown` to AxiosError before reading the
       // server's { error: string } response body, instead of trusting an `any` catch.
       const msg = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
-      setError(msg || 'Failed to process the URL — please try again.');
+      const errorMessage = msg || 'Failed to process the URL — please try again.';
+      // WHY recorded here, not for a client-side validateUrl() rejection above:
+      // this is a real attempt that reached the server (fetch failure,
+      // insufficient content, etc.) — worth remembering so the user can retry
+      // without re-finding the article. A malformed URL caught before the
+      // network call isn't a meaningful "attempt" to look back on.
+      addEntry({ url: trimmedUrl, platform, outcome: 'failed', errorMessage });
+      setError(errorMessage);
       setLoading(false);
     }
+  }
+
+  // WHY a dedicated reset, not just "type over it": after a failed submit (bad URL,
+  // fetch failure, insufficient content, etc.) the stale field values previously just
+  // sat there with no easy way back to a clean slate — this clears everything back to
+  // the form's initial defaults in one click.
+  function handleClear() {
+    setUrl('');
+    setBatchMode(false);
+    setBatchUrls('');
+    setPlatform('linkedin_post');
+    setSelectedPlatforms(new Set(['linkedin_post']));
+    setTone('professional');
+    setAudience('');
+    setError('');
+  }
+
+  // WHY re-fill, not re-submit: a past failure might need the user to check
+  // the URL still works, or the platform choice still makes sense — re-filling
+  // the form and letting them hit "Repurpose & Generate" themselves matches
+  // how every other retry affordance in this app works (e.g. Ideate's regenerate),
+  // rather than silently re-firing the exact same request that just failed.
+  function handleRetryFromHistory(entry: RepurposeHistoryEntry): void {
+    setUrl(entry.url);
+    setPlatform(entry.platform);
+    setMultiPlatform(false);
+    setSelectedPlatforms(new Set([entry.platform]));
+    setError('');
   }
 
   return (
     <div>
       {/* Page Header */}
       <div style={{ marginBottom: 32 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 10,
-            background: 'linear-gradient(135deg, rgba(34,211,238,0.18), rgba(139,92,246,0.18))',
-            border: '1px solid rgba(34,211,238,0.22)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Link2 size={18} color="#22D3EE" />
-          </div>
-          <h1 style={{ fontFamily: "var(--font-heading)", fontSize: "clamp(20px, 5vw, 28px)", fontWeight: 700, color: '#fff', margin: 0 }}>
-            Repurpose Anything
-          </h1>
-        </div>
-        <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13.5, margin: 0 }}>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontSize: "clamp(20px, 5vw, 28px)", fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+          Repurpose Anything
+        </h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: 13.5, margin: 0 }}>
           Paste a blog post, article, or YouTube link — the AI extracts the key insights and rewrites them
           as platform-native content in your brand voice.
         </p>
@@ -95,83 +225,61 @@ export default function RepurposePage() {
 
       {/* Two-column layout — stacks on tablet via .grid-repurpose */}
       <div className="grid-repurpose" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 24, alignItems: 'start' }}>
+        <style>{`
+          @media (max-width: 768px) {
+            .grid-repurpose {
+              grid-template-columns: 1fr !important;
+            }
+          }
+          @media (max-width: 375px) {
+            .grid-repurpose {
+              gap: 16px !important;
+            }
+            .repurpose-platform-grid {
+              grid-template-columns: 1fr !important;
+            }
+          }
+        `}</style>
 
         {/* ── Left: Form ── */}
         <div style={{
-          background: '#08081A', border: '1px solid rgba(255,255,255,0.06)',
+          background: 'var(--bg-raised)', border: '1px solid var(--rule)',
           borderRadius: 16, padding: '28px 28px',
         }}>
 
-          {/* URL Input */}
-          <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
-              Source URL
-            </label>
-            <div style={{ position: 'relative' }}>
-              <Link2 size={15} color="rgba(255,255,255,0.25)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                type="url"
-                placeholder="https://example.com/article-or-blog-post"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                disabled={loading}
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: 11, padding: '12px 14px 12px 40px',
-                  color: 'var(--color-text-primary)', fontSize: 14,
-                  outline: 'none', transition: 'border-color .2s',
-                }}
-                onFocus={(e) => (e.target.style.borderColor = 'rgba(34,211,238,0.35)')}
-                onBlur={(e) => (e.target.style.borderColor = 'rgba(255,255,255,0.08)')}
-              />
-            </div>
-            <p style={{ margin: '6px 0 0', fontSize: 11.5, color: 'rgba(255,255,255,0.25)' }}>
-              Supports: blog posts, Medium articles, newsletters, YouTube (auto-captions)
-            </p>
-          </div>
+          {/* URL Input (single or batch) */}
+          <UrlInput
+            url={url}
+            onUrlChange={setUrl}
+            batchMode={batchMode}
+            onToggleBatchMode={() => {
+              setBatchMode((v) => !v);
+              // When switching to batch, disable multi-platform (different shapes)
+              if (!batchMode) setMultiPlatform(false);
+            }}
+            batchUrls={batchUrls}
+            onBatchUrlsChange={setBatchUrls}
+            loading={loading}
+          />
 
-          {/* Platform */}
-          <div style={{ marginBottom: 22 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
-              Target Platform
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-              {platforms.map((p) => {
-                const active = platform === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => setPlatform(p.id)}
-                    disabled={loading}
-                    aria-pressed={active}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 9, padding: '10px 13px',
-                      background: active ? 'rgba(245,158,11,0.07)' : 'rgba(255,255,255,0.02)',
-                      border: active ? '1px solid rgba(245,158,11,0.35)' : '1px solid rgba(255,255,255,0.06)',
-                      borderRadius: 11, cursor: 'pointer', transition: 'all .18s',
-                      textAlign: 'left',
-                    }}
-                  >
-                    <div style={{
-                      width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                      background: p.gradient,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <p.Icon size={13} color="#fff" />
-                    </div>
-                    <span style={{ fontSize: 12.5, fontWeight: 500, color: active ? '#fff' : 'var(--color-text-secondary)' }}>
-                      {p.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <PlatformPicker
+            platforms={platforms}
+            multiPlatform={multiPlatform && !batchMode}
+            onToggleMultiPlatform={() => {
+              setMultiPlatform((v) => !v);
+              // Cannot combine multi-platform with batch-URL mode
+              if (batchMode) setBatchMode(false);
+            }}
+            platform={platform}
+            onPlatformChange={setPlatform}
+            selectedPlatforms={selectedPlatforms}
+            onTogglePlatformSelection={togglePlatformSelection}
+            loading={loading}
+          />
 
           {/* Tone */}
           <div style={{ marginBottom: 22 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
               Tone
             </label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -185,9 +293,9 @@ export default function RepurposePage() {
                     aria-pressed={active}
                     style={{
                       padding: '7px 14px', borderRadius: 20,
-                      background: active ? 'rgba(139,92,246,0.14)' : 'rgba(255,255,255,0.04)',
-                      border: active ? '1px solid rgba(139,92,246,0.4)' : '1px solid rgba(255,255,255,0.07)',
-                      color: active ? '#A78BFA' : 'rgba(255,255,255,0.5)',
+                      background: active ? 'color-mix(in srgb, var(--accent-2) 14%, transparent)' : 'color-mix(in srgb, var(--text-primary) 4%, transparent)',
+                      border: active ? '1px solid color-mix(in srgb, var(--accent-2) 40%, transparent)' : '1px solid var(--rule)',
+                      color: active ? 'var(--accent-2)' : 'var(--text-secondary)',
                       fontSize: 12.5, fontWeight: 500, cursor: 'pointer', transition: 'all .18s',
                       textTransform: 'capitalize',
                     }}
@@ -201,7 +309,7 @@ export default function RepurposePage() {
 
           {/* Target Audience */}
           <div style={{ marginBottom: 28 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
               Target Audience <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, opacity: 0.6 }}>(optional)</span>
             </label>
             <input
@@ -212,13 +320,13 @@ export default function RepurposePage() {
               disabled={loading}
               style={{
                 width: '100%', boxSizing: 'border-box',
-                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                background: 'color-mix(in srgb, var(--text-primary) 3%, transparent)', border: '1px solid var(--rule)',
                 borderRadius: 11, padding: '12px 14px',
                 color: 'var(--color-text-primary)', fontSize: 14,
                 outline: 'none', transition: 'border-color .2s',
               }}
-              onFocus={(e) => (e.target.style.borderColor = 'rgba(139,92,246,0.35)')}
-              onBlur={(e) => (e.target.style.borderColor = 'rgba(255,255,255,0.08)')}
+              onFocus={(e) => (e.target.style.borderColor = 'color-mix(in srgb, var(--accent-2) 35%, transparent)')}
+              onBlur={(e) => (e.target.style.borderColor = 'var(--rule)')}
             />
           </div>
 
@@ -228,20 +336,33 @@ export default function RepurposePage() {
               background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.22)',
               borderRadius: 10, padding: '12px 16px', color: 'var(--color-error)',
               fontSize: 13, marginBottom: 20,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
             }}>
-              {error}
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={handleClear}
+                style={{
+                  flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+                  background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: 7, padding: '5px 12px', color: 'var(--color-error)', fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <RotateCcw size={11} /> Clear
+              </button>
             </div>
           )}
 
           {/* Loading indicator */}
           {loading && (
             <div style={{
-              background: 'rgba(34,211,238,0.06)', border: '1px solid rgba(34,211,238,0.18)',
+              background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 18%, transparent)',
               borderRadius: 10, padding: '12px 16px',
               display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20,
             }}>
-              <Loader2 size={14} color="#22D3EE" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: '#22D3EE' }}>Processing…</span>
+              <Loader2 size={14} color="var(--accent)" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: 'var(--accent)' }}>Processing…</span>
             </div>
           )}
 
@@ -254,7 +375,11 @@ export default function RepurposePage() {
           >
             {loading
               ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Processing…</>
-              : <><Sparkles size={16} /> Repurpose &amp; Generate</>
+              : <><Sparkles size={16} />
+                  {batchMode
+                    ? `Repurpose ${parsedBatchUrls.length} URL${parsedBatchUrls.length !== 1 ? 's' : ''}`
+                    : `Repurpose & Generate${multiPlatform && selectedPlatforms.size > 1 ? ` (${selectedPlatforms.size} platforms)` : ''}`}
+                </>
             }
           </button>
 
@@ -263,65 +388,9 @@ export default function RepurposePage() {
 
         {/* ── Right: Info sidebar ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* Supported sources */}
-          <div style={{
-            background: '#08081A', border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 16, padding: '20px',
-          }}>
-            <p style={{ margin: '0 0 14px', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Supported Sources
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {supportedSources.map((item) => (
-                <div key={item.title} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: 9, flexShrink: 0,
-                    background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.14)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <item.Icon size={15} color="#22D3EE" />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.75)', marginBottom: 2 }}>{item.title}</div>
-                    <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>{item.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* How it works */}
-          <div style={{
-            background: '#08081A', border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: 16, padding: '20px',
-          }}>
-            <p style={{ margin: '0 0 14px', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 1 }}>
-              How It Works
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {howItWorks.map((step, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <CheckCircle2 size={14} color="rgba(139,92,246,0.6)" style={{ flexShrink: 0, marginTop: 2 }} />
-                  <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,0.45)', lineHeight: 1.5 }}>{step}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Tip box */}
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(34,211,238,0.06), rgba(139,92,246,0.06))',
-            border: '1px solid rgba(34,211,238,0.15)',
-            borderRadius: 16, padding: '16px 18px',
-          }}>
-            <p style={{ margin: '0 0 6px', fontSize: 12, fontWeight: 600, color: 'rgba(34,211,238,0.7)', textTransform: 'uppercase', letterSpacing: 1 }}>
-              Pro Tip
-            </p>
-            <p style={{ margin: 0, fontSize: 12.5, color: 'rgba(255,255,255,0.4)', lineHeight: 1.55 }}>
-              Set up your Brand Voice first — the AI will automatically match your tone, vocabulary, and style when repurposing.
-            </p>
-          </div>
+          <FeedMonitorPanel />
+          <RepurposeHistoryList history={history} onRetry={handleRetryFromHistory} onRemove={removeEntry} />
+          <InfoSidebar />
         </div>
       </div>
     </div>

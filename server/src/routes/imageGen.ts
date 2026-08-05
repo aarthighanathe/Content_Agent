@@ -3,6 +3,32 @@ import { parseBody, imageGenSchema } from '../schemas/index.js';
 import { env } from '../config.js';
 import { logger } from '../lib/logger.js';
 
+// WHY these interfaces: each covers only the fields this route actually reads off
+// the corresponding provider's JSON response, matching the same "type what you
+// use" scope as routes/social.ts's OAuth response types.
+interface OpenAIImageResponse {
+  data?: Array<{ b64_json?: string; url?: string }>;
+}
+// WHY shared, not per-provider: OpenAI and Gemini's error envelopes both use
+// this exact { error: { message } } shape — a shared type here avoids two
+// identical interfaces.
+interface ProviderErrorResponse {
+  error?: { message?: string };
+}
+interface TogetherImageResponse {
+  data?: Array<{ b64_json?: string }>;
+}
+interface GeminiImagePart {
+  inlineData?: { data?: string; mimeType?: string };
+}
+interface GeminiImageResponse {
+  candidates?: Array<{ content?: { parts?: GeminiImagePart[] } }>;
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 const router = Router();
 
 router.post('/generate', async (req, res: Response) => {
@@ -38,18 +64,18 @@ router.post('/generate', async (req, res: Response) => {
       });
       clearTimeout(timer);
       if (r.ok) {
-        const data = await r.json() as any;
-        const b64 = data?.data?.[0]?.b64_json;
+        const data = await r.json() as OpenAIImageResponse;
+        const b64 = data.data?.[0]?.b64_json;
         if (b64) {
           logger.info('[imageGen] gpt-image-1 succeeded');
           return res.json({ image: `data:image/png;base64,${b64}`, source: 'gpt-image-1' });
         }
       } else {
-        const err = await r.json().catch(() => ({})) as any;
-        console.warn('[imageGen] gpt-image-1 non-ok:', r.status, err?.error?.message?.slice(0, 120));
+        const err = await r.json().catch(() => ({})) as ProviderErrorResponse;
+        console.warn('[imageGen] gpt-image-1 non-ok:', r.status, err.error?.message?.slice(0, 120));
       }
-    } catch (e: any) {
-      console.warn('[imageGen] gpt-image-1 error:', e?.message?.slice(0, 120));
+    } catch (e: unknown) {
+      console.warn('[imageGen] gpt-image-1 error:', errorMessage(e).slice(0, 120));
     }
   }
 
@@ -72,8 +98,8 @@ router.post('/generate', async (req, res: Response) => {
       });
       clearTimeout(genTimer);
       if (r.ok) {
-        const data = await r.json() as any;
-        const imageUrl: string | undefined = data?.data?.[0]?.url;
+        const data = await r.json() as OpenAIImageResponse;
+        const imageUrl: string | undefined = data.data?.[0]?.url;
         if (imageUrl) {
           const dlCtrl = new AbortController();
           const dlTimer = setTimeout(() => dlCtrl.abort(), 30_000);
@@ -86,11 +112,11 @@ router.post('/generate', async (req, res: Response) => {
           return res.json({ image: `data:${contentType};base64,${base64}`, source: 'dalle3' });
         }
       } else {
-        const err = await r.json().catch(() => ({})) as any;
-        console.warn('[imageGen] DALL-E 3 non-ok:', r.status, err?.error?.message?.slice(0, 120));
+        const err = await r.json().catch(() => ({})) as ProviderErrorResponse;
+        console.warn('[imageGen] DALL-E 3 non-ok:', r.status, err.error?.message?.slice(0, 120));
       }
-    } catch (e: any) {
-      console.warn('[imageGen] DALL-E 3 error:', e?.message?.slice(0, 120));
+    } catch (e: unknown) {
+      console.warn('[imageGen] DALL-E 3 error:', errorMessage(e).slice(0, 120));
     }
   }
 
@@ -112,8 +138,8 @@ router.post('/generate', async (req, res: Response) => {
       });
       clearTimeout(timer);
       if (r.ok) {
-        const data = await r.json() as any;
-        const b64 = data?.data?.[0]?.b64_json;
+        const data = await r.json() as TogetherImageResponse;
+        const b64 = data.data?.[0]?.b64_json;
         if (b64) {
           logger.info('[imageGen] Together AI FLUX succeeded');
           return res.json({ image: `data:image/jpeg;base64,${b64}`, source: 'together' });
@@ -121,8 +147,8 @@ router.post('/generate', async (req, res: Response) => {
       } else {
         console.warn('[imageGen] Together AI non-ok:', r.status);
       }
-    } catch (e: any) {
-      console.warn('[imageGen] Together AI error:', e?.message?.slice(0, 120));
+    } catch (e: unknown) {
+      console.warn('[imageGen] Together AI error:', errorMessage(e).slice(0, 120));
     }
   }
 
@@ -152,10 +178,10 @@ router.post('/generate', async (req, res: Response) => {
         );
         clearTimeout(timer);
         if (r.ok) {
-          const data = await r.json() as any;
-          const parts = data?.candidates?.[0]?.content?.parts ?? [];
-          for (const part of parts as any[]) {
-            if (part?.inlineData?.data) {
+          const data = await r.json() as GeminiImageResponse;
+          const parts = data.candidates?.[0]?.content?.parts ?? [];
+          for (const part of parts) {
+            if (part.inlineData?.data) {
               logger.info('[imageGen] Gemini model succeeded', { modelId });
               return res.json({
                 image: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
@@ -164,11 +190,11 @@ router.post('/generate', async (req, res: Response) => {
             }
           }
         } else {
-          const err = await r.json().catch(() => ({})) as any;
-          console.warn(`[imageGen] Gemini ${modelId} non-ok:`, r.status, err?.error?.message?.slice(0, 100));
+          const err = await r.json().catch(() => ({})) as ProviderErrorResponse;
+          console.warn(`[imageGen] Gemini ${modelId} non-ok:`, r.status, err.error?.message?.slice(0, 100));
         }
-      } catch (e: any) {
-        console.warn(`[imageGen] Gemini ${modelId} error:`, e?.message?.slice(0, 120));
+      } catch (e: unknown) {
+        console.warn(`[imageGen] Gemini ${modelId} error:`, errorMessage(e).slice(0, 120));
       }
     }
   }
@@ -192,8 +218,8 @@ router.post('/generate', async (req, res: Response) => {
       return res.json({ image: `data:${contentType};base64,${base64}`, source: 'pollinations' });
     }
     console.warn('[imageGen] Pollinations non-ok:', r.status);
-  } catch (e: any) {
-    console.warn('[imageGen] Pollinations error:', e?.message?.slice(0, 120));
+  } catch (e: unknown) {
+    console.warn('[imageGen] Pollinations error:', errorMessage(e).slice(0, 120));
   }
 
   res.status(500).json({

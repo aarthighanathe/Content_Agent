@@ -4,8 +4,8 @@ interface QualityTierBadgeProps {
   /** Critic total score (0-100), or null/undefined while a job is still pending. */
   score: number | null | undefined;
   /** 'sm' fits inline list rows (Dashboard/History/Library). 'md' is for slightly more
-   *  prominent contexts. This never replaces the full-size Gold Score Ring on the Result
-   *  page itself — see StatusDisplay.tsx, which keeps its own larger radial-fill render. */
+   *  prominent contexts. This never replaces the full-size Gold Score Ring in
+   *  InsightsSidebar.tsx, which keeps its own larger radial-fill render. */
   size?: 'sm' | 'md';
   className?: string;
 }
@@ -38,12 +38,11 @@ const SIZES = {
  * quality score appears in a list row (Dashboard, History, Library) so the "scoring visual
  * grammar" — a partial ring = partial quality — is consistent across the whole app.
  *
- * WHY not extracted from StatusDisplay.tsx's full-size ring: that ring is tightly bound to
- * the Result page's larger layout/tooltip; duplicating just the radial-fill math here (a
+ * WHY not extracted from InsightsSidebar.tsx's full-size ring: that ring is tightly bound
+ * to the Result page's larger layout/tooltip; duplicating just the radial-fill math here (a
  * ~10-line SVG circle calc) is far less risky than reaching into a working full-size
  * component to force a shared abstraction. Both independently implement the same formula
- * (circumference * (1 - score/100) as stroke-dashoffset) — see StatusDisplay.tsx's tier
- * coloring for the sibling implementation this intentionally parallels.
+ * (circumference * (1 - score/100) as stroke-dashoffset).
  */
 export function QualityTierBadge({ score, size = 'sm', className }: QualityTierBadgeProps) {
   const s = SIZES[size];
@@ -52,7 +51,7 @@ export function QualityTierBadge({ score, size = 'sm', className }: QualityTierB
     return (
       <span
         className={className}
-        style={{ fontSize: s.labelSize, color: 'rgba(255,255,255,0.2)', fontFamily: 'var(--font-mono)' }}
+        style={{ fontSize: s.labelSize, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}
       >
         —
       </span>
@@ -80,7 +79,7 @@ export function QualityTierBadge({ score, size = 'sm', className }: QualityTierB
   return (
     <span className={className} style={wrapStyle} title={`${tier.label} · ${clamped}/100`}>
       <svg width={s.ring} height={s.ring} viewBox={`0 0 ${s.ring} ${s.ring}`} style={{ flexShrink: 0, transform: 'rotate(-90deg)' }}>
-        <circle cx={center} cy={center} r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={s.stroke} />
+        <circle cx={center} cy={center} r={radius} fill="none" stroke="var(--rule)" strokeWidth={s.stroke} />
         <circle
           cx={center}
           cy={center}
