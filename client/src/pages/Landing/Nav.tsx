@@ -71,10 +71,15 @@ export function Nav({ isSignedIn, onOpenMobileMenu }: NavProps) {
         </Link>
       </div>
 
-      {/* Mobile hamburger */}
-      <button className="lnav-hamburger" onClick={onOpenMobileMenu} aria-label="Open menu">
-        <Menu size={20} />
-      </button>
+      {/* Mobile-only: theme switcher + hamburger, always visible in the bar itself
+          (not nested inside the hamburger's slide-out menu) — a first-time visitor
+          should be able to switch themes without having to discover the menu first. */}
+      <div className="lnav-mobile-controls" style={{ display: 'none', alignItems: 'center', gap: 8 }}>
+        <ThemeSwitcher collapsed align="down" />
+        <button className="lnav-hamburger" onClick={onOpenMobileMenu} aria-label="Open menu">
+          <Menu size={20} />
+        </button>
+      </div>
     </nav>
   );
 }

@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Outlet, NavLink, Link } from 'react-router-dom';
+import { Outlet, NavLink, Link, useLocation } from 'react-router-dom';
 import { SignedIn, SignedOut, RedirectToSignIn, UserButton, useUser, useAuth } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { OnboardingModal } from './OnboardingModal';
 import { ThemeSwitcher } from './ThemeSwitcher';
+import { ToolsDrawer } from './ToolsDropdown';
 import { getProfile } from '../api';
 import { useAppStore } from '../store';
 import {
   LayoutDashboard, Sparkles, Palette, Clock,
   PanelLeftClose, PanelLeftOpen,
   Lightbulb, Link2, Search, CalendarDays,
+  MoreHorizontal,
 } from 'lucide-react';
 
 // Sidebar nav — ordered by user workflow: home → plan → create → review → schedule → settings
@@ -24,20 +26,25 @@ const sidebarNav = [
   { to: '/brand',     icon: Palette,         label: 'Brand Voice' },
 ];
 
-// Mobile: 5-item bottom tab bar (Tools integrated for simpler mobile UX)
+// Mobile: 4 direct tabs + a trailing "More" tab that opens ToolsDrawer's bottom
+// sheet (Ideate, Competitor, Repurpose, Calendar — see ToolsDropdown.tsx's own
+// toolsItems). Those 4 pages have no other mobile entry point, so More must
+// stay reachable, not just the 4 tabs here.
 const mobileTabItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Home' },
   { to: '/create',    icon: Sparkles,        label: 'Create' },
   { to: '/library',   icon: Clock,           label: 'Library' },
-  { to: '/ideate',    icon: Lightbulb,       label: 'Ideate' },
   { to: '/brand',     icon: Palette,         label: 'Brand' },
 ];
 
 export default function AuthLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const { user } = useUser();
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const setUserProfile = useAppStore((s) => s.setUserProfile);
+  const location = useLocation();
+  const moreActive = ['/ideate', '/competitor', '/repurpose', '/calendar'].some((p) => location.pathname.startsWith(p));
 
   // WHY fetched here, not just on Dashboard/Brand: userProfile (Zustand) previously
   // only ever got populated by Brand.tsx's own save-success handler, so a returning
@@ -170,7 +177,22 @@ export default function AuthLayout() {
                 <span>{item.label}</span>
               </NavLink>
             ))}
+            {/* WHY a button, not a NavLink: More has no route of its own — it
+                opens ToolsDrawer's bottom sheet in place, same interaction
+                pattern as the desktop sidebar's Tools dropdown trigger. */}
+            <button
+              type="button"
+              onClick={() => setMoreOpen(true)}
+              className={`mobile-tab ${moreActive ? 'mobile-tab-active' : ''}`}
+              aria-haspopup="dialog"
+              aria-expanded={moreOpen}
+            >
+              <MoreHorizontal size={19} />
+              <span>More</span>
+            </button>
           </div>
+
+          <ToolsDrawer isOpen={moreOpen} onClose={() => setMoreOpen(false)} />
 
           {/* ── First-run onboarding modal ── */}
           <OnboardingModal />

@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Layers, X } from 'lucide-react';
 import { navLinks } from './navLinks';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import { ThemeSwitcher } from '../../components/ThemeSwitcher';
 
 export interface MobileMenuProps {
   open: boolean;
@@ -110,9 +109,6 @@ export function MobileMenu({ open, isSignedIn, onClose }: MobileMenuProps) {
           </a>
         ))}
       </nav>
-      <div style={{ padding: '4px 24px 0' }}>
-        <ThemeSwitcher />
-      </div>
       <Link to={isSignedIn ? '/dashboard' : '/sign-up'} className="mobile-menu-cta" onClick={onClose}>
         {isSignedIn ? 'Go to dashboard' : 'Get started'} <ArrowRight size={16} />
       </Link>

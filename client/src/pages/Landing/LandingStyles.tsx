@@ -101,6 +101,7 @@ export function LandingStyles() {
       @media (max-width:1024px) {
         .lnav{padding:14px 28px}
         .lnav-links-desktop{display:none !important}
+        .lnav-mobile-controls{display:flex !important}
         .lnav-hamburger{display:flex !important}
       }
 
