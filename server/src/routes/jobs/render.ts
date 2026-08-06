@@ -22,7 +22,7 @@ router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequ
 
   const parsedExportBody = parseBody(exportCarouselSsrSchema, req.body, res);
   if (!parsedExportBody) return;
-  const { theme, slides, colors, brandName, handle, designPreset } = parsedExportBody;
+  const { theme, slides, colors, brandName, handle, designPreset, templateId, paletteId } = parsedExportBody;
 
   try {
     // FLOW: renders the same IGSlide component the client preview uses, so the
@@ -34,7 +34,7 @@ router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequ
 
     const renderResults = await renderCarouselSlidesSsr(
       slides,
-      { colors, brandName, handle, designPreset },
+      { colors, brandName, handle, designPreset, templateId, paletteId },
       jobId,
       theme as ThemeKey,
     );

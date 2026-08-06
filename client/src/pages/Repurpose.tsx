@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Loader2, Sparkles, RotateCcw } from 'lucide-react';
@@ -41,6 +41,30 @@ export default function RepurposePage() {
   const [batchMode, setBatchMode]   = useState(false);
   const [batchUrls, setBatchUrls]   = useState('');
   const { history, addEntry, removeEntry } = useRepurposeHistory();
+
+  // WHY measure the left form's rendered height in JS and use it as a hard cap on the right
+  // column, rather than `position: sticky` + a viewport-relative `max-height` (tried first,
+  // matching Result.css's `.rp-sidebar` pattern): this page's grid sits well below the top of
+  // `.main-inner` (40px padding + the "Repurpose Anything" heading block), so a sticky box sized
+  // off `100vh` was taller than the space actually left below it in its resting scroll position —
+  // both its top and bottom content ended up clipped depending on scroll offset, never fully
+  // reachable. Measuring the left form's actual height and capping the right column there (with
+  // `overflowY: auto`) guarantees the box is never taller than what naturally fits, and every
+  // pixel of it is reachable by scrolling within its own border. ResizeObserver keeps it in sync
+  // as the form's height changes (tone pills wrapping, error/loading banners, batch mode, etc.).
+  const leftColRef = useRef<HTMLDivElement>(null);
+  const [leftColHeight, setLeftColHeight] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    const el = leftColRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setLeftColHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // WHY separate multi-select set instead of reusing `platform` as an array:
   // the single-platform picker (one selected pill) is the common path and
@@ -226,11 +250,6 @@ export default function RepurposePage() {
       {/* Two-column layout — stacks on tablet via .grid-repurpose */}
       <div className="grid-repurpose" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 24, alignItems: 'start' }}>
         <style>{`
-          @media (max-width: 768px) {
-            .grid-repurpose {
-              grid-template-columns: 1fr !important;
-            }
-          }
           @media (max-width: 375px) {
             .grid-repurpose {
               gap: 16px !important;
@@ -239,10 +258,26 @@ export default function RepurposePage() {
               grid-template-columns: 1fr !important;
             }
           }
+          .repurpose-sidebar-col {
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: color-mix(in srgb, var(--accent) 18%, transparent) transparent;
+          }
+          .repurpose-sidebar-col::-webkit-scrollbar { width: 5px; }
+          .repurpose-sidebar-col::-webkit-scrollbar-track { background: transparent; }
+          .repurpose-sidebar-col::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 20%, transparent); border-radius: 3px; }
+          @media (max-width: 900px) {
+            .repurpose-sidebar-col {
+              height: auto !important;
+              max-height: none !important;
+              overflow: visible !important;
+            }
+          }
         `}</style>
 
         {/* ── Left: Form ── */}
-        <div style={{
+        <div ref={leftColRef} style={{
           background: 'var(--bg-raised)', border: '1px solid var(--rule)',
           borderRadius: 16, padding: '28px 28px',
         }}>
@@ -386,8 +421,18 @@ export default function RepurposePage() {
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
 
-        {/* ── Right: Info sidebar ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* ── Right: Info sidebar ── height is capped to the left form's measured height
+            (leftColHeight, see the ResizeObserver above) so every pixel of FeedMonitorPanel +
+            history + InfoSidebar is reachable by scrolling within this box's own border,
+            regardless of where the grid sits on the page. Falls back to normal document flow on
+            tablet (.repurpose-sidebar-col media query above), where the columns stack. */}
+        <div
+          className="repurpose-sidebar-col"
+          style={{
+            display: 'flex', flexDirection: 'column', gap: 16, paddingRight: 4,
+            height: leftColHeight ? `${leftColHeight}px` : undefined,
+          }}
+        >
           <FeedMonitorPanel />
           <RepurposeHistoryList history={history} onRetry={handleRetryFromHistory} onRemove={removeEntry} />
           <InfoSidebar />

@@ -1,11 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import './Result/Result.css';
 import { useJobData }    from './Result/hooks/useJobData';
 import { useExport }     from './Result/hooks/useExport';
 import { useMultiplier } from './Result/hooks/useMultiplier';
 import { useSocial }     from './Result/hooks/useSocial';
-import { updateJobContent } from '../api';
+import { updateJobContent, setCarouselTemplate } from '../api';
 import { ResultHeader }   from './Result/components/ResultHeader';
 import { LoadingView }    from './Result/components/LoadingView';
 import { ErrorState }     from '../components/ErrorState';
@@ -21,6 +21,7 @@ import { getProfile } from '../api';
 import { Copy, RotateCcw, Download, MoreHorizontal } from 'lucide-react';
 import type { CriticResult, PlatformContent } from '../types/job';
 import type { SlideData } from './Result/components/content/carousel/IGSlide';
+import { CAROUSEL_TEMPLATE_KEY, CAROUSEL_PALETTE_KEY } from '../lib/carouselStorageKeys';
 
 type ActionTab = 'feedback' | 'post' | 'hashtags' | null;
 
@@ -67,6 +68,52 @@ export default function ResultPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [saveError, setSaveError]               = useState('');
   const touchStartX = useRef<number | null>(null);
+
+  // Template selection: an in-Result override (set by switching templates
+  // post-generation — see onTemplateSwitch below) takes priority; otherwise
+  // this reads the template the job was actually created with (persisted on
+  // contentJobs.templateId/paletteId — see CAROUSEL_TEMPLATE_PLAN.md §2.1/2.2).
+  // localStorage is only a last-resort fallback for carousels generated before
+  // this feature shipped, which have no templateId on the job row at all.
+  const [templateOverride, setTemplateOverride] = useState<{ templateId: string; paletteId?: string } | null>(null);
+  // WHY reset on jobId change: this page's route (/result/:jobId in App.tsx) isn't
+  // keyed, so navigating between two jobs' results reuses this component instance
+  // rather than remounting it. Without this, an override set on job A (via the
+  // Result-page template switcher) would silently keep applying to job B's preview
+  // — a different job's carousel appearing to have a template it was never
+  // actually saved with, with no visual indicator anything is wrong. A ref-based
+  // "reset during render" alternative was tried first, but this repo's
+  // react-hooks/refs lint rule (React Compiler rules-of-react) hard-errors on
+  // reading/writing a ref's `.current` during render, so an effect is the correct
+  // (lint-clean) way to do this here despite the softer set-state-in-effect warning
+  // it trades for.
+  useEffect(() => {
+    setTemplateOverride(null);
+  }, [jobId]);
+  // WHY memoized: this used to re-read localStorage via an inline IIFE on
+  // every render, including every SSE progress tick during job polling — the
+  // stored value only matters as a fallback for pre-feature carousels with no
+  // templateId/paletteId on the job row, so it only needs to be read once.
+  const storedTemplateId = useMemo(() => {
+    try { return localStorage.getItem(CAROUSEL_TEMPLATE_KEY) || undefined; } catch { return undefined; }
+  }, []);
+  const storedPaletteId = useMemo(() => {
+    try { return localStorage.getItem(CAROUSEL_PALETTE_KEY) || undefined; } catch { return undefined; }
+  }, []);
+  const templateId = templateOverride?.templateId ?? jobData?.templateId ?? storedTemplateId;
+  const paletteId = templateOverride?.paletteId ?? jobData?.paletteId ?? storedPaletteId;
+
+  async function onTemplateSwitch(newTemplateId: string, newPaletteId?: string): Promise<void> {
+    setTemplateOverride({ templateId: newTemplateId, paletteId: newPaletteId });
+    if (!jobId) return;
+    try {
+      await setCarouselTemplate(jobId, newTemplateId, newPaletteId);
+    } catch {
+      // NOTE: the override above already updated the on-screen preview; a failed
+      // PATCH just means the choice won't survive a reload, not worth surfacing
+      // as a blocking error for a purely cosmetic setting.
+    }
+  }
 
   // NOTE: always prefer outputType='final' for display. Other output types
   // (draft, research, critique) are intermediate pipeline artifacts — only
@@ -226,6 +273,9 @@ export default function ResultPage() {
               handle={handle}
               colorSystem={colorSystem}
               designPreset={designPreset}
+              templateId={templateId}
+              paletteId={paletteId}
+              onTemplateChange={(t, p) => { onTemplateSwitch(t, p).catch(() => {}); }}
             />
             <InsightsSidebar
               criticResult={criticResult}
@@ -294,6 +344,8 @@ export default function ResultPage() {
         handle={handle}
         colorSystem={colorSystem}
         designPreset={designPreset}
+        templateId={templateId}
+        paletteId={paletteId}
       />
     </div>
   );

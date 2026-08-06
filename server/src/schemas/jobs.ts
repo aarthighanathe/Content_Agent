@@ -31,6 +31,28 @@ export const VALID_TONES = [
 export const platformEnum = z.enum(VALID_PLATFORMS);
 export const toneEnum = z.enum(VALID_TONES);
 
+// WHY duplicated here, not imported: the carousel template catalog is defined
+// in client/src/lib/templateSystem.ts (client-only TypeScript, not reachable
+// from the server build). Mirrors this codebase's existing VALID_TONES
+// pattern — keep this list in sync with templateSystem.ts's TemplateId union
+// whenever a template is added/removed/renamed. Without this, an arbitrary
+// string previously passed the bare z.string().max(50) check and reached
+// getTemplate()/IGSlide's `as TemplateId` cast unguarded.
+export const VALID_TEMPLATE_IDS = [
+  'modern-minimal',
+  'bold-statement',
+  'editorial-classic',
+  'tech-modern',
+  'vibrant-pop',
+  'luxury-dark',
+  'clean-corporate',
+  'creative-abstract',
+  'storyteller',
+  'social-media',
+] as const;
+
+export const templateIdEnum = z.enum(VALID_TEMPLATE_IDS);
+
 // WHY a loose regex, not z.string().uuid(): matches this codebase's existing
 // UUID convention (lib/uuid.ts's isValidUUID) rather than zod's stricter RFC
 // 4122 version/variant check — same reasoning as schemas/scheduledPosts.ts's
@@ -51,6 +73,14 @@ export const createJobSchema = z.object({
   // fields, before it ever reaches this schema.
   competitorContext: z.string().max(300).trim().optional(),
   competitorAnalysisId: z.string().regex(UUID_REGEX, 'competitorAnalysisId must be a valid UUID').optional(),
+  // WHY optional, carousel-only: the client's template system
+  // (client/src/lib/templateSystem.ts) choice made on the Create form's
+  // AdvancedOptions panel. Only meaningful for platform='instagram_carousel'.
+  // It's pure display metadata carried through to the job row so Result.tsx's
+  // live preview renders the template the user picked — validated against
+  // templateIdEnum (see its WHY comment) rather than an unbounded string.
+  templateId: templateIdEnum.optional(),
+  paletteId: z.string().max(50).optional(),
 });
 
 export const batchJobSchema = z.object({
@@ -123,6 +153,9 @@ export const exportCarouselSsrSchema = z.object({
   colors: colorSystemSchema,
   brandName: z.string().max(80),
   handle: z.string().max(60),
+  // New template system fields - optional for backward compatibility
+  templateId: templateIdEnum.optional(),
+  paletteId: z.string().max(50).optional(),
 });
 
 // NOTE: content shapes differ per platform (carousel slides array, linkedin
@@ -133,4 +166,13 @@ export const patchContentSchema = z.object({ content: z.record(z.string(), z.unk
 
 export const tagJobSchema = z.object({
   tag: z.string().min(1, 'Tag cannot be empty').max(30, 'Tag must be 30 characters or fewer').trim(),
+});
+
+// WHY a dedicated schema, not reusing createJobSchema's optional templateId/
+// paletteId: this one requires at least templateId (switching template is the
+// point of the request) while still allowing paletteId to reset to the
+// template's own default when omitted.
+export const setCarouselTemplateSchema = z.object({
+  templateId: templateIdEnum,
+  paletteId: z.string().max(50).optional(),
 });

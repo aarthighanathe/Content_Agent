@@ -65,6 +65,13 @@ export interface PipelineJob {
   // agent prompt, just carried through to the DB row so Result/Library can
   // show "Repurposed from: <url>").
   sourceUrl?: string | null;
+  // WHY optional, carousel-only: the client's template system
+  // (client/src/lib/templateSystem.ts) choice made at Create time. Not read
+  // by any agent — pure display metadata carried through to the DB row so
+  // Result.tsx's live preview and the PNG export can both render the exact
+  // template the job was created with (see CLAUDE.md §11).
+  templateId?: string | null;
+  paletteId?: string | null;
   createdAt?: string;
   updatedAt?: string;
   stage?: string;

@@ -18,16 +18,24 @@ export const CALENDAR_STYLES = `
   .sc-card:active { cursor:grabbing; }
   .sc-card:hover { border-color:color-mix(in srgb, var(--accent) 30%, transparent); background:color-mix(in srgb, var(--accent) 4%, var(--bg-raised)); }
   .sc-card.dragging { opacity:0.35; border-color:color-mix(in srgb, var(--accent) 50%, transparent); }
-  .sc-cal { flex:1; display:flex; flex-direction:column; gap:16px; padding:20px; overflow:auto; }
-  .sc-cal-hd { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding-bottom:16px; border-bottom:1px solid var(--rule); }
-  .sc-nav-btn { width:32px; height:32px; border-radius:8px; background:color-mix(in srgb, var(--text-primary) 4%, transparent); border:1px solid var(--rule); color:var(--text-muted); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
+  .sc-cal { flex:1; display:flex; flex-direction:column; gap:12px; padding:16px 20px; overflow:auto; }
+  .sc-cal-hd { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding-bottom:12px; border-bottom:1px solid var(--rule); }
+  .sc-nav-btn { width:30px; height:30px; border-radius:8px; background:color-mix(in srgb, var(--text-primary) 4%, transparent); border:1px solid var(--rule); color:var(--text-muted); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .15s; }
   .sc-nav-btn:hover { background:color-mix(in srgb, var(--accent) 10%, transparent); border-color:color-mix(in srgb, var(--accent) 30%, transparent); color:var(--accent); }
+  .sc-stats { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--text-muted); font-family:var(--font-mono); white-space:nowrap; padding-left:6px; border-left:1px solid var(--rule); }
+  .sc-stats strong { color:var(--accent); font-weight:700; }
+  .sc-stats-dot { width:3px; height:3px; border-radius:50%; background:var(--text-muted); opacity:0.5; flex-shrink:0; }
+  .sc-legend { display:flex; align-items:center; gap:6px; padding-left:6px; border-left:1px solid var(--rule); }
+  .sc-legend-dot { width:8px; height:8px; border-radius:3px; flex-shrink:0; cursor:default; }
+  .sc-info-icon { display:flex; align-items:center; justify-content:center; color:var(--text-muted); cursor:help; border-radius:4px; }
+  .sc-info-icon:hover, .sc-info-icon:focus-visible { color:var(--accent); outline:2px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset:2px; }
   .sc-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
   .sc-day-lbl { text-align:center; font-family:var(--font-mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); padding:6px 0 10px; }
-  .sc-cell { min-height:100px; border-radius:10px; background:var(--bg-raised); border:1.5px solid var(--rule); padding:7px 8px; display:flex; flex-direction:column; gap:3px; transition:all .15s; cursor:pointer; position:relative; }
+  .sc-cell { min-height:88px; border-radius:10px; background:var(--bg-raised); border:1.5px solid var(--rule); padding:6px 7px; display:flex; flex-direction:column; gap:3px; transition:all .15s; cursor:pointer; position:relative; }
   .sc-cell:hover { border-color:color-mix(in srgb, var(--accent) 25%, transparent); background:color-mix(in srgb, var(--accent) 3%, transparent); }
   .sc-cell.today { border-color:color-mix(in srgb, var(--accent) 45%, transparent); background:color-mix(in srgb, var(--accent) 5%, transparent); }
   .sc-cell.selected { border-color:color-mix(in srgb, var(--accent) 65%, transparent); background:color-mix(in srgb, var(--accent) 9%, transparent); }
+  .sc-cell.selected::after { content:''; position:absolute; left:50%; bottom:-6px; transform:translateX(-50%); width:10px; height:10px; background:var(--bg-raised); border-right:1.5px solid color-mix(in srgb, var(--accent) 65%, transparent); border-bottom:1.5px solid color-mix(in srgb, var(--accent) 65%, transparent); border-radius:0 0 2px 0; transform:translateX(-50%) rotate(45deg); z-index:1; }
   .sc-cell.drag-over { border-color:var(--accent) !important; background:color-mix(in srgb, var(--accent) 12%, transparent) !important; box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
   .sc-cell.empty { background:transparent; border-color:transparent; cursor:default; pointer-events:none; }
   .sc-num { font-family:var(--font-mono); font-size:11px; color:var(--text-muted); line-height:1; margin-bottom:2px; }
@@ -92,8 +100,10 @@ export const CALENDAR_STYLES = `
     .sc-sidebar.closed{width:0;min-width:0;}
     .sc-sidebar-inner{width:220px;min-width:180px;}
     .sc-cell{min-height:70px;}
+    .sc-stats{display:none;}
   }
   @media(max-width:640px){
+    .sc-legend{display:none;}
     /* WHY sidebar stays at 0 on mobile (#12): instead of fighting this rule, we render
        a separate .sc-mobile-sheet element (bottom drawer) that replaces the sidebar on
        touch-sized screens. The existing .sc-sidebar stays collapsed — the mobile path

@@ -13,9 +13,16 @@ import { useDraft } from './Create/useDraft';
 import { getSubmitError } from './Create/errorMessages';
 import { useAppStore } from '../store';
 import type { CreateHandoff } from '../lib/utils';
+import type { NewTemplateId } from './Result/constants';
+import { getTemplate, getPalette, isTemplateId } from '../lib/templateSystem';
+import { CAROUSEL_TEMPLATE_KEY, CAROUSEL_PALETTE_KEY } from '../lib/carouselStorageKeys';
 
-const CAROUSEL_THEME_KEY = 'ca_carousel_theme';
 const RECENT_TOPICS_KEY  = 'ca_recent_topics';
+// WHY still localStorage-backed: these two keys now only seed the DEFAULT
+// selection for a brand-new Create session (so returning users see their last
+// pick pre-selected) — the value actually submitted with the job lives in this
+// component's own state and is sent explicitly in handleSubmit, no longer read
+// back out of localStorage at Result-page render time. See CAROUSEL_TEMPLATE_PLAN.md §2.1.
 
 const TOPIC_PLACEHOLDERS: Record<string, string> = {
   instagram_carousel: "e.g. '5 habits that transformed my mornings'",
@@ -97,15 +104,48 @@ export default function CreatePage() {
   const [batchAudience, setBatchAudience] = useState('');
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchError, setBatchError] = useState('');
-  // WHY clamped to 0-8: only 9 carousel themes exist (see Result/constants.ts's
-  // CAROUSEL_THEMES) — an out-of-range or NaN stored value should fall back to
-  // the default rather than silently selecting an undefined theme.
-  const [carouselTheme, setCarouselTheme] = useState<number>(() => {
+  // Carousel template system — selection lives here (not just localStorage) so
+  // it can be sent explicitly with the job-creation request. localStorage still
+  // seeds the initial value for a nicer returning-user default.
+  const [templateId, setTemplateId] = useState<NewTemplateId>(() => {
     try {
-      const parsed = parseInt(localStorage.getItem(CAROUSEL_THEME_KEY) || '4', 10);
-      return Number.isInteger(parsed) && parsed >= 0 && parsed <= 8 ? parsed : 4;
-    } catch { return 4; }
+      const stored = localStorage.getItem(CAROUSEL_TEMPLATE_KEY);
+      // WHY isTemplateId, not a bare `as NewTemplateId` cast: a stale value from a
+      // legacy key, manual localStorage tampering, or a future template removal
+      // would otherwise flow straight into createJob() as an unvalidated id.
+      return stored && isTemplateId(stored) ? stored : 'modern-minimal';
+    } catch { return 'modern-minimal'; }
   });
+  const [paletteId, setPaletteId] = useState<string>(() => {
+    // WHY validated against the resolved template, not trusted as-is: a stored
+    // palette id may belong to a *different* template than the one just resolved
+    // above (e.g. the user previously picked a palette on template A, then
+    // template B became the default) — getPalette() returns undefined for a
+    // mismatch, so falling through to the template's own default keeps the two
+    // always in sync rather than sending a palette id the template doesn't own.
+    const template = getTemplate(templateId);
+    try {
+      const stored = localStorage.getItem(CAROUSEL_PALETTE_KEY);
+      if (stored && getPalette(templateId, stored)) return stored;
+    } catch { /* ignore */ }
+    return template?.colorPalettes[template.defaultPaletteIndex]?.id || '';
+  });
+
+  function handleTemplateChange(id: NewTemplateId): void {
+    setTemplateId(id);
+    try { localStorage.setItem(CAROUSEL_TEMPLATE_KEY, id); } catch { /* ignore */ }
+    const template = getTemplate(id);
+    const defaultPaletteId = template?.colorPalettes[template.defaultPaletteIndex]?.id;
+    if (defaultPaletteId) {
+      setPaletteId(defaultPaletteId);
+      try { localStorage.setItem(CAROUSEL_PALETTE_KEY, defaultPaletteId); } catch { /* ignore */ }
+    }
+  }
+
+  function handlePaletteChange(id: string): void {
+    setPaletteId(id);
+    try { localStorage.setItem(CAROUSEL_PALETTE_KEY, id); } catch { /* ignore */ }
+  }
 
   // Recent topics autocomplete
   const [recentTopics,    setRecentTopics]    = useState<string[]>(() => {
@@ -186,9 +226,6 @@ export default function CreatePage() {
     const updated  = [trimmed, ...recentTopics.filter((r) => r !== trimmed)].slice(0, 10);
     localStorage.setItem(RECENT_TOPICS_KEY, JSON.stringify(updated));
     setRecentTopics(updated);
-    if (platform === 'instagram_carousel') {
-      localStorage.setItem(CAROUSEL_THEME_KEY, String(carouselTheme));
-    }
     setLoading(true);
     setErrorMsg('');
     try {
@@ -204,6 +241,7 @@ export default function CreatePage() {
         topic: trimmed, platform, tone: effectiveTone, targetAudience: effectiveAudience,
         competitorContext,
         competitorAnalysisId: prefill.competitorAnalysisId,
+        ...(platform === 'instagram_carousel' ? { templateId, paletteId } : {}),
       });
       posthog.capture('content_generated', { platform, tone: effectiveTone });
       clearDraft();
@@ -322,11 +360,10 @@ export default function CreatePage() {
         onTargetAudienceChange={(a) => { setTargetAudience(a); setDraft({ targetAudience: a }); }}
         audiencePlaceholder={`e.g., ${learnedOrStaticAudience}`}
 
-        carouselTheme={carouselTheme}
-        onCarouselThemeChange={(theme) => {
-          setCarouselTheme(theme);
-          localStorage.setItem(CAROUSEL_THEME_KEY, String(theme));
-        }}
+        templateId={templateId}
+        onTemplateChange={handleTemplateChange}
+        paletteId={paletteId}
+        onPaletteChange={handlePaletteChange}
 
         errorMsg={errorMsg}
         loading={loading}

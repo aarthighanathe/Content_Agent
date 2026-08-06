@@ -408,10 +408,19 @@ e:/AGContentAgent/
 │       │   ├── BrandIcons.tsx          ← SVG brand icons
 │       │   ├── OnboardingModal.tsx     ← First-run onboarding flow
 │       │   ├── ThemeSwitcher.tsx       ← Shared 6-theme picker (sidebar + landing nav) — see §13
-│       │   └── ToolsDropdown.tsx       ← Nav tools dropdown
+│       │   ├── ToolsDropdown.tsx       ← Nav tools dropdown
+│       │   ├── TemplateGallery.tsx     ← Carousel template picker grid — see §11a
+│       │   ├── TemplatePreview.tsx     ← Live single-template preview (Create's AdvancedOptions)
+│       │   └── ColorPalettePicker.tsx  ← Palette-swatch picker for the selected template
 │       │
 │       ├── lib/
-│       │   └── colorSystem.ts          ← Accent color derivation for carousel previews
+│       │   ├── colorSystem.ts          ← Accent color derivation for carousel previews + palette→ColorSystem
+│       │   │                             mapping (`deriveColorSystemFromPalette`) + `getContrastColor`/
+│       │   │                             `getContrastRgba` (WCAG-luminance text contrast) — see §11a
+│       │   ├── templateSystem.ts       ← Carousel template catalog: 10 templates × 3 palettes each,
+│       │   │                             `TemplateId` union, `getTemplate`/`getPalette`/`isTemplateId` — see §11a
+│       │   └── carouselStorageKeys.ts  ← Shared `CAROUSEL_TEMPLATE_KEY`/`CAROUSEL_PALETTE_KEY` localStorage
+│       │                                 key names (Create.tsx and Result.tsx both read/write these)
 │       │
 │       └── pages/
 │           ├── Landing.tsx             ← Public marketing page (thin orchestrator, no auth required)
@@ -434,7 +443,7 @@ e:/AGContentAgent/
 │           │                              status/score) — reached only via router state from Create's batch
 │           │                              mode, not a standalone nav destination
 │           ├── Create/                 ← Sub-components for the Create form
-│           │   ├── AdvancedOptions.tsx    ← Carousel theme picker only (Saved Templates removed — feature was dead, no templates existed)
+│           │   ├── AdvancedOptions.tsx    ← Carousel template + color-palette picker (TemplateGallery + ColorPalettePicker) — see §11a
 │           │   ├── PlatformSelector.tsx   ← Full card grid (`PlatformSelector`) + compact chosen-platform row (`PlatformSummary`)
 │           │   ├── platforms.ts           ← Platform metadata + `findPlatform()` (extracted from PlatformSelector.tsx to keep it component-only)
 │           │   ├── ToneSelector.tsx       ← Deselectable pills (click selected pill again to clear)
@@ -487,17 +496,33 @@ e:/AGContentAgent/
 │                       │   └── carousel/
 │                       │       ├── EditSlideModal.tsx
 │                       │       ├── IGCarouselPreview.tsx
-│                       │       ├── IGSlide.tsx         ← 68 lines — thin dispatcher; per-theme rendering lives in igslide/
-│                       │       ├── SlideVisual.tsx     ← Theme CSS applied to slide data
+│                       │       ├── IGSlide.tsx         ← Dispatcher: legacy 9-theme layouts (below) OR, when a
+│                       │       │                          templateId is set, one of the 10 igslide/templates/*
+│                       │       │                          components via the module-scoped registry.ts map — see §11a
+│                       │       ├── CarouselTemplateSwitcher.tsx ← Post-generation template switcher (Result page)
+│                       │       ├── SlideVisual.tsx     ← Legacy theme CSS applied to slide data
 │                       │       └── igslide/            ← IGSlide.tsx's split-out theme/section pieces (was 1157 lines pre-split)
 │                       │           ├── constants.ts
 │                       │           ├── contentPieces.tsx
 │                       │           ├── decorativePrimitives.tsx
 │                       │           ├── presets.ts
 │                       │           ├── slideResolvers.ts
-│                       │           ├── types.ts
-│                       │           └── layouts/        ← CTALayout, ContentLayout, CoverLayout, FeaturesLayout,
-│                       │                                  HowToLayout, ProblemLayout, QuoteLayout, SolutionLayout, StatLayout
+│                       │           ├── types.ts          ← SlideData/SlidePoint + `stablePointKeys()` (stable React
+│                       │           │                        keys for point lists, not array index)
+│                       │           ├── fontStack.ts       ← `resolveTemplateFont()` — single font-family resolver
+│                       │           │                        shared by all 10 template components
+│                       │           ├── layouts/        ← CTALayout, ContentLayout, CoverLayout, FeaturesLayout,
+│                       │           │                      HowToLayout, ProblemLayout, QuoteLayout, SolutionLayout,
+│                       │           │                      StatLayout (legacy 9-theme layouts), plus TemplateLayout.tsx
+│                       │           │                      (shared sizing/clipping wrapper for the new template system)
+│                       │           └── templates/      ← 10 new-template-system components (ModernMinimalTemplate,
+│                       │                                  BoldStatementTemplate, EditorialClassicTemplate, TechModernTemplate,
+│                       │                                  VibrantPopTemplate, LuxuryDarkTemplate, CleanCorporateTemplate,
+│                       │                                  CreativeAbstractTemplate, StorytellerTemplate, SocialMediaTemplate) —
+│                       │                                  each a `forwardRef<HTMLDivElement, CarouselTemplateProps>` (shared
+│                       │                                  prop type in templateProps.ts); registry.ts's `TEMPLATE_COMPONENTS`
+│                       │                                  is the single id→component map both IGSlide.tsx and any future
+│                       │                                  consumer should import — see §11a
 │                       └── panels/
 │                           ├── FeedbackPanel.tsx
 │                           ├── HashtagPanel.tsx
@@ -758,11 +783,102 @@ what changed.
 
 ---
 
-## 11. Carousel Theme Reference
+## 11. Carousel Theme & Template Reference
 
-Nine themes, defined in **two places that must stay in sync**:
-- `client/src/pages/Result/constants.ts` → `CAROUSEL_THEMES` (name, accent, preview gradient/glow/emoji — drives the theme picker UI)
-- `client/src/pages/Result/components/content/carousel/SlideVisual.tsx` and `IGSlide.tsx` (the actual per-theme layout/decoration rendering, consumed by both the live preview AND the SSR export bundle — see §3)
+> **Two parallel systems coexist today** — see `CAROUSEL_TEMPLATE_PLAN.md` for the full
+> history/rationale. Both are live; the template system (added 2026-08-06) is the
+> Canva-like, visually-distinct system users actually see when they pick a template on
+> Create. The legacy 9-color-theme system still exists as the fallback for carousels
+> generated before the template system shipped, and is a candidate for retirement once the
+> template system is proven stable (`CAROUSEL_TEMPLATE_PLAN.md` §2.4 — not done yet).
+
+### 11a. Template system (current, primary)
+
+10 distinct templates — each with its own typography, spacing, layout style, and 3 curated
+color palettes — defined in `client/src/lib/templateSystem.ts` (`TEMPLATES` record,
+`getTemplate()`/`getPalette()`/`getDefaultPalette()` helpers). Selection happens on the
+Create form (`Create/AdvancedOptions.tsx`'s `TemplateGallery` + `ColorPalettePicker`) and is
+sent with job creation; it's also switchable after generation from the Result page's
+"Carousel template" panel (`CarouselTemplateSwitcher.tsx`), which calls
+`PATCH /:jobId/carousel-template`.
+
+| Key | Name | Category |
+|---|---|---|
+| `modern-minimal` | Modern Minimal | minimal |
+| `bold-statement` | Bold Statement | bold |
+| `editorial-classic` | Editorial Classic | editorial |
+| `tech-modern` | Tech Modern | modern |
+| `vibrant-pop` | Vibrant Pop | modern |
+| `luxury-dark` | Luxury Dark | classic |
+| `clean-corporate` | Clean Corporate | minimal |
+| `creative-abstract` | Creative Abstract | modern |
+| `storyteller` | Storyteller | editorial |
+| `social-media` | Social Media | modern |
+
+**Data flow:** `templateId`/`paletteId` are columns on `contentJobs` (nullable — only
+meaningful for `platform='instagram_carousel'`), read by `Result.tsx` and passed down through
+`ContentColumn` → `IGCarouselPreview` → `IGSlide`, which resolves the template component
+(`igslide/templates/*.tsx`) and the palette (via `getPalette()` + `deriveColorSystemFromPalette()`
+in `lib/colorSystem.ts`) before rendering. The same values are sent to
+`POST /:jobId/export/carousel-png` so the PNG export matches the preview exactly (same
+principle as the legacy system's §3 note below).
+
+**Shared rendering contract every `*Template.tsx` component must follow** (violating this
+is what caused the 2026-08-06 letterboxing/overflow bugs — see that date's `CHANGELOG.md`
+entry for what broke and why):
+- The shared wrapper, `igslide/layouts/TemplateLayout.tsx`, owns **only** fixed sizing
+  (`width`/`height`/`flexShrink: 0`) and clipping (`overflow: hidden`) — it must never add
+  its own `padding` or `background`. Every individual template component is fully
+  responsible for its own full-bleed `background` and `padding` on its root content div.
+  Forgetting either causes a letterboxed card with a gap around it (padding applied twice,
+  or the gap showing through to the page background because nothing filled it).
+- Each template component's root content div must set `flex: 1` (to fill `TemplateLayout`'s
+  inner box) and must not exceed the fixed `height` it's given — long body text needs to
+  clip via the inherited `overflow: hidden`, not push the box taller.
+- `colors: ColorSystem` passed into a template component is *already* the resolved palette
+  (or the legacy accent, for a template rendered without a `paletteId`) — read
+  `colors.LIGHT_BG`/`colors.DARK_BG`/`colors.BRAND_PRIMARY` etc. directly. For text-contrast
+  decisions, call `getContrastColor(bgHex)` / `getContrastRgba(bgHex, alpha)` from
+  `lib/colorSystem.ts` (WCAG relative-luminance based) — don't compare against the literal
+  string `'#1a1a1a'` to detect dark mode; that sentinel check shipped broken (it can never
+  match `deriveColorSystemFromPalette()`'s procedurally-tinted output) and was replaced
+  repo-wide with the luminance helpers.
+- Each template component is `React.forwardRef<HTMLDivElement, CarouselTemplateProps>`
+  (shared prop type in `igslide/templates/templateProps.ts`) and must forward its `ref` to
+  `TemplateLayout`'s `ref` prop, the same way the legacy layout branch in `IGSlide.tsx`
+  forwards to its root div — this is what lets `slideRefs`-style DOM access (screenshot,
+  scroll-to-slide) work identically regardless of which rendering path a slide takes.
+- Use `stablePointKeys()` from `igslide/types.ts` for any `slide.points.map()` key, not the
+  array index — a point's identity should survive reordering/editing in `EditSlideModal.tsx`.
+
+**To add an 11th template:**
+1. Add the id to `TemplateId` in `templateSystem.ts`, plus a `TEMPLATES[id]` entry
+   (typography, spacing, layout, 3+ `colorPalettes`, `defaultPaletteIndex`).
+2. Add the same id to `VALID_TEMPLATE_IDS`/`templateIdEnum` in `server/src/schemas/jobs.ts`
+   (mirrored server-side since the server can't import client TypeScript — same pattern as
+   `VALID_TONES` in that file) so `templateId` stays enum-validated end-to-end rather than an
+   unbounded string.
+3. Create `igslide/templates/YourTemplate.tsx` following the shared contract above — copy
+   the structure of an existing template (e.g. `ModernMinimalTemplate.tsx`) rather than
+   starting from scratch, since the padding/background/flex/ref-forwarding contract is easy
+   to get subtly wrong.
+4. Register it in `igslide/templates/registry.ts`'s `TEMPLATE_COMPONENTS` map — the single
+   id→component source of truth both `IGSlide.tsx` and any future consumer import from
+   (module-scoped, not rebuilt per render).
+5. Run `npm run build:ssr` (in `client/`) to rebuild `server/src/generated/slideRenderer.js`
+   — also update `server/src/generated/slideRenderer.d.ts` by hand if `RenderSlideParams`'
+   fields ever change (esbuild emits no declarations; this file is hand-maintained and has
+   silently drifted out of sync before).
+6. Verify with a real render, not just a type-check: the SSR bundle is a separate build
+   artifact from the live preview, and a stale bundle after a source change (forgetting step
+   5) makes the PNG export silently ignore your new template while the live preview looks
+   correct — this exact bug shipped once already (2026-08-06).
+
+### 11b. Legacy 9-color-theme system (fallback for pre-template carousels)
+
+Defined in **two places that must stay in sync**:
+- `client/src/pages/Result/constants.ts` → `CAROUSEL_THEMES` (name, accent, preview gradient/glow/emoji — drives the legacy theme picker UI)
+- `client/src/pages/Result/components/content/carousel/SlideVisual.tsx` and `IGSlide.tsx`'s fallback branch (the actual per-theme layout/decoration rendering, consumed by both the live preview AND the SSR export bundle when no `templateId` is present — see §3)
 
 | Key | Name | Accent |
 |---|---|---|
@@ -776,12 +892,8 @@ Nine themes, defined in **two places that must stay in sync**:
 | `crimson` | Crimson Power | `#DC2626` |
 | `rose` | Rose Elegance | `#E11D48` |
 
-**To add a new theme (current process, post carousel-rewrite):**
-1. Add the theme key to the `TemplateId` union type (referenced from `constants.ts`)
-2. Add a `CAROUSEL_THEMES[newTheme]` entry in `constants.ts` (name, accent, preview gradient/glow/emoji)
-3. Add the theme's actual layout/decoration rendering in `SlideVisual.tsx` / `IGSlide.tsx` — this is now a real React component, not a Gemini-generated HTML `brief`, so styling is plain CSS/SVG in the component itself
-4. Run `npm run build:ssr` (in `client/`) to rebuild `server/src/generated/slideRenderer.js` so the new theme is available to the server-side PNG export path, not just the live preview
-5. **Old process (deprecated, do not follow):** the previous system had per-theme Gemini prompts (`THEME_META`, `brief` strings) in `server/src/lib/carousel.ts` — this was removed because it produced a different design on every run and one that didn't match the on-screen preview. If you find code or docs still referencing `THEME_META`, `generateCarouselTemplate()`, or `injectSlideContent()`, it's stale — none of these exist in the current `carousel.ts`.
+Do not add new themes to this system — extend the template system (§11a) instead. This
+section is retained only so existing pre-template carousels keep rendering correctly.
 
 ---
 

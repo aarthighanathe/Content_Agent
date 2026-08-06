@@ -59,3 +59,46 @@ export function deriveColorSystem(primaryHex: string): ColorSystem {
     DARK_BG:       tintedDark(primaryHex),
   };
 }
+
+// WCAG-relative-luminance based text color: pick black or white, whichever
+// contrasts more against the given background hex. Replaces the old
+// `colors.DARK_BG === '#1a1a1a'` sentinel check, which always evaluated
+// false because DARK_BG is procedurally tinted per-palette and can never
+// equal that literal string.
+function relativeLuminance(hex: string): number {
+  const [r, g, b] = hexToRgb(hex);
+  const [rl, gl, bl] = [r, g, b].map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+}
+
+export function getContrastColor(bgHex: string): '#1a1a1a' | '#ffffff' {
+  return relativeLuminance(bgHex) > 0.5 ? '#1a1a1a' : '#ffffff';
+}
+
+// Same contrast decision as getContrastColor, expressed as a translucent
+// black/white rgba() for muted/secondary text and subtle overlay fills.
+export function getContrastRgba(bgHex: string, alpha: number): string {
+  return relativeLuminance(bgHex) > 0.5 ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha})`;
+}
+
+// Convert template color palette to ColorSystem
+// Maps template palette colors to the existing ColorSystem structure
+export function deriveColorSystemFromPalette(palette: {
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  text: string;
+}): ColorSystem {
+  return {
+    BRAND_PRIMARY: palette.primary,
+    BRAND_LIGHT:   palette.accent,
+    BRAND_DARK:    palette.secondary,
+    LIGHT_BG:      palette.background,
+    LIGHT_BORDER:  lighten(palette.primary, 0.72),
+    DARK_BG:       tintedDark(palette.primary),
+  };
+}

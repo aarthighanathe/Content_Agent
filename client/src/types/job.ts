@@ -66,6 +66,12 @@ export interface ContentJob {
   sourceCompetitorAnalysisId?: string;
   // WHY optional: only set on jobs created via Repurpose's "paste a URL" flow
   sourceUrl?: string;
+  // WHY optional, carousel-only: the client's template system
+  // (lib/templateSystem.ts) choice made at Create time (or changed afterward
+  // via PATCH /:jobId/carousel-template) — null/absent for every non-carousel
+  // job and for carousels created before this feature shipped.
+  templateId?: string | null;
+  paletteId?: string | null;
 }
 
 // WHY one loose interface instead of a strict discriminated union: real SSE payloads from

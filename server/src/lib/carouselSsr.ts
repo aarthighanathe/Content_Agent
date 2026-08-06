@@ -34,6 +34,9 @@ export interface SsrSlideContext {
   brandName: string;
   handle: string;
   designPreset: number;
+  // New template system fields
+  templateId?: string;
+  paletteId?: string;
 }
 
 /**
@@ -55,6 +58,8 @@ export function buildSlideHtml(
     brandName: ctx.brandName,
     handle: ctx.handle,
     designPreset: ctx.designPreset,
+    templateId: ctx.templateId,
+    paletteId: ctx.paletteId,
   });
 
   // SECURITY: React escapes text children, and the palette is hex-validated at the
@@ -77,7 +82,15 @@ export async function renderCarouselSlidesSsr(
   return Promise.allSettled(
     slides.map(async (slide, index) => {
       const html = buildSlideHtml(slide, index, slides.length, ctx);
-      const dataUrl = await renderSlideWithCache(html, jobId, index, theme, SSR_VIEWPORT);
+      const dataUrl = await renderSlideWithCache(
+        html,
+        jobId,
+        index,
+        theme,
+        SSR_VIEWPORT,
+        ctx.templateId,
+        ctx.paletteId,
+      );
       return { index, dataUrl };
     }),
   );

@@ -15,7 +15,7 @@ import { runPipelineDirect } from './create.js';
 import { runAndPersistPipeline } from '../../lib/pipeline.js';
 import type { ResearchResult } from '../../agents/researcher.js';
 import type { OrchestratorResult } from '../../agents/orchestrator.js';
-import { parseBody, regenerateJobSchema, multiplyJobSchema, patchContentSchema, tagJobSchema } from '../../schemas/index.js';
+import { parseBody, regenerateJobSchema, multiplyJobSchema, patchContentSchema, tagJobSchema, setCarouselTemplateSchema } from '../../schemas/index.js';
 import { logger } from '../../lib/logger.js';
 import { readOutputs, sanitizeContentDeep } from '../content/shared.js';
 
@@ -300,6 +300,47 @@ router.patch('/:jobId/tag', async (req: AuthRequest, res: Response) => {
     return res.json({ success: true });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to update tag', code: 'SERVER_ERROR', retryable: false });
+  }
+});
+
+// PATCH /:jobId/carousel-template — switch a carousel's template/palette after
+// generation (CAROUSEL_TEMPLATE_PLAN.md §2.3). Content is unchanged — this only
+// updates presentational metadata so Result.tsx's preview and future PNG
+// exports pick up the new choice, and it survives a page reload.
+router.patch('/:jobId/carousel-template', async (req: AuthRequest, res: Response) => {
+  try {
+    const jobId = req.params.jobId as string;
+    const body = parseBody(setCarouselTemplateSchema, req.body, res);
+    if (!body) return;
+    const { templateId, paletteId } = body;
+    const userId = req.dbUserId || req.userId || 'demo';
+
+    const job = await requireJobOwnership(jobId, userId, res);
+    if (!job) return;
+    if (job.platform !== 'instagram_carousel') {
+      return res.status(400).json({ error: 'Not a carousel job', code: 'INVALID_PLATFORM', retryable: false });
+    }
+
+    try {
+      await updateJobWithCacheAside(
+        jobId,
+        async (db) => {
+          // SECURITY: filter by both jobId and userId — defense-in-depth beyond the ownership check
+          await db.update(contentJobs)
+            .set({ templateId, paletteId: paletteId ?? null })
+            .where(and(eq(contentJobs.id, jobId), eq(contentJobs.userId, userId)));
+        },
+        (memJob) => { memJob.templateId = templateId; memJob.paletteId = paletteId ?? null; },
+      );
+    } catch (dbErr) {
+      logger.error('[DB] PATCH carousel-template failed', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
+      Sentry.captureException(dbErr, { tags: { route: 'PATCH /:jobId/carousel-template', action: 'db-write' } });
+      return res.status(500).json({ error: 'Failed to update template — please try again', code: 'DB_WRITE_FAILED', retryable: true });
+    }
+
+    return res.json({ success: true, templateId, paletteId: paletteId ?? null });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to update template', code: 'SERVER_ERROR', retryable: false });
   }
 });
 

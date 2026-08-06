@@ -49,6 +49,8 @@ export interface AssembledJob {
   // finding #11 (fixed for sourceJobId, missed for this one).
   sourceCompetitorAnalysisId: string | null;
   sourceUrl: string | null;
+  templateId: string | null;
+  paletteId: string | null;
   status: string;
   retryCount: number;
   deleted: number;
@@ -105,6 +107,8 @@ export function assembleJobFromDB(dbJob: DBJobWithRelations): AssembledJob {
     sourcePlatform: dbJob.sourcePlatform,
     sourceCompetitorAnalysisId: dbJob.sourceCompetitorAnalysisId,
     sourceUrl: dbJob.sourceUrl,
+    templateId: dbJob.templateId,
+    paletteId: dbJob.paletteId,
     status: dbJob.status,
     retryCount: dbJob.retryCount,
     deleted: dbJob.deleted,

@@ -34,6 +34,9 @@ export interface RenderSlideParams {
   brandName: string;
   handle: string;
   designPreset: number;
+  // New template system fields
+  templateId?: string;
+  paletteId?: string;
 }
 
 // NOTE: IGSlide reads exactly one CSS custom property from the app's global index.css —
@@ -58,7 +61,7 @@ body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
  * so identical params always produce an identical string.
  */
 export function renderSlideHtml(params: RenderSlideParams): string {
-  const { slide, index, total, colors, brandName, handle, designPreset } = params;
+  const { slide, index, total, colors, brandName, handle, designPreset, templateId, paletteId } = params;
 
   const markup = renderToStaticMarkup(
     <IGSlide
@@ -72,6 +75,8 @@ export function renderSlideHtml(params: RenderSlideParams): string {
       width={SLIDE_WIDTH}
       height={SLIDE_HEIGHT}
       designPreset={designPreset}
+      templateId={templateId}
+      paletteId={paletteId}
     />,
   );
 

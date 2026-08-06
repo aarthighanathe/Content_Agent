@@ -37,7 +37,18 @@ if (POSTHOG_KEY) {
   });
 }
 
-createRoot(document.getElementById('root')!).render(
+// WHY: without this guard, an HMR update to this module (or one it imports)
+// re-runs createRoot() on the same #root node instead of disposing the old
+// tree, mounting a second React root — each with its own ClerkProvider — and
+// producing "createRoot() called on a container that has already been passed
+// to createRoot()" + "multiple <ClerkProvider>" errors. Stashing the root on
+// import.meta.hot.data survives the HMR module re-execution so it's reused.
+const rootElement = document.getElementById('root')!;
+const root = (import.meta.hot?.data.root as ReturnType<typeof createRoot> | undefined)
+  ?? createRoot(rootElement);
+if (import.meta.hot) import.meta.hot.data.root = root;
+
+root.render(
   <StrictMode>
     <App />
   </StrictMode>,

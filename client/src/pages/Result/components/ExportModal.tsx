@@ -62,11 +62,14 @@ interface Props {
   handle:      string;
   colorSystem: ColorSystem;
   designPreset: number;
+  // New template system fields - optional for backward compatibility
+  templateId?: string;
+  paletteId?: string;
 }
 
 type ExportState = 'idle' | 'exporting' | 'done' | 'error';
 
-export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isCarousel, brandName, handle, colorSystem, designPreset }: Props) {
+export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isCarousel, brandName, handle, colorSystem, designPreset, templateId, paletteId }: Props) {
   const [exportState, setExportState] = useState<Record<string, ExportState>>({});
   const platform: string = jobData?.platform || '';
   const modalRef = useRef<HTMLDivElement>(null);
@@ -159,7 +162,8 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
       `/jobs/${jobId}/export/carousel-png`,
       // WHY these extra fields: the server renders the same slide component the preview
       // uses, so it needs the exact palette, brand identity and design preset on screen.
-      { theme: themeKey, slides: content, colors: colorSystem, brandName, handle, designPreset },
+      // templateId and paletteId enable the new template-based rendering system.
+      { theme: themeKey, slides: content, colors: colorSystem, brandName, handle, designPreset, templateId, paletteId },
       { responseType: 'blob' },
     );
     triggerDownload(response.data, `${safeFileName()}_slides.zip`, 'application/zip');

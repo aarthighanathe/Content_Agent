@@ -1,6 +1,7 @@
 import { Video } from 'lucide-react';
 import { Instagram, Linkedin, XTwitter } from '../../components/BrandIcons';
 import type { ComponentType, CSSProperties } from 'react';
+import type { TemplateId as TemplateSystemId } from '../../lib/templateSystem';
 
 // WHY: TemplateId used to live in SlideCanvas.tsx (deleted — dead code, see
 // REVIEW_FINDINGS.md 1.18). Rendering now happens via IGSlide.tsx/IGCarouselPreview.tsx,
@@ -15,6 +16,14 @@ export type TemplateId =
   | 'violet'
   | 'crimson'
   | 'rose';
+
+// New template system id — re-exported from templateSystem.ts (the single
+// source of truth for the 10 template ids) rather than independently
+// redeclared here. Was a second hand-copied literal union that had already
+// silently drifted out of grep-verified sync risk; kept as a distinct name
+// (not just importing TemplateId directly) since every existing call site
+// already imports `NewTemplateId` from this file.
+export type NewTemplateId = TemplateSystemId;
 
 export const stageOrder = ['planning', 'researching', 'writing', 'formatting', 'critiquing', 'done'];
 export const agentNames = ['Orchestrator', 'Researcher', 'Writer', 'Formatter', 'Critic'];

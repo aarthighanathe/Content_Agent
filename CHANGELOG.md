@@ -11,6 +11,243 @@
 
 ---
 
+## 2026-08-06 — Pre-commit cleanup pass on the carousel template system branch
+
+**Status:** Complete. The template-system work below (and its REVIEW_FINDINGS-closeout follow-up)
+had accumulated on this branch without being committed; before pushing, ran a full review pass
+across every changed/new file for responsiveness, dead code, complexity, and comment quality.
+
+- Removed a stray local debug script (`server/_pool_debug.mts`, not part of the feature) and
+  reverted an accidental `server/package.json` edit (`dev`/`worker` scripts pointed at
+  `.env` instead of the repo convention `../.env`, which would break anyone without a
+  `server/.env` file of their own).
+- `igslide/templates/LuxuryDarkTemplate.tsx` — fixed a real bug: the template hardcoded
+  `#0a0a0a`/`#ffffff` instead of reading `colors.DARK_BG`/`getContrastColor()`, so switching its
+  curated color palette in the gallery had no visual effect. Now respects the selected palette
+  like the other 9 templates.
+- `client/src/components/TemplatePreview.tsx` — deleted; confirmed zero importers (superseded by
+  `CompactTemplatePicker.tsx` earlier in the same branch, left behind as dead code).
+- `client/src/components/TemplatePreview.tsx` (before deletion) and
+  `CarouselTemplateSwitcher.tsx` — removed a `console.log` and an unchecked
+  `templateId as NewTemplateId` cast respectively, replacing the latter with the existing
+  `isTemplateId()` guard.
+- `client/src/pages/Create.tsx` — the same unchecked-cast pattern existed twice reading
+  `templateId`/`paletteId` back out of `localStorage` (user-writable, so worth guarding);
+  replaced both with `isTemplateId()`/`getPalette()` validation.
+- `client/src/pages/Result.tsx` — fixed a state-leak bug: `/result/:jobId` isn't a keyed route,
+  so the `templateOverride` state persisted across navigating from one job's result to another's,
+  silently carrying job A's template onto job B's preview. Added a reset keyed on `jobId`.
+- `client/src/pages/Competitor.tsx` — added `aria-hidden="true"` to a hidden layout-spacer
+  element that screen readers were announcing.
+- `server/src/lib/carousel.ts` had grown to 438 lines (over CLAUDE.md's 400-line cap) as a
+  side effect of the templateId/paletteId cache-key changes; extracted the Puppeteer
+  browser-pool machinery into a new `server/src/lib/browserPool.ts` (218 + 266 lines), with
+  `carousel.ts` re-exporting `closeBrowserPool` so no external import paths changed.
+- Verified (did not need to change): ownership checks, 404-not-403 on mismatch, zod enum
+  validation of `templateId`/`paletteId` at every entry point, rate limiting on the Puppeteer
+  export route, Puppeteer JS-disabled + request interception, no raw SQL, all already correct
+  in the pre-existing feature work.
+- Rebuilt `server/src/generated/slideRenderer.js` via `npm run build:ssr` to pick up the
+  `LuxuryDarkTemplate` fix in the exported-PNG path, not just the live preview. `tsc --noEmit`
+  and `eslint` pass with zero errors on both `client/` and `server/`; full production builds of
+  both succeed.
+
+---
+
+## 2026-08-06 — Repurpose page: sidebar visual polish + sticky layout fix
+
+**Status:** Complete. `client/src/pages/Repurpose/InfoSidebar.tsx` redesigned — the "Supported
+Sources"/"How It Works"/"Pro Tip" cards read as flat, cramped boxes with weak hierarchy (see
+screenshot in session). Changes: source rows now separated by hairlines instead of loose
+vertical gaps, with larger gradient icon tiles; "How It Works" is a numbered vertical-stepper
+(numbered circles + connecting line) instead of plain checkmark bullets, with a short title +
+description per step instead of one run-on sentence; "Pro Tip" gained a sparkle icon next to
+its label and a "Set up Brand Voice" link (React Router `Link` to `/brand`) so the tip is
+actionable, not just text. No behavior/data changes — this component is static/props-free.
+
+Follow-up in the same session: the right column (Feed Monitor + history + the 3 info cards
+above) is routinely taller than the left form, and the two-column grid in `Repurpose.tsx` had
+no sticky/scroll handling — scrolling down past the form's bottom left blank space on the left
+next to still-visible sidebar cards on the right (reported via screenshot). Added a
+`.repurpose-sidebar` class (`position: sticky; top: 20px`, internal `overflow-y: auto`) on the
+right column, matching the existing `.rp-sidebar` pattern in `Result.css`; reverts to
+`position: static` under the existing 768px stack breakpoint where the columns go single-column
+anyway.
+
+Second follow-up (same session): the sticky box's initial `max-height: calc(100vh - 40px)` still
+clipped the bottom-most card (Pro Tip) with no way to scroll the rest into view (reported via a
+second screenshot) — the true bottom edge sat below the viewport because the calc only accounted
+for a flat 40px and ignored that the box's own `top: 20px` sticky offset plus `.main-inner`'s
+30px bottom padding both eat into the available height. Corrected to
+`calc(100vh - 20px - 30px)` so the box's rendered height actually fits between the sticky
+offset and the page's bottom padding, making the internal scrollbar able to reach the end.
+
+Third follow-up (same session, real root cause): content was still clipped after the calc fix,
+at a narrower viewport. Root cause was a **breakpoint mismatch** — `index.css`'s pre-existing
+`.grid-repurpose` rule (line ~1646) collapses the grid to a single column starting at 900px, but
+the new `.repurpose-sidebar` sticky/scroll-reset media query in `Repurpose.tsx` was still set to
+768px. Between 768–900px wide, the grid was already single-column (form and sidebar stacked)
+while the sidebar was still `position: sticky` with a capped `max-height` — so it rendered as a
+short, internally-scrolling box wedged into an already-stacked layout, clipping cards. Fixed by
+moving the sidebar's static/max-height/scroll reset to the same 900px breakpoint as the grid
+collapse, so both switch together.
+
+**Fourth follow-up — reverted the sticky approach entirely.** Feed Monitor and Pro Tip were
+still unreachable after the breakpoint fix. Without a browser available in this session to
+visually verify `100vh`/sticky-offset math against the actual rendered layout, continuing to
+patch the calc was guesswork against a real bug. Removed `.repurpose-sidebar`'s
+`position: sticky` / `max-height` / `overflow-y: auto` entirely — the right column (Feed
+Monitor + history + info cards) is now a plain static flex column again, same as the left form,
+so it scrolls with the ordinary page scroll and every card is reachable with no height-calc
+risk. This trades away the "sidebar stays pinned while scrolling" polish from the first pass,
+but that was never the reported problem — content being unreachable was.
+
+---
+
+## 2026-08-06 — Carousel template system: remaining REVIEW_FINDINGS.md items fixed
+
+**Status:** Complete. Follow-up to the wiring pass below — this closes out the 13 findings from
+`REVIEW_FINDINGS.md` that were still open after that session (verified against current code
+before fixing; several other findings turned out already resolved and were left alone).
+
+- `client/src/lib/colorSystem.ts` — added `getContrastColor()`/`getContrastRgba()` (WCAG
+  relative-luminance based). Replaced the broken `colors.DARK_BG === '#1a1a1a'` sentinel check
+  (always false — `DARK_BG` is procedurally tinted, never that literal string) at all 37
+  occurrences across the 10 `igslide/templates/*.tsx` files with a real per-background contrast
+  decision.
+- `igslide/layouts/TemplateLayout.tsx` and all 10 `igslide/templates/*.tsx` — converted to
+  `React.forwardRef<HTMLDivElement, ...>` and forward `ref` through to `TemplateLayout`'s root
+  div, matching the legacy layout branch in `IGSlide.tsx` so `slideRefs`-style DOM access works
+  on both rendering paths. Also removed `TemplateLayout`'s dead decorative-elements render loop
+  (empty divs with no backing CSS — real decoration lives in each template component already).
+- `client/src/lib/templateSystem.ts` — added `isTemplateId()` type guard; `IGSlide.tsx` now uses
+  it instead of an unguarded `templateId as TemplateId` cast, and `server/src/schemas/jobs.ts`
+  gained a mirrored `VALID_TEMPLATE_IDS`/`templateIdEnum` (server can't import client
+  TypeScript) so `templateId` is enum-validated in `createJobSchema`, `exportCarouselSsrSchema`,
+  and `setCarouselTemplateSchema` instead of an unbounded string.
+- `igslide/templates/SocialMediaTemplate.tsx` — guarded `point.label.toLowerCase()` (was the one
+  template inconsistent with siblings' defensive `point.icon || '•'` treatment).
+- New `igslide/templates/registry.ts` (`TEMPLATE_COMPONENTS`, module-scoped) and
+  `igslide/templates/templateProps.ts` (`CarouselTemplateProps`) — replaced `IGSlide.tsx`'s
+  inline, per-render-rebuilt `templateComponents` map and each template's independently
+  redeclared 8-field props interface with one shared source of truth for each.
+- `client/src/pages/Result/constants.ts` — `NewTemplateId` is now a re-export of
+  `templateSystem.ts`'s `TemplateId` instead of an independently hand-copied literal union;
+  deleted the unused `AllTemplateId` type.
+- `igslide/types.ts`'s `stablePointKeys()` is now actually called from every template's
+  `points.map()` (and `TemplateLayout`'s old decorative-elements loop, before that loop was
+  removed) instead of array index — was already exported but unused everywhere.
+- `IGSlide.tsx` — `resolveType()`/`resolveBackground()` are now computed only on the legacy
+  rendering path (after the template-branch early return), not unconditionally at the top of
+  the component and then discarded when a template renders instead.
+- `client/src/pages/Create/AdvancedOptions.tsx`, `Create/TopicStep.tsx`, `Create.tsx` — removed
+  the dead `carouselTheme`/`onCarouselThemeChange` prop plumbing (threaded through 3 files but
+  unused inside `AdvancedOptions` since its `{false && ...}` legacy picker branch was already
+  deleted in the prior session) and the now-unused `CAROUSEL_THEME_KEY` localStorage constant.
+- `server/src/lib/carousel.ts` — `renderSlideWithCache`'s cache key no longer silently collapses
+  to the legacy `theme` key when only one of `templateId`/`paletteId` is set (was `&&`, now
+  includes whichever is present). Split `ThemeKey` into `LegacyThemeKey`/`NewTemplateKey` with an
+  explicit comment on why they're still unioned (the runtime `templateId || paletteId` branch
+  that picks between them).
+- New `client/src/lib/carouselStorageKeys.ts` — `Create.tsx` and `Result.tsx` previously
+  duplicated the `'ca_carousel_template_id'`/`'ca_carousel_palette_id'` string literals
+  independently; both now import the same constants. `Result.tsx`'s localStorage reads are also
+  now `useMemo`'d instead of re-running via an inline IIFE on every render (including every SSE
+  progress tick during job polling).
+- `CLAUDE.md` §4 (folder structure) and §11a — added the previously-undocumented
+  `templateSystem.ts`, `TemplateGallery.tsx`/`TemplatePreview.tsx`/`ColorPalettePicker.tsx`,
+  `igslide/templates/`, `igslide/fontStack.ts`, `carouselStorageKeys.ts`, and
+  `CarouselTemplateSwitcher.tsx`; updated §11a's guidance to reference the new contrast helpers,
+  ref-forwarding requirement, and `registry.ts` instead of the now-removed inline map.
+
+**Left as-is (already fixed by the time this session started):** SSR export wiring, live
+preview using the template system, `paletteId` actually affecting rendered colors, and the
+font-resolution ternary duplication (`igslide/fontStack.ts`'s `resolveTemplateFont()` already
+existed and was already used everywhere) — all verified against current code, not assumed from
+`REVIEW_FINDINGS.md`'s original text.
+
+---
+
+## 2026-08-06 — Carousel template system: wired end-to-end + fixed broken rendering
+
+**Status:** Complete (P0 fix — `CAROUSEL_TEMPLATE_PLAN.md` §2). The 10-template Canva-like
+design system (`client/src/lib/templateSystem.ts`, `TemplateGallery.tsx`,
+`ColorPalettePicker.tsx`, 10 `igslide/templates/*.tsx` components) had been built in a prior
+session but never connected — selecting a template on the Create form wrote to a global
+`localStorage` key that only `ExportModal` read, so the live Result-page preview always fell
+back to the old 9-theme system regardless of selection. See `CAROUSEL_TEMPLATE_PLAN.md` for the
+full diagnosis and plan; this entry covers what shipped.
+
+**Wiring (the reported "same UI" bug):**
+- `server/src/db/schema.ts` — `contentJobs` gained nullable `templateId`/`paletteId` columns
+  (migration `drizzle/0013_brief_penance.sql`).
+- `server/src/schemas/jobs.ts` — `createJobSchema` accepts optional `templateId`/`paletteId`;
+  new `setCarouselTemplateSchema` for the post-generation switcher.
+- `server/src/routes/jobs/create.ts` — persists `templateId`/`paletteId` onto the job (carousel
+  platform only).
+- `server/src/routes/jobs/manage.ts` — new `PATCH /:jobId/carousel-template` lets a user change
+  a carousel's template/palette after generation without regenerating content.
+- `server/src/lib/persistJob.ts`, `server/src/routes/jobs/ownership.ts`,
+  `server/src/lib/pipeline.ts` — `templateId`/`paletteId` threaded through the DB
+  insert/`assembleJobFromDB` read path alongside the existing `sourceJobId`-style lineage
+  fields.
+- `client/src/pages/Create.tsx` / `Create/TopicStep.tsx` / `Create/AdvancedOptions.tsx` —
+  template/palette selection now lives in `Create.tsx` state (not `AdvancedOptions`'s own
+  `localStorage`-backed `useState`) and is sent explicitly with the job-creation request;
+  `localStorage` still seeds the default for returning users only.
+- `client/src/pages/Result.tsx` — reads `templateId`/`paletteId` from `jobData` (falling back to
+  `localStorage` only for carousels generated before this shipped), passes them to
+  `ContentColumn`, and added `onTemplateSwitch` for the new in-Result switcher.
+- `client/src/pages/Result/components/ContentColumn.tsx`,
+  `.../content/carousel/IGCarouselPreview.tsx` — prop-threaded down to `IGSlide`.
+- New `client/src/pages/Result/components/content/carousel/CarouselTemplateSwitcher.tsx` —
+  collapsible panel (matches `ContentMultiplier`'s pattern) on the Result page letting a user
+  change a carousel's template/palette after generation; calls the new PATCH route.
+
+**Bugs found and fixed while verifying live (none of these were introduced by the wiring above
+— all were latent in the prior session's uncommitted template-system work):**
+- `server/src/lib/carouselSsr.ts`'s `buildSlideHtml()` built its `renderSlideHtml()` params
+  object without `templateId`/`paletteId` at all — the PNG export path silently ignored template
+  selection regardless of the wiring above. Fixed.
+- `server/src/generated/slideRenderer.d.ts` (hand-written types for the esbuild SSR bundle) was
+  missing `templateId`/`paletteId` on `RenderSlideParams`, and the bundle itself
+  (`slideRenderer.js`) predated the template-system source changes entirely — confirmed via a
+  byte-identical-output test across 3 templates before rebuilding. Fixed by adding the fields to
+  the `.d.ts` and rebuilding via `npm run build:ssr`.
+- `IGSlide.tsx` resolved `templateId` into a template but never resolved `paletteId` into an
+  actual color override — every template component rendered using the legacy 9-theme `colors`
+  prop, so picking a palette in the gallery had no visual effect. Now resolves
+  `getPalette(templateId, paletteId)` and derives a `ColorSystem` via
+  `deriveColorSystemFromPalette()` for the template render branch.
+- `igslide/layouts/TemplateLayout.tsx` (the shared wrapper all 10 templates render through) was
+  missing `flexShrink: 0` on its root box — inside the carousel preview's horizontal flex track,
+  every slide compressed to fit the visible width instead of staying full-size and swiping
+  individually (reported as slides rendering squished side-by-side with clipped text).
+- The same wrapper applied `padding: spacing.padding` a second time on top of the padding every
+  individual `*Template.tsx` component already applies to its own content box — shrinking the
+  visible template surface inward on all four edges. Combined with 9 of the 10 templates never
+  setting a `background` on that content box at all (only `LuxuryDarkTemplate` did), this
+  produced a letterboxed post floating on black — reported as "black background around the
+  carousel" on both the live preview and the downloaded PNG. Fixed by removing the wrapper's
+  duplicate padding and adding `background: colors.LIGHT_BG` (or the template's own dark fill)
+  to all 10 templates' content boxes, plus `overflow: hidden`/`minHeight: 0` on the wrapper's
+  inner flex box so long body text clips to the frame instead of overflowing past it.
+- `TemplateLayout.tsx` also carried a dead `React.cloneElement(..., { templateStyles })`
+  mechanism injecting computed heading/body styles into children — no template component ever
+  read that prop (each computes its own styles from `template.typography` directly). Removed.
+- 11 pre-existing `@typescript-eslint/no-explicit-any` lint errors across all 10 template
+  components (`slide.points.map((point: any, i: number) => ...)`) — removed the redundant
+  annotations; `SlidePoint`/`number` now infer correctly from `SlideData`.
+
+**Deferred to a later session (see `CAROUSEL_TEMPLATE_PLAN.md` §3, not part of this P0 pass):**
+real thumbnails in `TemplateGallery` (currently a schematic mini-preview, not the real
+component), a working custom color picker (`ColorPalettePicker`'s custom-color button is still a
+placeholder), per-slide-type layout variety within each template (today one layout serves
+cover/content/stat/quote/cta uniformly), and retiring the legacy 9-theme system now that the new
+one is proven working.
+
+---
+
 ## 2026-08-05 — Repurpose: batch multi-URL input + RSS/feed monitoring
 
 **Status:** Complete. Both items from `FUTURE_FEATURES.md`'s Repurpose "Design decisions" section are now implemented.

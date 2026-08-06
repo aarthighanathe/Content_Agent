@@ -493,7 +493,7 @@ var require_react = __commonJS({
 var require_react_dom_production = __commonJS({
   "node_modules/react-dom/cjs/react-dom.production.js"(exports) {
     "use strict";
-    var React2 = require_react();
+    var React13 = require_react();
     function formatProdErrorMessage(code) {
       var url = "https://react.dev/errors/" + code;
       if (1 < arguments.length) {
@@ -533,7 +533,7 @@ var require_react_dom_production = __commonJS({
         implementation
       };
     }
-    var ReactSharedInternals = React2.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    var ReactSharedInternals = React13.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     function getCrossOriginStringAs(as, input) {
       if ("font" === as) return "";
       if ("string" === typeof input)
@@ -668,7 +668,7 @@ var require_react_dom = __commonJS({
 var require_react_dom_server_legacy_node_production = __commonJS({
   "node_modules/react-dom/cjs/react-dom-server-legacy.node.production.js"(exports) {
     "use strict";
-    var React2 = require_react();
+    var React13 = require_react();
     var ReactDOM = require_react_dom();
     var REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element");
     var REACT_PORTAL_TYPE = /* @__PURE__ */ Symbol.for("react.portal");
@@ -868,7 +868,7 @@ var require_react_dom_server_legacy_node_production = __commonJS({
     function sanitizeURL(url) {
       return isJavaScriptProtocol.test("" + url) ? "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')" : url;
     }
-    var ReactSharedInternals = React2.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    var ReactSharedInternals = React13.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     var ReactDOMSharedInternals = ReactDOM.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     var sharedNotPendingObject = {
       pending: false,
@@ -1229,7 +1229,7 @@ var require_react_dom_server_legacy_node_production = __commonJS({
     }
     function flattenOptionChildren(children) {
       var content = "";
-      React2.Children.forEach(children, function(child) {
+      React13.Children.forEach(children, function(child) {
         null != child && (content += child);
       });
       return content;
@@ -5609,7 +5609,7 @@ var require_react_dom_server_node_production = __commonJS({
     var util = __require("util");
     var crypto = __require("crypto");
     var async_hooks = __require("async_hooks");
-    var React2 = require_react();
+    var React13 = require_react();
     var ReactDOM = require_react_dom();
     var stream = __require("stream");
     var REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for("react.transitional.element");
@@ -5836,7 +5836,7 @@ var require_react_dom_server_node_production = __commonJS({
     function sanitizeURL(url) {
       return isJavaScriptProtocol.test("" + url) ? "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')" : url;
     }
-    var ReactSharedInternals = React2.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    var ReactSharedInternals = React13.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     var ReactDOMSharedInternals = ReactDOM.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     var sharedNotPendingObject = {
       pending: false,
@@ -6412,7 +6412,7 @@ var require_react_dom_server_node_production = __commonJS({
     }
     function flattenOptionChildren(children) {
       var content = "";
-      React2.Children.forEach(children, function(child) {
+      React13.Children.forEach(children, function(child) {
         null != child && (content += child);
       });
       return content;
@@ -10916,7 +10916,7 @@ var require_react_dom_server_node_production = __commonJS({
       };
     }
     function ensureCorrectIsomorphicReactVersion() {
-      var isomorphicReactPackageVersion = React2.version;
+      var isomorphicReactPackageVersion = React13.version;
       if ("19.2.8" !== isomorphicReactPackageVersion)
         throw Error(
           'Incompatible React versions: The "react" and "react-dom" packages must have the exact same version. Instead got:\n  - react:      ' + (isomorphicReactPackageVersion + "\n  - react-dom:  19.2.8\nLearn more: https://react.dev/warnings/version-mismatch")
@@ -11515,7 +11515,50 @@ var require_jsx_runtime = __commonJS({
 var import_server = __toESM(require_server_node(), 1);
 
 // src/pages/Result/components/content/carousel/IGSlide.tsx
-var import_react = __toESM(require_react(), 1);
+var import_react12 = __toESM(require_react(), 1);
+
+// src/lib/colorSystem.ts
+function hexToRgb(hex) {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  return [n >> 16 & 255, n >> 8 & 255, n & 255];
+}
+function rgbToHex(r, g, b) {
+  return "#" + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0")).join("");
+}
+function lighten(hex, amount) {
+  const [r, g, b] = hexToRgb(hex);
+  return rgbToHex(r + (255 - r) * amount, g + (255 - g) * amount, b + (255 - b) * amount);
+}
+function tintedDark(primaryHex) {
+  const [r, g, b] = hexToRgb(primaryHex);
+  const t = 0.09;
+  return rgbToHex(4 + r * t, 4 + g * t, 10 + b * t);
+}
+function relativeLuminance(hex) {
+  const [r, g, b] = hexToRgb(hex);
+  const [rl, gl, bl] = [r, g, b].map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+}
+function getContrastColor(bgHex) {
+  return relativeLuminance(bgHex) > 0.5 ? "#1a1a1a" : "#ffffff";
+}
+function getContrastRgba(bgHex, alpha) {
+  return relativeLuminance(bgHex) > 0.5 ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha})`;
+}
+function deriveColorSystemFromPalette(palette) {
+  return {
+    BRAND_PRIMARY: palette.primary,
+    BRAND_LIGHT: palette.accent,
+    BRAND_DARK: palette.secondary,
+    LIGHT_BG: palette.background,
+    LIGHT_BORDER: lighten(palette.primary, 0.72),
+    DARK_BG: tintedDark(palette.primary)
+  };
+}
 
 // src/pages/Result/components/content/carousel/igslide/presets.ts
 var DESIGN_PRESETS = [
@@ -12657,31 +12700,2705 @@ function FeaturesLayout({ slide, colors }) {
   ] });
 }
 
-// src/pages/Result/components/content/carousel/IGSlide.tsx
+// src/lib/templateSystem.ts
+var TEMPLATES = {
+  "modern-minimal": {
+    id: "modern-minimal",
+    name: "Modern Minimal",
+    description: "Clean, spacious design with large typography and subtle decorative lines",
+    category: "minimal",
+    typography: {
+      headingFont: "Plus Jakarta Sans",
+      bodyFont: "Plus Jakarta Sans",
+      headingWeight: 700,
+      bodyWeight: 400,
+      headingSize: 32,
+      bodySize: 14,
+      letterSpacing: 0
+    },
+    spacing: {
+      padding: 32,
+      gap: 16,
+      sectionSpacing: 24
+    },
+    layout: {
+      coverStyle: "centered",
+      contentStyle: "card",
+      decorativeElements: ["thin-lines", "numbered-steps"]
+    },
+    colorPalettes: [
+      {
+        id: "ocean-blue",
+        name: "Ocean Blue",
+        colors: {
+          primary: "#3B82F6",
+          secondary: "#1E40AF",
+          accent: "#60A5FA",
+          background: "#F0F9FF",
+          text: "#1E3A8A"
+        }
+      },
+      {
+        id: "forest-green",
+        name: "Forest Green",
+        colors: {
+          primary: "#10B981",
+          secondary: "#065F46",
+          accent: "#34D399",
+          background: "#ECFDF5",
+          text: "#064E3B"
+        }
+      },
+      {
+        id: "slate-gray",
+        name: "Slate Gray",
+        colors: {
+          primary: "#64748B",
+          secondary: "#334155",
+          accent: "#94A3B8",
+          background: "#F8FAFC",
+          text: "#1E293B"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "bold-statement": {
+    id: "bold-statement",
+    name: "Bold Statement",
+    description: "High-contrast, attention-grabbing design with dramatic spacing",
+    category: "bold",
+    typography: {
+      headingFont: "DM Sans",
+      bodyFont: "DM Sans",
+      headingWeight: 800,
+      bodyWeight: 500,
+      headingSize: 36,
+      bodySize: 15,
+      letterSpacing: -0.5
+    },
+    spacing: {
+      padding: 28,
+      gap: 20,
+      sectionSpacing: 28
+    },
+    layout: {
+      coverStyle: "full-bleed",
+      contentStyle: "highlight",
+      decorativeElements: ["geometric-shapes", "bold-borders"]
+    },
+    colorPalettes: [
+      {
+        id: "electric-orange",
+        name: "Electric Orange",
+        colors: {
+          primary: "#FF6B35",
+          secondary: "#E85D04",
+          accent: "#FF9F1C",
+          background: "#FFF7ED",
+          text: "#1C1917"
+        }
+      },
+      {
+        id: "vivid-purple",
+        name: "Vivid Purple",
+        colors: {
+          primary: "#8B5CF6",
+          secondary: "#7C3AED",
+          accent: "#A78BFA",
+          background: "#F5F3FF",
+          text: "#1E1B4B"
+        }
+      },
+      {
+        id: "crimson-red",
+        name: "Crimson Red",
+        colors: {
+          primary: "#DC2626",
+          secondary: "#B91C1C",
+          accent: "#EF4444",
+          background: "#FEF2F2",
+          text: "#450A0A"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "editorial-classic": {
+    id: "editorial-classic",
+    name: "Editorial Classic",
+    description: "Magazine-style layout with elegant serif headings",
+    category: "editorial",
+    typography: {
+      headingFont: "Playfair Display",
+      bodyFont: "Plus Jakarta Sans",
+      headingWeight: 700,
+      bodyWeight: 400,
+      headingSize: 34,
+      bodySize: 14,
+      letterSpacing: 0.5
+    },
+    spacing: {
+      padding: 36,
+      gap: 18,
+      sectionSpacing: 26
+    },
+    layout: {
+      coverStyle: "split",
+      contentStyle: "card",
+      decorativeElements: ["quote-marks", "dividers", "drop-caps"]
+    },
+    colorPalettes: [
+      {
+        id: "warm-gold",
+        name: "Warm Gold",
+        colors: {
+          primary: "#D97706",
+          secondary: "#92400E",
+          accent: "#F59E0B",
+          background: "#FFFBEB",
+          text: "#451A03"
+        }
+      },
+      {
+        id: "classic-burgundy",
+        name: "Classic Burgundy",
+        colors: {
+          primary: "#881337",
+          secondary: "#4C0519",
+          accent: "#BE123C",
+          background: "#FFF1F2",
+          text: "#4A044E"
+        }
+      },
+      {
+        id: "navy-cream",
+        name: "Navy Cream",
+        colors: {
+          primary: "#1E3A8A",
+          secondary: "#1E40AF",
+          accent: "#3B82F6",
+          background: "#EFF6FF",
+          text: "#172554"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "tech-modern": {
+    id: "tech-modern",
+    name: "Tech Modern",
+    description: "Clean, tech-focused design with grid layouts and monospace accents",
+    category: "modern",
+    typography: {
+      headingFont: "Inter",
+      bodyFont: "DM Sans",
+      headingWeight: 600,
+      bodyWeight: 400,
+      headingSize: 30,
+      bodySize: 14,
+      letterSpacing: -0.25
+    },
+    spacing: {
+      padding: 30,
+      gap: 16,
+      sectionSpacing: 22
+    },
+    layout: {
+      coverStyle: "centered",
+      contentStyle: "list",
+      decorativeElements: ["grid-patterns", "code-accents"]
+    },
+    colorPalettes: [
+      {
+        id: "cyber-cyan",
+        name: "Cyber Cyan",
+        colors: {
+          primary: "#06B6D4",
+          secondary: "#0891B2",
+          accent: "#22D3EE",
+          background: "#ECFEFF",
+          text: "#164E63"
+        }
+      },
+      {
+        id: "matrix-green",
+        name: "Matrix Green",
+        colors: {
+          primary: "#22C55E",
+          secondary: "#16A34A",
+          accent: "#4ADE80",
+          background: "#F0FDF4",
+          text: "#14532D"
+        }
+      },
+      {
+        id: "neon-pink",
+        name: "Neon Pink",
+        colors: {
+          primary: "#EC4899",
+          secondary: "#DB2777",
+          accent: "#F472B6",
+          background: "#FDF2F8",
+          text: "#831843"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "vibrant-pop": {
+    id: "vibrant-pop",
+    name: "Vibrant Pop",
+    description: "Colorful, energetic design with playful elements and rounded corners",
+    category: "modern",
+    typography: {
+      headingFont: "Plus Jakarta Sans",
+      bodyFont: "Plus Jakarta Sans",
+      headingWeight: 700,
+      bodyWeight: 500,
+      headingSize: 32,
+      bodySize: 15,
+      letterSpacing: 0
+    },
+    spacing: {
+      padding: 32,
+      gap: 18,
+      sectionSpacing: 24
+    },
+    layout: {
+      coverStyle: "centered",
+      contentStyle: "card",
+      decorativeElements: ["colorful-blobs", "emoji-accents"]
+    },
+    colorPalettes: [
+      {
+        id: "sunset-gradient",
+        name: "Sunset Gradient",
+        colors: {
+          primary: "#F97316",
+          secondary: "#FB923C",
+          accent: "#FDBA74",
+          background: "#FFF7ED",
+          text: "#7C2D12"
+        }
+      },
+      {
+        id: "berry-blast",
+        name: "Berry Blast",
+        colors: {
+          primary: "#A855F7",
+          secondary: "#C084FC",
+          accent: "#E879F9",
+          background: "#FAF5FF",
+          text: "#581C87"
+        }
+      },
+      {
+        id: "tropical-mint",
+        name: "Tropical Mint",
+        colors: {
+          primary: "#14B8A6",
+          secondary: "#2DD4BF",
+          accent: "#5EEAD4",
+          background: "#F0FDFA",
+          text: "#134E4A"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "luxury-dark": {
+    id: "luxury-dark",
+    name: "Luxury Dark",
+    description: "Premium dark theme with gold/metallic accents and elegant spacing",
+    category: "classic",
+    typography: {
+      headingFont: "Playfair Display",
+      bodyFont: "Inter",
+      headingWeight: 600,
+      bodyWeight: 400,
+      headingSize: 32,
+      bodySize: 14,
+      letterSpacing: 0.5
+    },
+    spacing: {
+      padding: 36,
+      gap: 20,
+      sectionSpacing: 28
+    },
+    layout: {
+      coverStyle: "minimal",
+      contentStyle: "minimal",
+      decorativeElements: ["metallic-gradients", "thin-borders"]
+    },
+    colorPalettes: [
+      {
+        id: "gold-black",
+        name: "Gold Black",
+        colors: {
+          primary: "#F59E0B",
+          secondary: "#D97706",
+          accent: "#FBBF24",
+          background: "#0A0A0A",
+          text: "#FAFAF9"
+        }
+      },
+      {
+        id: "silver-charcoal",
+        name: "Silver Charcoal",
+        colors: {
+          primary: "#9CA3AF",
+          secondary: "#6B7280",
+          accent: "#D1D5DB",
+          background: "#0F0F0F",
+          text: "#F3F4F6"
+        }
+      },
+      {
+        id: "bronze-midnight",
+        name: "Bronze Midnight",
+        colors: {
+          primary: "#B45309",
+          secondary: "#92400E",
+          accent: "#D97706",
+          background: "#0C0A09",
+          text: "#FAFAF9"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "clean-corporate": {
+    id: "clean-corporate",
+    name: "Clean Corporate",
+    description: "Professional, business-focused design with structured layouts",
+    category: "minimal",
+    typography: {
+      headingFont: "Inter",
+      bodyFont: "Inter",
+      headingWeight: 600,
+      bodyWeight: 400,
+      headingSize: 30,
+      bodySize: 14,
+      letterSpacing: 0
+    },
+    spacing: {
+      padding: 32,
+      gap: 16,
+      sectionSpacing: 24
+    },
+    layout: {
+      coverStyle: "split",
+      contentStyle: "card",
+      decorativeElements: ["icon-accents", "progress-bars"]
+    },
+    colorPalettes: [
+      {
+        id: "professional-blue",
+        name: "Professional Blue",
+        colors: {
+          primary: "#2563EB",
+          secondary: "#1D4ED8",
+          accent: "#3B82F6",
+          background: "#EFF6FF",
+          text: "#1E3A8A"
+        }
+      },
+      {
+        id: "trust-gray",
+        name: "Trust Gray",
+        colors: {
+          primary: "#475569",
+          secondary: "#334155",
+          accent: "#64748B",
+          background: "#F8FAFC",
+          text: "#0F172A"
+        }
+      },
+      {
+        id: "growth-green",
+        name: "Growth Green",
+        colors: {
+          primary: "#059669",
+          secondary: "#047857",
+          accent: "#10B981",
+          background: "#ECFDF5",
+          text: "#064E3B"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "creative-abstract": {
+    id: "creative-abstract",
+    name: "Creative Abstract",
+    description: "Artistic design with organic shapes and asymmetric layouts",
+    category: "modern",
+    typography: {
+      headingFont: "DM Sans",
+      bodyFont: "Plus Jakarta Sans",
+      headingWeight: 700,
+      bodyWeight: 400,
+      headingSize: 34,
+      bodySize: 14,
+      letterSpacing: 0.25
+    },
+    spacing: {
+      padding: 30,
+      gap: 18,
+      sectionSpacing: 26
+    },
+    layout: {
+      coverStyle: "full-bleed",
+      contentStyle: "highlight",
+      decorativeElements: ["abstract-shapes", "gradient-overlays"]
+    },
+    colorPalettes: [
+      {
+        id: "artistic-gradient",
+        name: "Artistic Gradient",
+        colors: {
+          primary: "#8B5CF6",
+          secondary: "#EC4899",
+          accent: "#F43F5E",
+          background: "#FDF4FF",
+          text: "#4A044E"
+        }
+      },
+      {
+        id: "organic-earth",
+        name: "Organic Earth",
+        colors: {
+          primary: "#78716C",
+          secondary: "#57534E",
+          accent: "#A8A29E",
+          background: "#FAFAF9",
+          text: "#292524"
+        }
+      },
+      {
+        id: "dreamy-lavender",
+        name: "Dreamy Lavender",
+        colors: {
+          primary: "#A78BFA",
+          secondary: "#8B5CF6",
+          accent: "#C4B5FD",
+          background: "#F5F3FF",
+          text: "#4C1D95"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "storyteller": {
+    id: "storyteller",
+    name: "Storyteller",
+    description: "Narrative-focused design with visual flow and connecting elements",
+    category: "editorial",
+    typography: {
+      headingFont: "Playfair Display",
+      bodyFont: "Plus Jakarta Sans",
+      headingWeight: 600,
+      bodyWeight: 400,
+      headingSize: 32,
+      bodySize: 14,
+      letterSpacing: 0.5
+    },
+    spacing: {
+      padding: 34,
+      gap: 18,
+      sectionSpacing: 26
+    },
+    layout: {
+      coverStyle: "centered",
+      contentStyle: "list",
+      decorativeElements: ["connecting-lines", "chapter-markers"]
+    },
+    colorPalettes: [
+      {
+        id: "story-amber",
+        name: "Story Amber",
+        colors: {
+          primary: "#D97706",
+          secondary: "#B45309",
+          accent: "#FBBF24",
+          background: "#FFFBEB",
+          text: "#451A03"
+        }
+      },
+      {
+        id: "narrative-indigo",
+        name: "Narrative Indigo",
+        colors: {
+          primary: "#4F46E5",
+          secondary: "#4338CA",
+          accent: "#6366F1",
+          background: "#EEF2FF",
+          text: "#312E81"
+        }
+      },
+      {
+        id: "tale-teal",
+        name: "Tale Teal",
+        colors: {
+          primary: "#0D9488",
+          secondary: "#0F766E",
+          accent: "#14B8A6",
+          background: "#F0FDFA",
+          text: "#134E4A"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  },
+  "social-media": {
+    id: "social-media",
+    name: "Social Media",
+    description: "Optimized for engagement with clear CTAs and emoji integration",
+    category: "modern",
+    typography: {
+      headingFont: "Plus Jakarta Sans",
+      bodyFont: "Plus Jakarta Sans",
+      headingWeight: 800,
+      bodyWeight: 500,
+      headingSize: 34,
+      bodySize: 15,
+      letterSpacing: 0
+    },
+    spacing: {
+      padding: 30,
+      gap: 18,
+      sectionSpacing: 24
+    },
+    layout: {
+      coverStyle: "centered",
+      contentStyle: "card",
+      decorativeElements: ["emoji-accents", "action-buttons"]
+    },
+    colorPalettes: [
+      {
+        id: "engagement-pink",
+        name: "Engagement Pink",
+        colors: {
+          primary: "#EC4899",
+          secondary: "#DB2777",
+          accent: "#F472B6",
+          background: "#FDF2F8",
+          text: "#831843"
+        }
+      },
+      {
+        id: "viral-orange",
+        name: "Viral Orange",
+        colors: {
+          primary: "#F97316",
+          secondary: "#EA580C",
+          accent: "#FB923C",
+          background: "#FFF7ED",
+          text: "#7C2D12"
+        }
+      },
+      {
+        id: "trending-blue",
+        name: "Trending Blue",
+        colors: {
+          primary: "#3B82F6",
+          secondary: "#2563EB",
+          accent: "#60A5FA",
+          background: "#EFF6FF",
+          text: "#1E3A8A"
+        }
+      }
+    ],
+    defaultPaletteIndex: 0
+  }
+};
+function isTemplateId(id) {
+  return Object.prototype.hasOwnProperty.call(TEMPLATES, id);
+}
+function getTemplate(id) {
+  return TEMPLATES[id];
+}
+function getPalette(templateId, paletteId) {
+  const template = getTemplate(templateId);
+  if (!template) return void 0;
+  return template.colorPalettes.find((p) => p.id === paletteId);
+}
+
+// src/pages/Result/components/content/carousel/igslide/templates/ModernMinimalTemplate.tsx
+var import_react2 = __toESM(require_react(), 1);
+
+// src/pages/Result/components/content/carousel/igslide/layouts/TemplateLayout.tsx
+var import_react = __toESM(require_react(), 1);
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
-var IGSlide = import_react.default.forwardRef(
+var TemplateLayout = import_react.default.forwardRef(
+  function TemplateLayout2({ width, height, template, children }, ref) {
+    const { layout } = template;
+    return (
+      // WHY no padding/background here: every *Template.tsx component already
+      // applies its own `padding: spacing.padding` and `background` to its inner
+      // content div (that's where each template's actual surface color lives).
+      // This box used to apply `padding: spacing.padding` a second time on top
+      // of that, shrinking the visible template surface inward from all four
+      // edges on every side — the gap revealed whatever sat behind it (the page
+      // background), which is exactly the letterboxed "post floating on a black
+      // background" bug reported on both the live preview and the exported PNG.
+      // This box's only job is fixed sizing + clipping; full-bleed styling is
+      // entirely the child template component's responsibility.
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+        "div",
+        {
+          ref,
+          style: {
+            width,
+            height,
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "column",
+            position: "relative",
+            overflow: "hidden"
+          },
+          "data-template": template.id,
+          "data-cover-style": layout.coverStyle,
+          "data-content-style": layout.contentStyle,
+          children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
+            "div",
+            {
+              style: {
+                flex: 1,
+                minHeight: 0,
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden"
+              },
+              children
+            }
+          )
+        }
+      )
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/fontStack.ts
+function resolveTemplateFont(font) {
+  return font === "Playfair Display" ? "'Playfair Display', serif" : "'Plus Jakarta Sans', system-ui, sans-serif";
+}
+
+// src/pages/Result/components/content/carousel/igslide/templates/ModernMinimalTemplate.tsx
+var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var ModernMinimalTemplate = import_react2.default.forwardRef(
+  function ModernMinimalTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: spacing.padding,
+              textAlign: "center",
+              background: colors.LIGHT_BG
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { style: { flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center" }, children: [
+                /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+                  "div",
+                  {
+                    style: {
+                      width: 40,
+                      height: 3,
+                      background: colors.BRAND_PRIMARY,
+                      marginBottom: spacing.sectionSpacing,
+                      borderRadius: 2
+                    }
+                  }
+                ),
+                slide.headline && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+                  "h2",
+                  {
+                    style: {
+                      fontFamily: resolveTemplateFont(typography.headingFont),
+                      fontWeight: typography.headingWeight,
+                      fontSize: typography.headingSize,
+                      letterSpacing: typography.letterSpacing,
+                      color: colors.BRAND_PRIMARY,
+                      marginBottom: spacing.gap,
+                      lineHeight: 1.2,
+                      maxWidth: "90%"
+                    },
+                    children: slide.headline
+                  }
+                ),
+                slide.body && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+                  "p",
+                  {
+                    style: {
+                      fontFamily: resolveTemplateFont(typography.bodyFont),
+                      fontWeight: typography.bodyWeight,
+                      fontSize: typography.bodySize,
+                      color: getContrastColor(colors.LIGHT_BG),
+                      lineHeight: 1.6,
+                      maxWidth: "85%"
+                    },
+                    children: slide.body
+                  }
+                )
+              ] }),
+              slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+                "div",
+                {
+                  style: {
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    gap: spacing.gap,
+                    marginTop: spacing.sectionSpacing,
+                    maxWidth: "85%",
+                    width: "100%",
+                    overflow: "hidden"
+                  },
+                  children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 12,
+                        fontSize: 14,
+                        textAlign: "left",
+                        color: getContrastColor(colors.LIGHT_BG)
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+                          "span",
+                          {
+                            style: {
+                              color: colors.BRAND_PRIMARY,
+                              fontSize: 16,
+                              fontWeight: 600
+                            },
+                            children: point.icon || "\u2022"
+                          }
+                        ),
+                        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: { fontWeight: 600, marginBottom: 2 }, children: point.label }),
+                          point.desc && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: { fontSize: 13, opacity: 0.8 }, children: point.desc })
+                        ] })
+                      ]
+                    },
+                    stablePointKeys(slide.points)[i]
+                  ))
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: { flexShrink: 0, height: spacing.padding } }),
+              /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    bottom: spacing.padding,
+                    right: spacing.padding,
+                    fontSize: 12,
+                    fontFamily: resolveTemplateFont(typography.bodyFont),
+                    color: getContrastRgba(colors.LIGHT_BG, 0.4),
+                    fontWeight: 500
+                  },
+                  children: [
+                    index + 1,
+                    "/",
+                    total
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/BoldStatementTemplate.tsx
+var import_react3 = __toESM(require_react(), 1);
+var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var BoldStatementTemplate = import_react3.default.forwardRef(
+  function BoldStatementTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing, layout } = template;
+    const isSplit = layout.coverStyle === "split";
+    return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: isSplit ? "row" : "column",
+              padding: spacing.padding,
+              background: colors.LIGHT_BG
+            },
+            children: [
+              isSplit && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+                "div",
+                {
+                  style: {
+                    width: "25%",
+                    background: colors.BRAND_PRIMARY,
+                    display: "flex",
+                    alignItems: "flex-end",
+                    justifyContent: "center",
+                    padding: 20
+                  },
+                  children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+                    "div",
+                    {
+                      style: {
+                        color: getContrastColor(colors.BRAND_PRIMARY),
+                        fontSize: 48,
+                        fontWeight: 900,
+                        lineHeight: 1,
+                        transform: "rotate(-90deg)",
+                        whiteSpace: "nowrap"
+                      },
+                      children: String(index + 1).padStart(2, "0")
+                    }
+                  )
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
+                "div",
+                {
+                  style: {
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    padding: isSplit ? spacing.padding : 0,
+                    minHeight: 0,
+                    overflow: "hidden"
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden" }, children: [
+                      !isSplit && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+                        "div",
+                        {
+                          style: {
+                            width: "100%",
+                            height: 8,
+                            background: colors.BRAND_PRIMARY,
+                            marginBottom: spacing.sectionSpacing,
+                            flexShrink: 0
+                          }
+                        }
+                      ),
+                      slide.headline && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+                        "h2",
+                        {
+                          style: {
+                            fontFamily: resolveTemplateFont(typography.headingFont),
+                            fontWeight: typography.headingWeight,
+                            fontSize: isSplit ? 32 : 40,
+                            letterSpacing: typography.letterSpacing,
+                            color: colors.BRAND_PRIMARY,
+                            marginBottom: spacing.gap,
+                            lineHeight: 1.1,
+                            textTransform: "uppercase",
+                            maxWidth: "100%",
+                            overflowWrap: "break-word",
+                            wordBreak: "break-word"
+                          },
+                          children: slide.headline
+                        }
+                      ),
+                      slide.body && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+                        "p",
+                        {
+                          style: {
+                            fontFamily: resolveTemplateFont(typography.bodyFont),
+                            fontWeight: typography.bodyWeight,
+                            fontSize: typography.bodySize,
+                            color: getContrastColor(colors.LIGHT_BG),
+                            marginBottom: spacing.sectionSpacing,
+                            lineHeight: 1.5
+                          },
+                          children: slide.body
+                        }
+                      ),
+                      slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+                        "div",
+                        {
+                          style: {
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: spacing.gap
+                          },
+                          children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
+                            "div",
+                            {
+                              style: {
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 12,
+                                fontSize: 15,
+                                fontWeight: 600,
+                                color: getContrastColor(colors.LIGHT_BG)
+                              },
+                              children: [
+                                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+                                  "div",
+                                  {
+                                    style: {
+                                      width: 8,
+                                      height: 8,
+                                      background: colors.BRAND_PRIMARY,
+                                      borderRadius: "50%",
+                                      flexShrink: 0
+                                    }
+                                  }
+                                ),
+                                /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: point.label })
+                              ]
+                            },
+                            stablePointKeys(slide.points)[i]
+                          ))
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
+                      "div",
+                      {
+                        style: {
+                          flexShrink: 0,
+                          paddingTop: spacing.gap,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: getContrastRgba(colors.LIGHT_BG, 0.5)
+                        },
+                        children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: brandName }),
+                          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { children: [
+                            "@",
+                            handle
+                          ] })
+                        ]
+                      }
+                    )
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/EditorialClassicTemplate.tsx
+var import_react4 = __toESM(require_react(), 1);
+var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var EditorialClassicTemplate = import_react4.default.forwardRef(
+  function EditorialClassicTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              padding: spacing.padding,
+              background: colors.LIGHT_BG
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                "div",
+                {
+                  style: {
+                    width: "100%",
+                    height: 2,
+                    background: colors.BRAND_PRIMARY,
+                    marginBottom: spacing.sectionSpacing
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: spacing.sectionSpacing,
+                    fontFamily: resolveTemplateFont(typography.bodyFont),
+                    fontSize: 11,
+                    letterSpacing: 2,
+                    textTransform: "uppercase",
+                    color: getContrastRgba(colors.LIGHT_BG, 0.6)
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { children: "Editorial" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { children: String(index + 1).padStart(2, "0") })
+                  ]
+                }
+              ),
+              slide.headline && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                "h2",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.headingFont),
+                    fontWeight: typography.headingWeight,
+                    fontSize: typography.headingSize,
+                    letterSpacing: typography.letterSpacing,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.gap,
+                    lineHeight: 1.3
+                  },
+                  children: slide.headline
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                "div",
+                {
+                  style: {
+                    width: 60,
+                    height: 1,
+                    background: colors.BRAND_LIGHT,
+                    marginBottom: spacing.sectionSpacing
+                  }
+                }
+              ),
+              slide.body && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                "p",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.bodyFont),
+                    fontWeight: typography.bodyWeight,
+                    fontSize: typography.bodySize,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.sectionSpacing,
+                    lineHeight: 1.7,
+                    textAlign: "justify"
+                  },
+                  children: slide.body
+                }
+              ),
+              slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: spacing.gap
+                  },
+                  children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        gap: 16,
+                        fontSize: 14,
+                        color: getContrastColor(colors.LIGHT_BG)
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                          "span",
+                          {
+                            style: {
+                              fontFamily: resolveTemplateFont(typography.headingFont),
+                              fontSize: 18,
+                              fontWeight: 700,
+                              color: colors.BRAND_PRIMARY,
+                              lineHeight: 1
+                            },
+                            children: String(i + 1).padStart(2, "0")
+                          }
+                        ),
+                        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { flex: 1 }, children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontWeight: 600, marginBottom: 4 }, children: point.label }),
+                          point.desc && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { fontSize: 13, opacity: 0.8, lineHeight: 1.5 }, children: point.desc })
+                        ] })
+                      ]
+                    },
+                    stablePointKeys(slide.points)[i]
+                  ))
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+                "div",
+                {
+                  style: {
+                    marginTop: "auto",
+                    width: "100%",
+                    height: 2,
+                    background: colors.BRAND_PRIMARY
+                  }
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/TechModernTemplate.tsx
+var import_react5 = __toESM(require_react(), 1);
+var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+var TechModernTemplate = import_react5.default.forwardRef(
+  function TechModernTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              padding: spacing.padding,
+              position: "relative",
+              background: colors.LIGHT_BG
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundImage: `
+              linear-gradient(${colors.BRAND_LIGHT}11 1px, transparent 1px),
+              linear-gradient(90deg, ${colors.BRAND_LIGHT}11 1px, transparent 1px)
+            `,
+                    backgroundSize: "20px 20px",
+                    pointerEvents: "none",
+                    opacity: 0.3
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: spacing.sectionSpacing,
+                    fontFamily: "monospace",
+                    fontSize: 10,
+                    letterSpacing: 1,
+                    color: colors.BRAND_PRIMARY,
+                    position: "relative",
+                    zIndex: 1
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { children: "[SYSTEM_READY]" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { children: [
+                      String(index + 1).padStart(2, "0"),
+                      " / ",
+                      String(total).padStart(2, "0")
+                    ] })
+                  ]
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    top: spacing.padding,
+                    right: spacing.padding,
+                    width: 30,
+                    height: 30,
+                    borderRight: `2px solid ${colors.BRAND_PRIMARY}`,
+                    borderTop: `2px solid ${colors.BRAND_PRIMARY}`,
+                    zIndex: 1
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
+                "div",
+                {
+                  style: {
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    position: "relative",
+                    zIndex: 1
+                  },
+                  children: [
+                    slide.headline && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+                      "h2",
+                      {
+                        style: {
+                          fontFamily: resolveTemplateFont(typography.headingFont),
+                          fontWeight: typography.headingWeight,
+                          fontSize: typography.headingSize,
+                          letterSpacing: typography.letterSpacing,
+                          color: getContrastColor(colors.LIGHT_BG),
+                          marginBottom: spacing.gap,
+                          lineHeight: 1.2,
+                          textTransform: "uppercase"
+                        },
+                        children: slide.headline
+                      }
+                    ),
+                    slide.body && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+                      "p",
+                      {
+                        style: {
+                          fontFamily: resolveTemplateFont(typography.bodyFont),
+                          fontWeight: typography.bodyWeight,
+                          fontSize: typography.bodySize,
+                          color: getContrastColor(colors.LIGHT_BG),
+                          marginBottom: spacing.sectionSpacing,
+                          lineHeight: 1.6
+                        },
+                        children: slide.body
+                      }
+                    ),
+                    slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: spacing.gap
+                        },
+                        children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
+                          "div",
+                          {
+                            style: {
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 12,
+                              fontSize: 13,
+                              fontFamily: "monospace",
+                              color: getContrastColor(colors.LIGHT_BG)
+                            },
+                            children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { style: { color: colors.BRAND_PRIMARY }, children: ">" }),
+                              /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { children: point.label })
+                            ]
+                          },
+                          stablePointKeys(slide.points)[i]
+                        ))
+                      }
+                    )
+                  ]
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
+                "div",
+                {
+                  style: {
+                    marginTop: spacing.sectionSpacing,
+                    padding: "12px 16px",
+                    background: `${colors.BRAND_PRIMARY}11`,
+                    borderLeft: `3px solid ${colors.BRAND_PRIMARY}`,
+                    fontFamily: "monospace",
+                    fontSize: 10,
+                    color: colors.BRAND_PRIMARY,
+                    position: "relative",
+                    zIndex: 1
+                  },
+                  children: [
+                    "@",
+                    handle,
+                    " // ",
+                    brandName.toUpperCase()
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/VibrantPopTemplate.tsx
+var import_react6 = __toESM(require_react(), 1);
+var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
+var VibrantPopTemplate = import_react6.default.forwardRef(
+  function VibrantPopTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              padding: spacing.padding,
+              position: "relative",
+              background: colors.LIGHT_BG
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    top: -50,
+                    right: -50,
+                    width: 150,
+                    height: 150,
+                    borderRadius: "50%",
+                    background: colors.BRAND_LIGHT,
+                    opacity: 0.3
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    bottom: -30,
+                    left: -30,
+                    width: 100,
+                    height: 100,
+                    borderRadius: "50%",
+                    background: colors.BRAND_DARK,
+                    opacity: 0.2
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                "div",
+                {
+                  style: {
+                    alignSelf: "flex-start",
+                    padding: "6px 14px",
+                    background: colors.BRAND_PRIMARY,
+                    borderRadius: 20,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "#ffffff",
+                    marginBottom: spacing.sectionSpacing,
+                    textTransform: "uppercase",
+                    letterSpacing: 1
+                  },
+                  children: "\u2728 Hot Take"
+                }
+              ),
+              slide.headline && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                "h2",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.headingFont),
+                    fontWeight: typography.headingWeight,
+                    fontSize: typography.headingSize,
+                    letterSpacing: typography.letterSpacing,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.gap,
+                    lineHeight: 1.2
+                  },
+                  children: slide.headline
+                }
+              ),
+              slide.body && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                "p",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.bodyFont),
+                    fontWeight: typography.bodyWeight,
+                    fontSize: typography.bodySize,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.sectionSpacing,
+                    lineHeight: 1.6
+                  },
+                  children: slide.body
+                }
+              ),
+              slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: spacing.gap
+                  },
+                  children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        fontSize: 14,
+                        color: getContrastColor(colors.LIGHT_BG)
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                          "span",
+                          {
+                            style: {
+                              fontSize: 18,
+                              background: colors.BRAND_LIGHT,
+                              width: 32,
+                              height: 32,
+                              borderRadius: "50%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center"
+                            },
+                            children: point.icon || ["\u{1F525}", "\u{1F4A1}", "\u26A1", "\u{1F3AF}", "\u2728"][i % 5]
+                          }
+                        ),
+                        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { style: { fontWeight: 600 }, children: point.label })
+                      ]
+                    },
+                    stablePointKeys(slide.points)[i]
+                  ))
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(
+                "div",
+                {
+                  style: {
+                    marginTop: "auto",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: colors.BRAND_PRIMARY
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("span", { children: [
+                      "@",
+                      handle
+                    ] }),
+                    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          gap: 4
+                        },
+                        children: [1, 2, 3].map((i) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+                          "div",
+                          {
+                            style: {
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: i <= index + 1 ? colors.BRAND_PRIMARY : `${colors.BRAND_PRIMARY}33`
+                            }
+                          },
+                          i
+                        ))
+                      }
+                    )
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/LuxuryDarkTemplate.tsx
+var import_react7 = __toESM(require_react(), 1);
+var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
+var LuxuryDarkTemplate = import_react7.default.forwardRef(
+  function LuxuryDarkTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              padding: spacing.padding,
+              // WHY colors.DARK_BG not a literal hex: this template is always visually
+              // dark, but the actual shade must still come from the resolved ColorSystem
+              // (per-palette tinted, deriveColorSystemFromPalette) so switching the
+              // curated palette in the gallery has a visible effect here too — a
+              // hardcoded '#0a0a0a' silently ignored every palette choice.
+              background: colors.DARK_BG,
+              position: "relative"
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    top: 20,
+                    left: 20,
+                    right: 20,
+                    bottom: 20,
+                    border: `1px solid ${colors.BRAND_PRIMARY}33`,
+                    pointerEvents: "none"
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    top: 20,
+                    left: 20,
+                    width: 20,
+                    height: 20,
+                    borderTop: `2px solid ${colors.BRAND_PRIMARY}`,
+                    borderLeft: `2px solid ${colors.BRAND_PRIMARY}`
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    top: 20,
+                    right: 20,
+                    width: 20,
+                    height: 20,
+                    borderTop: `2px solid ${colors.BRAND_PRIMARY}`,
+                    borderRight: `2px solid ${colors.BRAND_PRIMARY}`
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    bottom: 20,
+                    left: 20,
+                    width: 20,
+                    height: 20,
+                    borderBottom: `2px solid ${colors.BRAND_PRIMARY}`,
+                    borderLeft: `2px solid ${colors.BRAND_PRIMARY}`
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    bottom: 20,
+                    right: 20,
+                    width: 20,
+                    height: 20,
+                    borderBottom: `2px solid ${colors.BRAND_PRIMARY}`,
+                    borderRight: `2px solid ${colors.BRAND_PRIMARY}`
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "div",
+                {
+                  style: {
+                    alignSelf: "center",
+                    padding: "8px 24px",
+                    background: "transparent",
+                    border: `1px solid ${colors.BRAND_PRIMARY}`,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: 3,
+                    color: colors.BRAND_PRIMARY,
+                    marginBottom: spacing.sectionSpacing,
+                    textTransform: "uppercase"
+                  },
+                  children: "Premium"
+                }
+              ),
+              slide.headline && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "h2",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.headingFont),
+                    fontWeight: typography.headingWeight,
+                    fontSize: typography.headingSize,
+                    letterSpacing: typography.letterSpacing,
+                    color: colors.BRAND_PRIMARY,
+                    marginBottom: spacing.gap,
+                    lineHeight: 1.3,
+                    textAlign: "center"
+                  },
+                  children: slide.headline
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "div",
+                {
+                  style: {
+                    alignSelf: "center",
+                    width: 60,
+                    height: 1,
+                    background: `linear-gradient(90deg, transparent, ${colors.BRAND_PRIMARY}, transparent)`,
+                    marginBottom: spacing.sectionSpacing
+                  }
+                }
+              ),
+              slide.body && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "p",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.bodyFont),
+                    fontWeight: typography.bodyWeight,
+                    fontSize: typography.bodySize,
+                    color: getContrastColor(colors.DARK_BG),
+                    marginBottom: spacing.sectionSpacing,
+                    lineHeight: 1.7,
+                    textAlign: "center",
+                    opacity: 0.9
+                  },
+                  children: slide.body
+                }
+              ),
+              slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: spacing.gap,
+                    alignItems: "center"
+                  },
+                  children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 16,
+                        fontSize: 14,
+                        color: getContrastColor(colors.DARK_BG)
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+                          "div",
+                          {
+                            style: {
+                              width: 6,
+                              height: 6,
+                              borderRadius: "50%",
+                              background: colors.BRAND_PRIMARY,
+                              boxShadow: `0 0 10px ${colors.BRAND_PRIMARY}`
+                            }
+                          }
+                        ),
+                        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { style: { opacity: 0.9 }, children: point.label })
+                      ]
+                    },
+                    stablePointKeys(slide.points)[i]
+                  ))
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(
+                "div",
+                {
+                  style: {
+                    marginTop: "auto",
+                    textAlign: "center",
+                    fontSize: 11,
+                    letterSpacing: 2,
+                    color: `${colors.BRAND_PRIMARY}88`,
+                    textTransform: "uppercase"
+                  },
+                  children: [
+                    brandName,
+                    " \xB7 @",
+                    handle
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/CleanCorporateTemplate.tsx
+var import_react8 = __toESM(require_react(), 1);
+var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
+var CleanCorporateTemplate = import_react8.default.forwardRef(
+  function CleanCorporateTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              padding: spacing.padding,
+              background: colors.LIGHT_BG
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: spacing.sectionSpacing,
+                    paddingBottom: spacing.gap,
+                    borderBottom: `2px solid ${colors.BRAND_PRIMARY}`
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+                      "div",
+                      {
+                        style: {
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: colors.BRAND_PRIMARY,
+                          letterSpacing: 1,
+                          textTransform: "uppercase"
+                        },
+                        children: brandName
+                      }
+                    ),
+                    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(
+                      "div",
+                      {
+                        style: {
+                          fontSize: 11,
+                          color: getContrastRgba(colors.LIGHT_BG, 0.6)
+                        },
+                        children: [
+                          index + 1,
+                          " of ",
+                          total
+                        ]
+                      }
+                    )
+                  ]
+                }
+              ),
+              slide.headline && /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+                "h2",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.headingFont),
+                    fontWeight: typography.headingWeight,
+                    fontSize: typography.headingSize,
+                    letterSpacing: typography.letterSpacing,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.gap,
+                    lineHeight: 1.3
+                  },
+                  children: slide.headline
+                }
+              ),
+              slide.body && /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+                "p",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.bodyFont),
+                    fontWeight: typography.bodyWeight,
+                    fontSize: typography.bodySize,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.sectionSpacing,
+                    lineHeight: 1.6
+                  },
+                  children: slide.body
+                }
+              ),
+              slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+                "div",
+                {
+                  style: {
+                    display: "grid",
+                    gridTemplateColumns: slide.points.length > 2 ? "1fr 1fr" : "1fr",
+                    gap: spacing.gap
+                  },
+                  children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(
+                    "div",
+                    {
+                      style: {
+                        padding: spacing.gap,
+                        background: getContrastRgba(colors.LIGHT_BG, 0.04),
+                        borderLeft: `3px solid ${colors.BRAND_PRIMARY}`
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(
+                          "div",
+                          {
+                            style: {
+                              fontSize: 10,
+                              fontWeight: 700,
+                              color: colors.BRAND_PRIMARY,
+                              marginBottom: 4,
+                              textTransform: "uppercase",
+                              letterSpacing: 0.5
+                            },
+                            children: [
+                              "Point ",
+                              i + 1
+                            ]
+                          }
+                        ),
+                        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+                          "div",
+                          {
+                            style: {
+                              fontSize: 14,
+                              color: getContrastColor(colors.LIGHT_BG),
+                              fontWeight: 600
+                            },
+                            children: point.label
+                          }
+                        ),
+                        point.desc && /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+                          "div",
+                          {
+                            style: {
+                              fontSize: 12,
+                              color: getContrastRgba(colors.LIGHT_BG, 0.7),
+                              marginTop: 4
+                            },
+                            children: point.desc
+                          }
+                        )
+                      ]
+                    },
+                    stablePointKeys(slide.points)[i]
+                  ))
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(
+                "div",
+                {
+                  style: {
+                    marginTop: "auto",
+                    paddingTop: spacing.gap,
+                    borderTop: `1px solid ${colors.LIGHT_BORDER}`,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    fontSize: 11,
+                    color: getContrastRgba(colors.LIGHT_BG, 0.5)
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("span", { children: [
+                      "@",
+                      handle
+                    ] }),
+                    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { children: "Professional Content" })
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/CreativeAbstractTemplate.tsx
+var import_react9 = __toESM(require_react(), 1);
+var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
+var CreativeAbstractTemplate = import_react9.default.forwardRef(
+  function CreativeAbstractTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              padding: spacing.padding,
+              position: "relative",
+              background: colors.LIGHT_BG
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    top: -20,
+                    left: -20,
+                    width: 200,
+                    height: 200,
+                    background: `linear-gradient(135deg, ${colors.BRAND_PRIMARY}33, ${colors.BRAND_LIGHT}22)`,
+                    borderRadius: "60% 40% 30% 70% / 60% 30% 70% 40%",
+                    transform: "rotate(-15deg)"
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+                "div",
+                {
+                  style: {
+                    position: "absolute",
+                    bottom: -40,
+                    right: -40,
+                    width: 180,
+                    height: 180,
+                    background: `linear-gradient(135deg, ${colors.BRAND_DARK}22, ${colors.BRAND_PRIMARY}33)`,
+                    borderRadius: "40% 60% 70% 30% / 40% 70% 30% 60%",
+                    transform: "rotate(20deg)"
+                  }
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(
+                "div",
+                {
+                  style: {
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    textAlign: "center",
+                    position: "relative",
+                    zIndex: 1
+                  },
+                  children: [
+                    slide.headline && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+                      "h2",
+                      {
+                        style: {
+                          fontFamily: resolveTemplateFont(typography.headingFont),
+                          fontWeight: typography.headingWeight,
+                          fontSize: typography.headingSize,
+                          letterSpacing: typography.letterSpacing,
+                          color: getContrastColor(colors.LIGHT_BG),
+                          marginBottom: spacing.gap,
+                          lineHeight: 1.2
+                        },
+                        children: slide.headline
+                      }
+                    ),
+                    slide.body && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+                      "p",
+                      {
+                        style: {
+                          fontFamily: resolveTemplateFont(typography.bodyFont),
+                          fontWeight: typography.bodyWeight,
+                          fontSize: typography.bodySize,
+                          color: getContrastColor(colors.LIGHT_BG),
+                          marginBottom: spacing.sectionSpacing,
+                          lineHeight: 1.6,
+                          fontStyle: "italic"
+                        },
+                        children: slide.body
+                      }
+                    ),
+                    slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+                      "div",
+                      {
+                        style: {
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: spacing.gap
+                        },
+                        children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(
+                          "div",
+                          {
+                            style: {
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 12,
+                              fontSize: 14,
+                              color: getContrastColor(colors.LIGHT_BG)
+                            },
+                            children: [
+                              /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+                                "div",
+                                {
+                                  style: {
+                                    width: 12,
+                                    height: 12,
+                                    background: colors.BRAND_PRIMARY,
+                                    transform: i % 2 === 0 ? "rotate(45deg)" : "rotate(0deg)",
+                                    borderRadius: i % 2 === 0 ? 0 : "50%"
+                                  }
+                                }
+                              ),
+                              /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { children: point.label })
+                            ]
+                          },
+                          stablePointKeys(slide.points)[i]
+                        ))
+                      }
+                    )
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/StorytellerTemplate.tsx
+var import_react10 = __toESM(require_react(), 1);
+var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
+var StorytellerTemplate = import_react10.default.forwardRef(
+  function StorytellerTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              padding: spacing.padding,
+              position: "relative",
+              background: colors.LIGHT_BG
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+                "div",
+                {
+                  style: {
+                    fontSize: 120,
+                    color: `${colors.BRAND_PRIMARY}22`,
+                    lineHeight: 1,
+                    fontFamily: resolveTemplateFont(typography.headingFont),
+                    position: "absolute",
+                    top: 0,
+                    left: 0
+                  },
+                  children: '"'
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(
+                "div",
+                {
+                  style: {
+                    alignSelf: "flex-end",
+                    fontSize: 11,
+                    letterSpacing: 2,
+                    color: colors.BRAND_PRIMARY,
+                    marginBottom: spacing.sectionSpacing,
+                    textTransform: "uppercase",
+                    fontFamily: "monospace"
+                  },
+                  children: [
+                    "Chapter ",
+                    index + 1
+                  ]
+                }
+              ),
+              slide.headline && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+                "h2",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.headingFont),
+                    fontWeight: typography.headingWeight,
+                    fontSize: typography.headingSize,
+                    letterSpacing: typography.letterSpacing,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.gap,
+                    lineHeight: 1.3,
+                    fontStyle: "italic"
+                  },
+                  children: slide.headline
+                }
+              ),
+              slide.body && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+                "p",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.bodyFont),
+                    fontWeight: typography.bodyWeight,
+                    fontSize: typography.bodySize,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.sectionSpacing,
+                    lineHeight: 1.8,
+                    fontStyle: "italic"
+                  },
+                  children: slide.body
+                }
+              ),
+              slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: spacing.gap
+                  },
+                  children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        gap: 16,
+                        fontSize: 14,
+                        color: getContrastColor(colors.LIGHT_BG)
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
+                          "span",
+                          {
+                            style: {
+                              fontFamily: resolveTemplateFont(typography.headingFont),
+                              fontSize: 24,
+                              color: colors.BRAND_PRIMARY,
+                              lineHeight: 1,
+                              opacity: 0.5
+                            },
+                            children: i + 1
+                          }
+                        ),
+                        /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { style: { flex: 1, paddingTop: 6 }, children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { style: { fontWeight: 600, marginBottom: 4 }, children: point.label }),
+                          point.desc && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { style: { fontSize: 13, opacity: 0.8, fontStyle: "italic" }, children: point.desc })
+                        ] })
+                      ]
+                    },
+                    stablePointKeys(slide.points)[i]
+                  ))
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(
+                "div",
+                {
+                  style: {
+                    marginTop: "auto",
+                    paddingTop: spacing.gap,
+                    borderTop: `1px solid ${colors.BRAND_PRIMARY}33`,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center"
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(
+                      "div",
+                      {
+                        style: {
+                          fontSize: 12,
+                          color: getContrastRgba(colors.LIGHT_BG, 0.6),
+                          fontStyle: "italic"
+                        },
+                        children: [
+                          "\u2014 ",
+                          brandName
+                        ]
+                      }
+                    ),
+                    /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(
+                      "div",
+                      {
+                        style: {
+                          fontSize: 11,
+                          color: colors.BRAND_PRIMARY,
+                          letterSpacing: 1
+                        },
+                        children: [
+                          "@",
+                          handle
+                        ]
+                      }
+                    )
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/SocialMediaTemplate.tsx
+var import_react11 = __toESM(require_react(), 1);
+var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
+var SocialMediaTemplate = import_react11.default.forwardRef(
+  function SocialMediaTemplate2({
+    slide,
+    index,
+    total,
+    colors,
+    brandName,
+    handle,
+    width,
+    height,
+    template
+  }, ref) {
+    const { typography, spacing } = template;
+    return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+      TemplateLayout,
+      {
+        ref,
+        slide,
+        index,
+        total,
+        colors,
+        brandName,
+        handle,
+        width,
+        height,
+        template,
+        children: /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(
+          "div",
+          {
+            style: {
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              padding: spacing.padding,
+              background: colors.LIGHT_BG
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    marginBottom: spacing.sectionSpacing
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+                      "div",
+                      {
+                        style: {
+                          width: 48,
+                          height: 48,
+                          borderRadius: "50%",
+                          background: colors.BRAND_PRIMARY,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 20
+                        },
+                        children: brandName.charAt(0).toUpperCase()
+                      }
+                    ),
+                    /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)("div", { children: [
+                      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+                        "div",
+                        {
+                          style: {
+                            fontSize: 14,
+                            fontWeight: 700,
+                            color: getContrastColor(colors.LIGHT_BG)
+                          },
+                          children: brandName
+                        }
+                      ),
+                      /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(
+                        "div",
+                        {
+                          style: {
+                            fontSize: 12,
+                            color: colors.BRAND_PRIMARY
+                          },
+                          children: [
+                            "@",
+                            handle
+                          ]
+                        }
+                      )
+                    ] })
+                  ]
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    gap: 16,
+                    marginBottom: spacing.sectionSpacing,
+                    fontSize: 12,
+                    color: getContrastRgba(colors.LIGHT_BG, 0.6)
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { children: "\u2764\uFE0F Like" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { children: "\u{1F4AC} Comment" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { children: "\u{1F504} Share" })
+                  ]
+                }
+              ),
+              slide.headline && /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+                "h2",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.headingFont),
+                    fontWeight: typography.headingWeight,
+                    fontSize: typography.headingSize,
+                    letterSpacing: typography.letterSpacing,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.gap,
+                    lineHeight: 1.3
+                  },
+                  children: slide.headline
+                }
+              ),
+              slide.body && /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+                "p",
+                {
+                  style: {
+                    fontFamily: resolveTemplateFont(typography.bodyFont),
+                    fontWeight: typography.bodyWeight,
+                    fontSize: typography.bodySize,
+                    color: getContrastColor(colors.LIGHT_BG),
+                    marginBottom: spacing.sectionSpacing,
+                    lineHeight: 1.6
+                  },
+                  children: slide.body
+                }
+              ),
+              slide.points && slide.points.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: spacing.gap
+                  },
+                  children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        fontSize: 13,
+                        color: getContrastColor(colors.LIGHT_BG)
+                      },
+                      children: [
+                        /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { style: { fontSize: 16 }, children: point.icon || ["\u{1F44D}", "\u{1F525}", "\u{1F4AF}", "\u2B50", "\u{1F680}"][i % 5] }),
+                        /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)("span", { children: [
+                          /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { style: { color: colors.BRAND_PRIMARY, fontWeight: 600 }, children: "#" }),
+                          (point.label || "").toLowerCase().replace(/\s+/g, "")
+                        ] })
+                      ]
+                    },
+                    stablePointKeys(slide.points)[i]
+                  ))
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)(
+                "div",
+                {
+                  style: {
+                    marginTop: "auto",
+                    paddingTop: spacing.gap,
+                    borderTop: `1px solid ${colors.LIGHT_BORDER}`,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    fontSize: 11,
+                    color: getContrastRgba(colors.LIGHT_BG, 0.5)
+                  },
+                  children: [
+                    /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)("span", { children: [
+                      index + 1,
+                      "/",
+                      total
+                    ] }),
+                    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("span", { children: "Swipe for more \u2192" })
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      }
+    );
+  }
+);
+
+// src/pages/Result/components/content/carousel/igslide/templates/registry.ts
+var TEMPLATE_COMPONENTS = {
+  "modern-minimal": ModernMinimalTemplate,
+  "bold-statement": BoldStatementTemplate,
+  "editorial-classic": EditorialClassicTemplate,
+  "tech-modern": TechModernTemplate,
+  "vibrant-pop": VibrantPopTemplate,
+  "luxury-dark": LuxuryDarkTemplate,
+  "clean-corporate": CleanCorporateTemplate,
+  "creative-abstract": CreativeAbstractTemplate,
+  "storyteller": StorytellerTemplate,
+  "social-media": SocialMediaTemplate
+};
+
+// src/pages/Result/components/content/carousel/IGSlide.tsx
+var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
+var IGSlide = import_react12.default.forwardRef(
   // NOTE: isLast stays in IGSlideProps (callers pass it) but is no longer consumed here —
   // it only ever fed the now-removed SwipeArrow.
-  function IGSlide2({ slide, index, total, colors, brandName, handle, width = 420, height = 525, designPreset = 0 }, ref) {
+  function IGSlide2({ slide, index, total, colors, brandName, handle, width = 420, height = 525, designPreset = 0, templateId, paletteId }, ref) {
     const preset = DESIGN_PRESETS[Math.abs(designPreset) % DESIGN_PRESETS.length];
+    const resolvedTemplateId = templateId && isTemplateId(templateId) ? templateId : void 0;
+    const template = resolvedTemplateId ? getTemplate(resolvedTemplateId) : void 0;
+    if (resolvedTemplateId && template) {
+      const templatePalette = paletteId ? getPalette(resolvedTemplateId, paletteId) : void 0;
+      const templateColors = templatePalette ? deriveColorSystemFromPalette(templatePalette.colors) : colors;
+      const TemplateComponent = TEMPLATE_COMPONENTS[resolvedTemplateId];
+      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+        TemplateComponent,
+        {
+          ref,
+          slide,
+          index,
+          total,
+          colors: templateColors,
+          brandName,
+          handle,
+          width,
+          height,
+          template
+        }
+      );
+    }
     const type = resolveType(slide, index, total);
     const { bgMode, background } = resolveBackground(slide, index, total, preset, colors);
-    return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(
       "div",
       {
         ref,
         style: { position: "relative", width, height, flexShrink: 0, background, overflow: "hidden", display: "flex", flexDirection: "column" },
         children: [
-          type === "cover" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(CoverLayout, { slide, index, colors, brandName, handle, preset }),
-          type === "problem" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ProblemLayout, { slide, colors }),
-          type === "solution" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(SolutionLayout, { slide, colors, brandName, handle }),
-          type === "howto" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(HowToLayout, { slide, colors }),
-          type === "features" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(FeaturesLayout, { slide, colors }),
-          (type === "content" || type === "tip" || type === "details") && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ContentLayout, { slide, index, colors, bgMode: bgMode === "light" ? "light" : "dark", preset }),
-          type === "stat" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(StatLayout, { slide, colors }),
-          type === "quote" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(QuoteLayout, { slide, index, colors }),
-          type === "cta" && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(CTALayout, { slide, colors, brandName, handle }),
-          !["cover", "problem", "solution", "howto", "features", "content", "tip", "details", "stat", "quote", "cta"].includes(type) && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(ContentLayout, { slide, index, colors, bgMode: bgMode === "light" ? "light" : "dark", preset })
+          type === "cover" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(CoverLayout, { slide, index, colors, brandName, handle, preset }),
+          type === "problem" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ProblemLayout, { slide, colors }),
+          type === "solution" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(SolutionLayout, { slide, colors, brandName, handle }),
+          type === "howto" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(HowToLayout, { slide, colors }),
+          type === "features" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(FeaturesLayout, { slide, colors }),
+          (type === "content" || type === "tip" || type === "details") && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ContentLayout, { slide, index, colors, bgMode: bgMode === "light" ? "light" : "dark", preset }),
+          type === "stat" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(StatLayout, { slide, colors }),
+          type === "quote" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(QuoteLayout, { slide, index, colors }),
+          type === "cta" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(CTALayout, { slide, colors, brandName, handle }),
+          !["cover", "problem", "solution", "howto", "features", "content", "tip", "details", "stat", "quote", "cta"].includes(type) && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ContentLayout, { slide, index, colors, bgMode: bgMode === "light" ? "light" : "dark", preset })
         ]
       }
     );
@@ -12701,7 +15418,7 @@ var PlayfairDisplay_latin_default = "data:font/woff2;base64,d09GMgABAAAAAJYEABMA
 var PlayfairDisplay_italic_latin_default = "data:font/woff2;base64,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";
 
 // src/ssr/renderSlideHtml.tsx
-var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
 var SLIDE_WIDTH = 420;
 var SLIDE_HEIGHT = 525;
 var DOCUMENT_CSS = `
@@ -12715,9 +15432,9 @@ html,body{margin:0;padding:0;background:transparent}
 body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 `;
 function renderSlideHtml(params) {
-  const { slide, index, total, colors, brandName, handle, designPreset } = params;
+  const { slide, index, total, colors, brandName, handle, designPreset, templateId, paletteId } = params;
   const markup = (0, import_server.renderToStaticMarkup)(
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
       IGSlide,
       {
         slide,
@@ -12729,7 +15446,9 @@ function renderSlideHtml(params) {
         handle,
         width: SLIDE_WIDTH,
         height: SLIDE_HEIGHT,
-        designPreset
+        designPreset,
+        templateId,
+        paletteId
       }
     )
   );

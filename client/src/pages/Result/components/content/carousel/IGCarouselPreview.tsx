@@ -17,6 +17,11 @@ interface Props {
   /** Resolved by useCarouselDesignSeed in Result.tsx — shared with the PNG export
    *  so the downloaded slides match exactly what is rendered here. */
   designPreset:    number;
+  // New template system fields — optional for backward compatibility with
+  // carousels created before this feature shipped (falls back to the legacy
+  // designPreset-driven layout in IGSlide when absent).
+  templateId?:     string;
+  paletteId?:      string;
 }
 
 const SLIDE_W = 420;  // skill spec design width
@@ -101,7 +106,7 @@ function Avatar({ name, colors, size = 38 }: { name: string; colors: ColorSystem
   );
 }
 
-export function IGCarouselPreview({ slides, colors, brandName, handle, currentSlide, setCurrentSlide, onSave, slideRefs, designPreset }: Props) {
+export function IGCarouselPreview({ slides, colors, brandName, handle, currentSlide, setCurrentSlide, onSave, slideRefs, designPreset, templateId, paletteId }: Props) {
   const total = slides.length;
 
   const [internalSlide, setInternalSlide] = useState(currentSlide);
@@ -280,6 +285,8 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
                 width={SLIDE_W}
                 height={SLIDE_H}
                 designPreset={designPreset}
+                templateId={templateId}
+                paletteId={paletteId}
               />
             ))}
           </div>

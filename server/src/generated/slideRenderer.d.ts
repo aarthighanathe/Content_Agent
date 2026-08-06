@@ -32,6 +32,10 @@ export interface RenderSlideParams {
   brandName: string;
   handle: string;
   designPreset: number;
+  // New template system fields — optional for backward compatibility with
+  // carousels created before this feature shipped.
+  templateId?: string;
+  paletteId?: string;
 }
 
 /** CSS-pixel dimensions of the rendered slide box (matches the on-screen preview). */

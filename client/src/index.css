@@ -291,7 +291,7 @@ html:not([data-theme]) body::after {
   left: 0;
   top: 0;
   bottom: 0;
-  width: 240px;
+  width: 208px;
   background: color-mix(in srgb, var(--bg-base) 97%, transparent);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
@@ -469,7 +469,7 @@ html:not([data-theme]) body::after {
 
 /* ── Main content area ── */
 .main-content {
-  margin-left: 240px;
+  margin-left: 208px;
   min-height: 100vh;
   transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -586,10 +586,10 @@ html:not([data-theme]) body::after {
 
 @media (max-width: 900px) {
   .sidebar-desktop {
-    width: 220px;
+    width: 192px;
   }
   .main-content {
-    margin-left: 220px;
+    margin-left: 192px;
   }
   .sidebar-collapsed-layout .main-content {
     margin-left: 64px;

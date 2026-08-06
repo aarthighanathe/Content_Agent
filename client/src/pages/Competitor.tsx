@@ -8,6 +8,7 @@ import type { AnalyzeCompetitorResponse, CompetitorAnalysisHistoryItem } from '.
 import { Search, TrendingUp, Target, Lightbulb, AlertCircle, Sparkles } from 'lucide-react';
 import { BenchmarkCard } from './Competitor/BenchmarkCard';
 import { HistoryDropdown } from './Competitor/HistoryDropdown';
+import { CardHeader } from './Dashboard/CardHeader';
 
 // WHY no postingFrequency/avgEngagementTier: the prompt (server/src/routes/content/competitor.ts)
 // explicitly refuses to fabricate exact posting-frequency or engagement-rate numbers, since
@@ -79,12 +80,12 @@ export default function CompetitorPage() {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: 32, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'var(--text-primary)' }}>
             Competitor Content Lens
           </h1>
-          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 4 }}>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
             Analyze any creator or brand's content strategy — find gaps and opportunities.
           </p>
         </div>
@@ -103,14 +104,14 @@ export default function CompetitorPage() {
               Handle / Username
             </label>
             <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 14 }}>@</span>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: 14, pointerEvents: 'none' }}>@</span>
               <input
                 className="input"
                 value={handle}
                 onChange={(e) => setHandle(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleAnalyze(); }}
                 placeholder="garyvee, hubspot, naval…"
-                style={{ paddingLeft: 28 }}
+                style={{ paddingLeft: 28, width: '100%' }}
                 disabled={loading}
               />
             </div>
@@ -126,30 +127,38 @@ export default function CompetitorPage() {
               onChange={(e) => setIndustry(e.target.value)}
               placeholder="e.g., SaaS, marketing, fitness…"
               disabled={loading}
+              style={{ width: '100%' }}
             />
+            {/* WHY hidden spacer: mirrors the handle field's hint-text height so both
+                inputs' bottom edges line up in this 2-col grid — without it, the
+                industry column's input sits visually taller/misaligned since it has
+                no hint paragraph of its own. */}
+            <p style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 5, visibility: 'hidden' }} aria-hidden="true">spacer</p>
           </div>
         </div>
-        <button
-          className="btn-primary"
-          onClick={handleAnalyze}
-          disabled={!handle.trim() || loading}
-          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-        >
-          {loading ? (
-            <>
-              <div style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: 'var(--on-accent)', borderRadius: '50%', animation: 'comp-spin 1s linear infinite' }} />
-              Analyzing…
-            </>
-          ) : (
-            <><Search size={15} /> Analyze Competitor</>
-          )}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <button
+            className="btn-primary"
+            onClick={handleAnalyze}
+            disabled={!handle.trim() || loading}
+            style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+          >
+            {loading ? (
+              <>
+                <div style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: 'var(--on-accent)', borderRadius: '50%', animation: 'comp-spin 1s linear infinite' }} />
+                Analyzing…
+              </>
+            ) : (
+              <><Search size={15} /> Analyze Competitor</>
+            )}
+          </button>
 
-        {error && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, padding: '10px 14px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--color-error)' }}>
-            <AlertCircle size={13} /> {error}
-          </div>
-        )}
+          {error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--color-error)' }}>
+              <AlertCircle size={13} /> {error}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Loading→results transition announcement — scoped to a short status string
@@ -172,15 +181,17 @@ export default function CompetitorPage() {
 
       {/* Results */}
       {analysis && !loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, animation: 'comp-fadeUp .3s ease both' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, animation: 'comp-fadeUp .3s ease both' }}>
           {/* Brand header */}
-          <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 14, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: 'var(--text-muted)', letterSpacing: 1, marginBottom: 4 }}>@{result?.handle}</div>
-              <h2 style={{ fontFamily: "var(--font-heading)", fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{analysis.brandName}</h2>
-              <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>{analysis.estimatedNiche}</p>
+          <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 14, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: 'var(--accent)', letterSpacing: 1.5, marginBottom: 5, textTransform: 'uppercase' }}>@{result?.handle}</div>
+                <h2 style={{ fontFamily: "var(--font-heading)", fontSize: 21, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{analysis.brandName}</h2>
+                <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>{analysis.estimatedNiche}</p>
+              </div>
             </div>
-            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.65, margin: 0, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65, margin: 0, paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
               {analysis.keyTakeaway}
             </p>
           </div>
@@ -188,12 +199,7 @@ export default function CompetitorPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="comp-grid">
             {/* Top Themes */}
             <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 14, padding: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                <div style={{ width: 28, height: 28, borderRadius: 8, background: 'color-mix(in srgb, var(--accent) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
-                  <TrendingUp size={14} />
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Top Content Themes</span>
-              </div>
+              <CardHeader icon={<TrendingUp size={14} style={{ color: 'var(--accent)' }} />} title="Top Content Themes" />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(analysis.topThemes || []).map((t, i) => {
                   const engagementLevel = t.engagementLevel || 'medium';
@@ -218,16 +224,11 @@ export default function CompetitorPage() {
             </div>
 
             {/* Content Patterns */}
+            {/* WHY var(--accent-2): decorative card-icon color for visual distinction between
+                the Top Themes / Content Patterns cards — not a platform brand, status color,
+                or the badge-purple category-tag system, so it follows the active theme. */}
             <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 14, padding: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                {/* WHY var(--accent-2): decorative card-icon color for visual distinction between
-                    the Top Themes / Content Patterns cards — not a platform brand, status color,
-                    or the badge-purple category-tag system, so it follows the active theme. */}
-                <div style={{ width: 28, height: 28, borderRadius: 8, background: 'color-mix(in srgb, var(--accent-2) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 20%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-2)' }}>
-                  <Target size={14} />
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Content Patterns</span>
-              </div>
+              <CardHeader icon={<Target size={14} style={{ color: 'var(--accent-2)' }} />} accentVar="--accent-2" title="Content Patterns" />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {analysis.contentPatterns ? [
                   { label: 'Format', val: analysis.contentPatterns.formatPreference },
@@ -243,33 +244,35 @@ export default function CompetitorPage() {
                 )}
               </div>
             </div>
-
-            {/* How You Compare — benchmarks the user's own avg quality score/hook
-                strength (from GET /api/users/me, same aggregation Dashboard/Brand
-                use) against this competitor's analysis. */}
-            <BenchmarkCard
-              isLoading={profileQuery.isLoading}
-              isError={profileQuery.isError}
-              totalPosts={profileQuery.data?.stats?.totalPosts}
-              avgScore={profileQuery.data?.stats?.avgScore}
-              dimensionAverages={profileQuery.data?.stats?.dimensionAverages}
-              analysis={analysis}
-            />
           </div>
+
+          {/* How You Compare — benchmarks the user's own hook strength (from
+              GET /api/users/me, same aggregation Dashboard/Brand use) against
+              this competitor's analysis. avgScore is deliberately not passed:
+              Dashboard's StatsOverview already shows it, and there's no
+              competitor-side equivalent to compare it against here (see
+              BenchmarkCard's own WHY comment). Full-width: it's a single card
+              in an otherwise 2-up grid, so spanning avoids leaving it stranded
+              alone in a half-empty row. */}
+          <BenchmarkCard
+            isLoading={profileQuery.isLoading}
+            isError={profileQuery.isError}
+            totalPosts={profileQuery.data?.stats?.totalPosts}
+            dimensionAverages={profileQuery.data?.stats?.dimensionAverages}
+            analysis={analysis}
+          />
 
           {/* Content Gaps */}
           <div style={{ background: 'var(--bg-raised)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 14, padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-success)' }}>
-                <AlertCircle size={14} />
-              </div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Content Gaps — Your Opportunity</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <CardHeader icon={<AlertCircle size={14} style={{ color: 'var(--color-success)' }} />} title="Content Gaps — Your Opportunity" />
+            <div style={{ display: 'grid', gridTemplateColumns: (analysis.contentGaps || []).length > 1 ? '1fr 1fr' : '1fr', gap: 12 }} className="comp-angles-grid">
               {(analysis.contentGaps || []).map((g, i) => (
-                <div key={`${i}-${g.gap}`} style={{ background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.12)', borderRadius: 10, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-success)', marginBottom: 4 }}>{g.gap}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 10 }}>{g.opportunity}</div>
+                <div
+                  key={`${i}-${g.gap}`}
+                  style={{ background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.12)', borderRadius: 10, padding: '14px' }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-success)', marginBottom: 5, lineHeight: 1.3 }}>{g.gap}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>{g.opportunity}</div>
                   <button
                     onClick={() => navigateToCreate(navigate, {
                       topic: g.opportunity || g.gap || '',
@@ -285,6 +288,9 @@ export default function CompetitorPage() {
                   </button>
                 </div>
               ))}
+              {(!analysis.contentGaps || analysis.contentGaps.length === 0) && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No gap data available</div>
+              )}
             </div>
           </div>
 
@@ -293,16 +299,14 @@ export default function CompetitorPage() {
               above — violet here was chosen for visual variety between cards, not because
               this represents the badge-purple hashtag/category system or a platform brand. */}
           <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 18%, transparent)', borderRadius: 14, padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'color-mix(in srgb, var(--accent-2) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 20%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-2)' }}>
-                <Lightbulb size={14} />
-              </div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Content Angles to Beat Them</span>
-            </div>
+            <CardHeader icon={<Lightbulb size={14} style={{ color: 'var(--accent-2)' }} />} accentVar="--accent-2" title="Content Angles to Beat Them" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }} className="comp-angles-grid">
               {(analysis.suggestedAngles || []).map((a, i) => (
-                <div key={`${i}-${a.angle}`} style={{ background: 'color-mix(in srgb, var(--accent-2) 5%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 15%, transparent)', borderRadius: 10, padding: '14px' }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6, lineHeight: 1.3 }}>{a.angle}</div>
+                <div
+                  key={`${i}-${a.angle}`}
+                  style={{ background: 'color-mix(in srgb, var(--accent-2) 5%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 15%, transparent)', borderRadius: 10, padding: '14px' }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3 }}>{a.angle}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.55 }}>{a.rationale}</div>
                   <button
                     onClick={() => navigateToCreate(navigate, {
@@ -319,6 +323,9 @@ export default function CompetitorPage() {
                   </button>
                 </div>
               ))}
+              {(!analysis.suggestedAngles || analysis.suggestedAngles.length === 0) && (
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No angle suggestions available</div>
+              )}
             </div>
           </div>
         </div>

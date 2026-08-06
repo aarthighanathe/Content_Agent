@@ -76,6 +76,12 @@ export async function createJob(data: {
   // orchestrator prompt context.
   competitorContext?: string;
   competitorAnalysisId?: string;
+  // WHY optional, carousel-only: the new template system's choice
+  // (client/src/lib/templateSystem.ts) made on Create's AdvancedOptions panel.
+  // Ignored server-side for every platform except instagram_carousel — see
+  // routes/jobs/create.ts.
+  templateId?: string;
+  paletteId?: string;
 }): Promise<{ jobId: string }> {
   const response = await api.post('/jobs/create', data);
   return response.data;
@@ -133,6 +139,18 @@ export async function updateJobContent(
   content: PlatformContent | PlatformContent[] | string,
 ): Promise<{ success: boolean }> {
   const response = await api.patch(`/jobs/${jobId}/content`, { content });
+  return response.data;
+}
+
+// Switches a carousel job's template/palette after generation (Result page's
+// in-preview template switcher — CAROUSEL_TEMPLATE_PLAN.md §2.3). Content is
+// unchanged; only presentational metadata on the job row is updated.
+export async function setCarouselTemplate(
+  jobId: string,
+  templateId: string,
+  paletteId?: string,
+): Promise<{ success: boolean; templateId: string; paletteId: string | null }> {
+  const response = await api.patch(`/jobs/${jobId}/carousel-template`, { templateId, paletteId });
   return response.data;
 }
 

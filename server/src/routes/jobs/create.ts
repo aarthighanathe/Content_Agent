@@ -122,7 +122,7 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
     const body = parseBody(createJobSchema, req.body, res);
     if (!body) return;
 
-    const { topic, platform, tone, targetAudience, competitorAnalysisId } = body;
+    const { topic, platform, tone, targetAudience, competitorAnalysisId, templateId, paletteId } = body;
     const jobId = uuidv4();
     const userId = req.dbUserId || req.userId || 'demo';
 
@@ -150,6 +150,12 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
       contentDna: userProfile.contentDna || null,
       competitorContext,
       sourceCompetitorAnalysisId: competitorAnalysisId || null,
+      // WHY only carried for carousel jobs: templateId/paletteId are meaningless
+      // for every other platform, and persisting them regardless would let a
+      // stray leftover value from a previous carousel selection silently attach
+      // itself to an unrelated LinkedIn/Twitter/etc. job.
+      templateId: platform === 'instagram_carousel' ? (templateId || null) : null,
+      paletteId: platform === 'instagram_carousel' ? (paletteId || null) : null,
       status: 'pending', retryCount: 0, deleted: 0,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     };

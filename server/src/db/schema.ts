@@ -110,6 +110,15 @@ export const contentJobs = pgTable('content_jobs', {
   // lost once the job hit the DB or aged out of memory, same class of bug as
   // FUNCTIONAL_AUDIT_2026-07.md finding #11 already fixed for sourceJobId.
   sourceUrl: text('source_url'),
+  // WHY nullable text, no enum: carousel template/palette choice from the new
+  // template system (client/src/lib/templateSystem.ts's TEMPLATES/ColorPalette).
+  // Only meaningful for platform='instagram_carousel'; null for every other
+  // platform and for carousels created before this feature shipped (those fall
+  // back to the legacy 9-theme/designPreset system on the client — see
+  // CLAUDE.md §11). Not an FK/enum because the template catalog lives in
+  // client code, not the DB — same reasoning as this table's tag column.
+  templateId: text('template_id'),
+  paletteId: text('palette_id'),
   status: jobStatusEnum('status').default('pending').notNull(),
   retryCount: integer('retry_count').default(0).notNull(),
   deleted: integer('deleted').default(0).notNull(),

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, CalendarDays, ExternalLink, Trash2, PlusCircle, ChevronDown, Send, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { platformMeta } from '../../lib/platformMeta';
@@ -43,6 +43,18 @@ export function DayDetailPanel({
 }: DayDetailPanelProps) {
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [platformMenuJobId, setPlatformMenuJobId] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // WHY: this panel renders below the grid inside the same scrollable .sc-cal column,
+  // so on any viewport where the grid + header already fill the visible area, opening
+  // a day silently appends content off-screen with no visual cue it exists — the user
+  // has to already know to scroll. Auto-scrolling it into view on selection closes that
+  // gap without needing to relocate the panel (which would break the click-day-to-expand
+  // mental model). Re-fires on selectedDay change (new day picked while one is already
+  // open), not just mount.
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [selectedDay]);
 
   // WHY fetched here, not passed as a prop from Calendar.tsx: only this panel
   // needs the connected-accounts list (to populate the publish-platform
@@ -63,7 +75,7 @@ export function DayDetailPanel({
   });
 
   return (
-    <div className="sc-detail">
+    <div className="sc-detail" ref={panelRef}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'color-mix(in srgb, var(--accent) 70%, transparent)', marginBottom: 4 }}>

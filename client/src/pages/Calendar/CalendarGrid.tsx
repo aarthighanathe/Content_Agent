@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { GripVertical, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
+import { GripVertical, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { platformMeta } from '../../lib/platformMeta';
 import { ErrorState } from '../../components/ErrorState';
 import { SkeletonBlock } from '../../components/SkeletonCard';
@@ -42,82 +42,53 @@ export function CalendarGrid({
 }: CalendarGridProps) {
   return (
     <div className="sc-cal">
-      {/* Header */}
+      {/* Header — title, stats, legend, and nav consolidated into one row to cut the
+          vertical stack that used to run title → stats → legend → disclosure banner
+          before the grid was even visible. */}
       <div className="sc-cal-hd">
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
           <button className="sc-toggle" onClick={onToggleSidebar} title="Toggle content library" aria-label="Toggle content library">
             <GripVertical size={15} aria-hidden />
           </button>
-          <div>
-            <div style={{ fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:2.5, textTransform:'uppercase', color:'var(--accent)', marginBottom:4 }}>
-              Content Calendar
-            </div>
-            <h1 style={{ fontFamily:'var(--font-heading)', fontSize:'clamp(18px,4vw,24px)', fontWeight:700, color:'var(--text-primary)', lineHeight:1.1 }}>
-              {MONTH_NAMES[month]} {year}
-            </h1>
+          <h1 style={{ fontFamily:'var(--font-heading)', fontSize:'clamp(16px,3.5vw,20px)', fontWeight:700, color:'var(--text-primary)', lineHeight:1.1, whiteSpace:'nowrap' }}>
+            {MONTH_NAMES[month]} {year}
+          </h1>
+
+          <div className="sc-stats">
+            <span><strong>{allScheduledCount}</strong> scheduled</span>
+            <span className="sc-stats-dot" />
+            <span><strong>{thisMonthScheduledCount}</strong> this month</span>
+            <span className="sc-stats-dot" />
+            <span><strong>{unscheduledCount}</strong> unscheduled</span>
+          </div>
+
+          {/* Legend — compact colored dots with a title tooltip instead of a full label
+              row, plus a single info icon replacing the old two-sentence disclosure
+              banner (same content, on-demand via title/tooltip instead of always-on). */}
+          <div className="sc-legend">
+            {Object.entries(platformMeta).map(([id, cfg]) => (
+              <span key={id} className="sc-legend-dot" style={{ background:cfg.color+'44', border:`1px solid ${cfg.color}77` }} title={cfg.label} />
+            ))}
+            <span
+              className="sc-info-icon"
+              tabIndex={0}
+              role="img"
+              aria-label="Drag a card to schedule, or tap Schedule… on any card. Your schedule syncs across devices — this is a personal planning view, not an auto-publish action. Posting to social still happens separately from the Result page."
+              title="Drag a card to schedule, or tap Schedule… on any card. Your schedule syncs across devices — this is a personal planning view, not an auto-publish action. Posting to social still happens separately from the Result page."
+            >
+              <Info size={13} aria-hidden />
+            </span>
           </div>
         </div>
 
-        <div style={{ display:'flex', gap:16, alignItems:'center', flexWrap:'wrap' }}>
-          <div style={{ display:'flex', gap:14, alignItems:'center' }}>
-            <div style={{ textAlign:'center' }}>
-              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'var(--accent)', lineHeight:1 }}>{allScheduledCount}</div>
-              <div style={{ fontSize:9, color:'var(--text-muted)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>scheduled</div>
-            </div>
-            <div style={{ width:1, height:26, background:'var(--rule)' }} />
-            <div style={{ textAlign:'center' }}>
-              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'var(--accent)', lineHeight:1 }}>{thisMonthScheduledCount}</div>
-              <div style={{ fontSize:9, color:'var(--text-muted)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>this month</div>
-            </div>
-            <div style={{ width:1, height:26, background:'var(--rule)' }} />
-            <div style={{ textAlign:'center' }}>
-              <div style={{ fontFamily:'var(--font-display)', fontSize:20, fontWeight:700, color:'var(--text-secondary)', lineHeight:1 }}>{unscheduledCount}</div>
-              <div style={{ fontSize:9, color:'var(--text-muted)', fontFamily:'var(--font-mono)', letterSpacing:0.5, marginTop:2 }}>unscheduled</div>
-            </div>
-          </div>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <button className="sc-nav-btn" onClick={onPrevMonth}><ChevronLeft size={15} /></button>
-            <button
-              onClick={onToday}
-              style={{ fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:0.5, background:'color-mix(in srgb, var(--accent) 8%, transparent)', border:'1px solid color-mix(in srgb, var(--accent) 20%, transparent)', color:'var(--accent)', borderRadius:7, padding:'6px 12px', cursor:'pointer', transition:'all .15s' }}
-            >Today</button>
-            <button className="sc-nav-btn" onClick={onNextMonth}><ChevronRight size={15} /></button>
-          </div>
+        <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+          <button className="sc-nav-btn" onClick={onPrevMonth}><ChevronLeft size={15} /></button>
+          <button
+            onClick={onToday}
+            style={{ fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:0.5, background:'color-mix(in srgb, var(--accent) 8%, transparent)', border:'1px solid color-mix(in srgb, var(--accent) 20%, transparent)', color:'var(--accent)', borderRadius:7, padding:'6px 12px', cursor:'pointer', transition:'all .15s' }}
+          >Today</button>
+          <button className="sc-nav-btn" onClick={onNextMonth}><ChevronRight size={15} /></button>
         </div>
-      </div>
-
-      {/* Legend */}
-      <div style={{ display:'flex', flexWrap:'wrap', gap:12 }}>
-        {Object.entries(platformMeta).map(([id, cfg]) => (
-          <div key={id} style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-secondary)' }}>
-            <div style={{ width:9, height:9, borderRadius:3, background:cfg.color+'44', border:`1px solid ${cfg.color}77` }} />
-            {cfg.label}
-          </div>
-        ))}
-        <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, color:'var(--text-muted)' }}>
-          <Clock size={10} aria-hidden />
-          {/* WHY updated hint (#12): old text said "Drag content from library to schedule" —
-              now acknowledges both drag and the new click/keyboard path. */}
-          Drag a card to schedule · or tap <strong style={{ color:'var(--text-secondary)' }}>Schedule…</strong> on any card
-        </div>
-      </div>
-
-      {/* WHY this disclosure: the schedule (what's placed on which day) is now
-          saved server-side (scheduled_posts table, via calendarHelpers.ts's
-          useSchedule() hook — see CLAUDE.md §9), so placements survive a
-          cleared browser and sync across devices. The auto-publish caveat
-          below is still true and still needs disclosure, unlike the old
-          "browser only" claim which this replaced once server sync shipped
-          (previously undisclosed at all, unlike the sidebar's hitFetchCap
-          banner for its own limitation — FUNCTIONAL_AUDIT_2026-07.md finding #28).
-          WHY the second sentence: PostPanel.tsx has its own, separate reminder-only
-          social-scheduling concept ("schedule to actually publish to LinkedIn/Twitter
-          later") — without calling out that this calendar view is planning-only, a
-          user could reasonably assume placing a card here also queues a real post. */}
-      <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:10.5, color:'color-mix(in srgb, var(--accent) 50%, transparent)', fontFamily:'var(--font-mono)' }}>
-        <Clock size={10} aria-hidden />
-        Your schedule syncs across devices. This is a personal planning view, not an
-        auto-publish action — posting to social still happens separately from the Result page.
       </div>
 
       {/* Grid */}

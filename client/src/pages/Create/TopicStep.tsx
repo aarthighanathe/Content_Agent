@@ -6,6 +6,7 @@ import { AdvancedOptions } from './AdvancedOptions';
 import { SectionLabel } from './SectionLabel';
 import { TopicSuggestions } from './TopicSuggestions';
 import { PlatformSelector, PlatformSummary } from './PlatformSelector';
+import type { NewTemplateId } from '../Result/constants';
 
 interface TopicStepProps {
   platform: string;
@@ -34,8 +35,10 @@ interface TopicStepProps {
   onTargetAudienceChange: (value: string) => void;
   audiencePlaceholder: string;
 
-  carouselTheme: number;
-  onCarouselThemeChange: (theme: number) => void;
+  templateId: NewTemplateId;
+  onTemplateChange: (id: NewTemplateId) => void;
+  paletteId: string;
+  onPaletteChange: (id: string) => void;
 
   errorMsg: string;
   loading: boolean;
@@ -50,7 +53,7 @@ export function TopicStep({
   tone, onToneChange,
   hasBrandVoice, hasContentDna,
   targetAudience, onTargetAudienceChange, audiencePlaceholder,
-  carouselTheme, onCarouselThemeChange,
+  templateId, onTemplateChange, paletteId, onPaletteChange,
   errorMsg, loading, generateLabel, onSubmit,
 }: TopicStepProps) {
   return (
@@ -205,11 +208,13 @@ export function TopicStep({
         />
       </div>
 
-      {/* Advanced (carousel theme) — always visible — no expand/collapse */}
+      {/* Advanced (carousel template + palette) — always visible — no expand/collapse */}
       <AdvancedOptions
         platform={platform}
-        carouselTheme={carouselTheme}
-        onCarouselThemeChange={onCarouselThemeChange}
+        templateId={templateId}
+        onTemplateChange={onTemplateChange}
+        paletteId={paletteId}
+        onPaletteChange={onPaletteChange}
       />
 
       {/* Error message */}

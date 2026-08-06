@@ -7,6 +7,7 @@ import { TwitterContent }      from './content/TwitterContent';
 import { InstagramContent }    from './content/InstagramContent';
 import { VideoScriptContent }  from './content/VideoScriptContent';
 import { ContentMultiplier }   from './ContentMultiplier';
+import { CarouselTemplateSwitcher } from './content/carousel/CarouselTemplateSwitcher';
 import type { ColorSystem } from '../../../lib/colorSystem';
 import type { MultiplyEntry }  from '../hooks/useMultiplier';
 import type { ContentJob, PlatformContent, VideoScriptContentData } from '../../../types/job';
@@ -41,6 +42,11 @@ interface Props {
   handle:          string;
   colorSystem:     ColorSystem;
   designPreset:    number;
+  // New template system fields — optional for backward compatibility with
+  // carousels created before this feature shipped.
+  templateId?:     string;
+  paletteId?:      string;
+  onTemplateChange?: (templateId: string, paletteId?: string) => void;
 }
 
 export function ContentColumn({
@@ -48,6 +54,7 @@ export function ContentColumn({
   onSave, showMultiplier, setShowMultiplier,
   multiplyJobs, onMultiply, className, slideRefs,
   brandName, handle, colorSystem, designPreset,
+  templateId, paletteId, onTemplateChange,
 }: Props) {
   const isCarousel  = Array.isArray(content);
   const Icon        = jobData?.platform ? platIcons[jobData.platform] : undefined;
@@ -93,6 +100,16 @@ export function ContentColumn({
           onSave={onSave}
           slideRefs={slideRefs}
           designPreset={designPreset}
+          templateId={templateId}
+          paletteId={paletteId}
+        />
+      )}
+
+      {isCarousel && onTemplateChange && (
+        <CarouselTemplateSwitcher
+          templateId={templateId}
+          paletteId={paletteId}
+          onChange={onTemplateChange}
         />
       )}
 

@@ -84,6 +84,14 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
           // on DB persist, same class of bug FUNCTIONAL_AUDIT_2026-07.md
           // finding #11 fixed for sourceJobId.
           sourceUrl: jobResult.sourceUrl || null,
+          // WHY carried through here: same lineage/display-metadata pattern as
+          // sourceJobId/sourceUrl above — set on the in-memory job by
+          // routes/jobs/create.ts from the client's template-system selection
+          // (client/src/lib/templateSystem.ts), must survive to the DB row so
+          // the Result page preview and PNG export can both render the exact
+          // template a carousel was created with.
+          templateId: jobResult.templateId || null,
+          paletteId: jobResult.paletteId || null,
           status: jobResult.status,
           retryCount: jobResult.retryCount || 0,
           deleted: jobResult.deleted || 0,
