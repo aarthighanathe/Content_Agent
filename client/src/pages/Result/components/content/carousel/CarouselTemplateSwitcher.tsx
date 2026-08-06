@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { LayoutTemplate, ChevronDown } from 'lucide-react';
-import { TemplateGallery } from '../../../../../components/TemplateGallery';
-import { ColorPalettePicker } from '../../../../../components/ColorPalettePicker';
+import { CompactTemplatePicker } from '../../../../Create/CompactTemplatePicker';
 import type { NewTemplateId } from '../../../constants';
 import { getTemplate, isTemplateId } from '../../../../../lib/templateSystem';
 
@@ -53,17 +52,12 @@ export function CarouselTemplateSwitcher({ templateId, paletteId, onChange }: Pr
       </button>
 
       {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <TemplateGallery selectedTemplateId={currentId} onTemplateSelect={handleTemplateSelect} />
-          {currentTemplate && (
-            <ColorPalettePicker
-              palettes={currentTemplate.colorPalettes}
-              selectedPaletteId={paletteId || currentTemplate.colorPalettes[currentTemplate.defaultPaletteIndex].id}
-              onPaletteSelect={handlePaletteSelect}
-              showCustomOption={false}
-            />
-          )}
-        </div>
+        <CompactTemplatePicker
+          templateId={currentId}
+          onTemplateChange={handleTemplateSelect}
+          paletteId={paletteId || currentTemplate?.colorPalettes[currentTemplate.defaultPaletteIndex].id || ''}
+          onPaletteChange={handlePaletteSelect}
+        />
       )}
     </div>
   );

@@ -11,6 +11,27 @@
 
 ---
 
+## 2026-08-06 — Unified Result page's carousel template picker with Create's
+
+**Status:** Complete. User reported the Result page's post-generation "Carousel template"
+panel didn't visually match the picker on the Create form.
+
+- Root cause: `CarouselTemplateSwitcher.tsx` (Result page) rendered the big-card
+  `components/TemplateGallery.tsx` + `components/ColorPalettePicker.tsx` pair (large mock-slide
+  preview cards, grid layout), while `Create/AdvancedOptions.tsx` rendered
+  `Create/CompactTemplatePicker.tsx` (compact pill chips matching `ToneSelector.tsx`'s visual
+  language). Two different implementations of the same choice, styled differently.
+- Fix: `CarouselTemplateSwitcher.tsx` now renders `CompactTemplatePicker` directly (same
+  component Create uses), inside its existing collapsible banner. Both entry points now share
+  one visual language and one source of truth for the picker UI.
+- Deleted `client/src/components/TemplateGallery.tsx` and `client/src/components/ColorPalettePicker.tsx`
+  — confirmed zero remaining importers after the switch.
+- Updated the stale WHY-comment in `CompactTemplatePicker.tsx` (it previously described itself
+  as Create-only, contrasted against the gallery components on Result) and CLAUDE.md §4/§11a to
+  reflect the current single-picker reality.
+
+---
+
 ## 2026-08-06 — Pre-commit cleanup pass on the carousel template system branch
 
 **Status:** Complete. The template-system work below (and its REVIEW_FINDINGS-closeout follow-up)

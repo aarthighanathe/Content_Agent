@@ -9,17 +9,15 @@ interface CompactTemplatePickerProps {
   onPaletteChange: (id: string) => void;
 }
 
-// WHY this exists instead of reusing components/TemplateGallery.tsx +
-// ColorPalettePicker.tsx directly on the Create form: those two render a full
-// 10-card grid of skeleton-bar mock previews plus a separate swatch grid —
-// appropriate for the Result page's "browse and preview" template switcher
-// (CarouselTemplateSwitcher.tsx), but on the Create form it dominated a
-// single-screen quick-entry flow with little payoff (every card showed the
-// same generic 3-lines-and-a-box shape, not the template's real design).
-// This renders the same underlying template/palette selection as one compact,
-// scannable row of pill chips — matching ToneSelector.tsx's existing visual
-// language on this same form — with a small color-dot preview per chip
-// instead of a large mock card.
+// WHY a compact pill-chip row instead of a big-card gallery with mock slide
+// previews: on the Create form's single-screen quick-entry flow, a large grid
+// dominated the layout with little payoff (every card showed the same generic
+// 3-lines-and-a-box shape, not the template's real design). This renders
+// template/palette selection as one compact, scannable row — matching
+// ToneSelector.tsx's existing visual language on this same form — with a
+// small color-dot preview per chip instead of a large mock card. Also reused
+// by CarouselTemplateSwitcher.tsx on the Result page (inside a collapsible
+// banner) so both entry points share one visual language.
 export function CompactTemplatePicker({
   templateId,
   onTemplateChange,

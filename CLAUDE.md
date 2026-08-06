@@ -408,10 +408,7 @@ e:/AGContentAgent/
 │       │   ├── BrandIcons.tsx          ← SVG brand icons
 │       │   ├── OnboardingModal.tsx     ← First-run onboarding flow
 │       │   ├── ThemeSwitcher.tsx       ← Shared 6-theme picker (sidebar + landing nav) — see §13
-│       │   ├── ToolsDropdown.tsx       ← Nav tools dropdown
-│       │   ├── TemplateGallery.tsx     ← Carousel template picker grid — see §11a
-│       │   ├── TemplatePreview.tsx     ← Live single-template preview (Create's AdvancedOptions)
-│       │   └── ColorPalettePicker.tsx  ← Palette-swatch picker for the selected template
+│       │   └── ToolsDropdown.tsx       ← Nav tools dropdown
 │       │
 │       ├── lib/
 │       │   ├── colorSystem.ts          ← Accent color derivation for carousel previews + palette→ColorSystem
@@ -443,7 +440,9 @@ e:/AGContentAgent/
 │           │                              status/score) — reached only via router state from Create's batch
 │           │                              mode, not a standalone nav destination
 │           ├── Create/                 ← Sub-components for the Create form
-│           │   ├── AdvancedOptions.tsx    ← Carousel template + color-palette picker (TemplateGallery + ColorPalettePicker) — see §11a
+│           │   ├── AdvancedOptions.tsx    ← Carousel template + color-palette picker (renders CompactTemplatePicker) — see §11a
+│           │   ├── CompactTemplatePicker.tsx ← Pill-chip template/palette picker shared by Create and the Result page's
+│           │   │                                CarouselTemplateSwitcher — see §11a
 │           │   ├── PlatformSelector.tsx   ← Full card grid (`PlatformSelector`) + compact chosen-platform row (`PlatformSummary`)
 │           │   ├── platforms.ts           ← Platform metadata + `findPlatform()` (extracted from PlatformSelector.tsx to keep it component-only)
 │           │   ├── ToneSelector.tsx       ← Deselectable pills (click selected pill again to clear)
@@ -797,10 +796,16 @@ what changed.
 10 distinct templates — each with its own typography, spacing, layout style, and 3 curated
 color palettes — defined in `client/src/lib/templateSystem.ts` (`TEMPLATES` record,
 `getTemplate()`/`getPalette()`/`getDefaultPalette()` helpers). Selection happens on the
-Create form (`Create/AdvancedOptions.tsx`'s `TemplateGallery` + `ColorPalettePicker`) and is
+Create form (`Create/AdvancedOptions.tsx`'s `CompactTemplatePicker` — a compact row of pill
+chips for both template and palette, matching `ToneSelector.tsx`'s visual language) and is
 sent with job creation; it's also switchable after generation from the Result page's
-"Carousel template" panel (`CarouselTemplateSwitcher.tsx`), which calls
-`PATCH /:jobId/carousel-template`.
+"Carousel template" panel (`CarouselTemplateSwitcher.tsx`, which reuses the same
+`CompactTemplatePicker` inside a collapsible banner), calling `PATCH /:jobId/carousel-template`.
+The two pickers were briefly visually inconsistent — Create used the compact chips while
+Result rendered a separate big-card `TemplateGallery`/`ColorPalettePicker` pair — until
+2026-08-06, when `CarouselTemplateSwitcher.tsx` was switched to reuse `CompactTemplatePicker`
+directly and the now-orphaned `components/TemplateGallery.tsx` + `components/ColorPalettePicker.tsx`
+were deleted.
 
 | Key | Name | Category |
 |---|---|---|
