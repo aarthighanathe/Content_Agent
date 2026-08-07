@@ -54,9 +54,15 @@ vi.mock('@clerk/express', () => ({
 }));
 
 // Redis-backed rate limiters — bypass entirely, not what this test is about.
+// WHY an array, not a bare function: the real authJobRateLimit (rateLimit.ts's
+// buildRateLimiter) returns [failClosedMiddleware, limiter], and jobs/index.ts
+// destructures it as such. Mocking it as a plain function made that destructure
+// throw synchronously (functions aren't iterable), which Express turned into an
+// uncaught 500 — masking the SSE route's own 401 this test is actually checking.
+const passThrough = (_req: any, _res: any, next: any) => next();
 vi.mock('../../src/middleware/rateLimit.js', () => ({
-  authJobRateLimit: (_req: any, _res: any, next: any) => next(),
-  exportRateLimit: (_req: any, _res: any, next: any) => next(),
+  authJobRateLimit: [passThrough, passThrough],
+  exportRateLimit: passThrough,
 }));
 
 // verifySSEToken (used by GET /:jobId/stream) hits Redis directly; stub it so
