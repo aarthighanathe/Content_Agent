@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Bookmark, ChevronDown, ChevronUp, Smartphone, X } from 'lucide-react';
 import { platformMeta } from '../../lib/platformMeta';
 import { timeAgo } from '../../lib/utils';
@@ -12,6 +12,39 @@ interface SavedIdeasSectionProps {
 
 export function SavedIdeasSection({ savedIdeas, onUse, onRemove }: SavedIdeasSectionProps) {
   const [expanded, setExpanded] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Reset active index when collapsed
+  useEffect(() => {
+    if (!expanded) {
+      setActiveIndex(-1);
+    }
+  }, [expanded]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    if (!expanded || savedIdeas.length === 0) return undefined;
+
+    function handleKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveIndex((i) => (i + 1) % savedIdeas.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIndex((i) => (i <= 0 ? savedIdeas.length - 1 : i - 1));
+      } else if (e.key === 'Enter' && activeIndex >= 0) {
+        e.preventDefault();
+        onUse(savedIdeas[activeIndex]);
+      } else if (e.key === 'Escape') {
+        setActiveIndex(-1);
+        setExpanded(false);
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [expanded, savedIdeas, activeIndex, onUse]);
 
   if (savedIdeas.length === 0) return null;
 
@@ -36,15 +69,18 @@ export function SavedIdeasSection({ savedIdeas, onUse, onRemove }: SavedIdeasSec
       </button>
 
       {expanded && (
-        <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {savedIdeas.map((idea) => {
+        <div ref={containerRef} style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {savedIdeas.map((idea, index) => {
             const meta = platformMeta[idea.platform] || { label: idea.platform, Icon: Smartphone, color: '#8B5CF6', bg: 'rgba(139,92,246,0.10)' };
+            const isActive = index === activeIndex;
             return (
               <div
                 key={idea.title}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  border: '1px solid var(--rule)', borderRadius: 10, padding: '10px 12px',
+                  border: `1px solid ${isActive ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'var(--rule)'}`,
+                  borderRadius: 10, padding: '10px 12px',
+                  background: isActive ? 'color-mix(in srgb, var(--accent) 7%, transparent)' : 'transparent',
                 }}
               >
                 <span style={{

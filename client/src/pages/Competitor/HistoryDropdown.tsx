@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { History, ChevronDown } from 'lucide-react';
+import { History, ChevronDown, Trash2 } from 'lucide-react';
 import type { CompetitorAnalysisHistoryItem } from '../../types/social';
 import { timeAgo } from '../../lib/utils';
+import { deleteCompetitorAnalysis } from '../../api';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface HistoryDropdownProps {
   isLoading: boolean;
@@ -17,6 +19,22 @@ interface HistoryDropdownProps {
 // Competitor.tsx rather than introducing new hardcoded colors.
 export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownProps) {
   const [open, setOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  async function handleDelete(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    if (deletingId) return;
+    setDeletingId(id);
+    try {
+      await deleteCompetitorAnalysis(id);
+      queryClient.invalidateQueries({ queryKey: ['competitor', 'history'] });
+    } catch (err) {
+      console.error('Failed to delete analysis:', err);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   // WHY hidden entirely (not shown-empty): a user with no past analyses yet
   // has nothing meaningful to browse — an empty dropdown trigger would just
@@ -70,7 +88,7 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
                   width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
-                  borderRadius: 7, padding: '8px 10px', cursor: 'pointer',
+                  borderRadius: 7, padding: '8px 10px', cursor: 'pointer', position: 'relative',
                 }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--accent) 8%, transparent)'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
@@ -79,6 +97,22 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
                 <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
                   {item.industry ? `${item.industry} · ` : ''}{timeAgo(item.createdAt)}
                 </span>
+                <button
+                  type="button"
+                  onClick={(e) => handleDelete(e, item.id)}
+                  disabled={deletingId === item.id}
+                  aria-label={`Delete analysis for @${item.handle}`}
+                  style={{
+                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    padding: 4, borderRadius: 4, color: 'var(--text-muted)',
+                    opacity: 0, transition: 'opacity .15s',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-error)'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'; }}
+                >
+                  <Trash2 size={12} />
+                </button>
               </button>
             ))}
           </div>

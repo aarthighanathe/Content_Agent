@@ -38,7 +38,10 @@ export function IdeateControls({
   // WHY fallback to first analysis when competitorAnalysisId is undefined: when the user
   // first enables the competitor-gap toggle, we auto-select the most recent analysis
   // rather than forcing them to manually pick one. This provides a smoother UX.
-  const selectedAnalysisId = competitorAnalysisId ?? competitorAnalyses[0]?.id;
+  // WHY guard analysisOptions[0]: if competitorAnalyses is empty, analysisOptions is also empty,
+  // so accessing [0] would crash. The surrounding {analysisOptions.length > 0} guard on line 80
+  // prevents the Dropdown from rendering, but selectedAnalysisId is still computed in render.
+  const selectedAnalysisId = competitorAnalysisId ?? (analysisOptions.length > 0 ? analysisOptions[0].value : undefined);
   return (
     <div className="ideate-controls" style={{
       background: 'var(--bg-raised)', border: '1px solid var(--rule)',
@@ -93,7 +96,7 @@ export function IdeateControls({
           </label>
           {useCompetitorGaps && (
             <Dropdown
-              value={selectedAnalysisId ?? analysisOptions[0].value}
+              value={selectedAnalysisId ?? analysisOptions[0]?.value}
               options={analysisOptions}
               onChange={onCompetitorAnalysisIdChange}
               label="Competitor analysis to base ideas on"

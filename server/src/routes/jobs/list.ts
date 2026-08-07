@@ -36,6 +36,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       ? req.query.platform
       : undefined;
     const sort: JobSortKey = req.query.sort === 'score' || req.query.sort === 'platform' ? req.query.sort : 'date';
+    // WHY opt-out (`counts=0`): the platformCounts GROUP BY below costs a second
+    // aggregate scan of the user's jobs on every list fetch, but Calendar (which
+    // fetches up to 4 pages to build its month grid) never reads platformCounts —
+    // it only consumes jobs/total/totalPages. Library is the only consumer that
+    // renders the per-platform pills, so it stays on the default (counts included);
+    // Calendar opts out to drop 4 redundant aggregate queries per page load (perf audit).
+    const includePlatformCounts = req.query.counts !== '0';
 
     if (db && isValidUUID(userId)) {
       try {
@@ -49,20 +56,23 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .from(contentJobs)
           .where(whereClause);
 
-        // WHY a separate grouped query, ignoring platformFilter: this backs the
-        // toolbar's per-platform pill badges (e.g. "LinkedIn 23"), which need the
-        // true count for every platform regardless of which one is currently
-        // selected — computing counts from only the already-platform-filtered
-        // page would make every pill except the active one always read 0.
-        const countWhereClauses = [eq(contentJobs.userId, userId), eq(contentJobs.deleted, 0)];
-        if (search) countWhereClauses.push(ilike(contentJobs.topic, `%${search}%`));
-        const platformCountRows = await db
-          .select({ platform: contentJobs.platform, count: sql<number>`cast(count(*) as int)` })
-          .from(contentJobs)
-          .where(and(...countWhereClauses))
-          .groupBy(contentJobs.platform);
-        const platformCounts: Record<string, number> = {};
-        for (const row of platformCountRows) platformCounts[row.platform] = row.count;
+        let platformCounts: Record<string, number> | undefined;
+        if (includePlatformCounts) {
+          // WHY a separate grouped query, ignoring platformFilter: this backs the
+          // toolbar's per-platform pill badges (e.g. "LinkedIn 23"), which need the
+          // true count for every platform regardless of which one is currently
+          // selected — computing counts from only the already-platform-filtered
+          // page would make every pill except the active one always read 0.
+          const countWhereClauses = [eq(contentJobs.userId, userId), eq(contentJobs.deleted, 0)];
+          if (search) countWhereClauses.push(ilike(contentJobs.topic, `%${search}%`));
+          const platformCountRows = await db
+            .select({ platform: contentJobs.platform, count: sql<number>`cast(count(*) as int)` })
+            .from(contentJobs)
+            .where(and(...countWhereClauses))
+            .groupBy(contentJobs.platform);
+          platformCounts = {};
+          for (const row of platformCountRows) platformCounts[row.platform] = row.count;
+        }
 
         // WHY two-step for sort=score: qualityScore lives on contentOutputs
         // (type='critique'), not on contentJobs — a LEFT JOIN subquery fetches
@@ -74,13 +84,23 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         // subquery's WHERE + GROUP BY — no new migration needed.
         let assembledDbJobs: ReturnType<typeof assembleJobFromDB>[];
         if (sort === 'score') {
+          // WHY the innerJoin on contentJobs + userId WHERE: without it the score
+          // aggregate scanned EVERY critique row in the shared content_outputs table
+          // (all users), then filtered the page later. Joining to the caller's own
+          // jobs and filtering by userId + deleted in the subquery itself restricts
+          // the aggregate to this user's data (perf audit).
           const scoreSubq = db
             .select({
               jobId: contentOutputs.jobId,
               score: sql<number>`MAX(COALESCE(${contentOutputs.qualityScore}, 0))`.as('score'),
             })
             .from(contentOutputs)
-            .where(eq(contentOutputs.outputType, 'critique'))
+            .innerJoin(contentJobs, eq(contentJobs.id, contentOutputs.jobId))
+            .where(and(
+              eq(contentOutputs.outputType, 'critique'),
+              eq(contentJobs.userId, userId),
+              eq(contentJobs.deleted, 0),
+            ))
             .groupBy(contentOutputs.jobId)
             .as('score_sub');
 

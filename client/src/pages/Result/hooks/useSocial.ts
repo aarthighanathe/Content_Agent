@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { getSocialConnections, postToSocial } from '../../../api';
 import type { PlatformContent, VideoScriptContentData } from '../../../types/job';
 import type { SocialConnection } from '../../../types/api';
@@ -14,7 +15,6 @@ export function useSocial(
   content: SocialContent | string | undefined,
   jobId: string | undefined,
 ): { socialConnections: SocialConnection[]; postingTo: string | null; postResult: Record<string, 'ok' | 'error'>; postLinks: Record<string, string>; handlePostNow: (platform: string) => Promise<void> } {
-  const [socialConnections, setSocialConnections] = useState<SocialConnection[]>([]);
   const [postingTo, setPostingTo]   = useState<string | null>(null);
   const [postResult, setPostResult] = useState<Record<string, 'ok' | 'error'>>({});
   // WHY not cleared alongside postResult's 4s timeout: unlike the ok/error badge
@@ -30,11 +30,23 @@ export function useSocial(
   // component (or drawer) has unmounted.
   const pendingTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
-  useEffect(() => {
-    getSocialConnections()
-      .then(({ connections }) => setSocialConnections(connections.filter((c) => c.connected)))
-      .catch(() => {});
-  }, []);
+  // WHY React Query instead of the previous raw fetch in a mount effect: the old
+  // version hit GET /social/connections uncached on every Result mount, while
+  // Brand.tsx and DayDetailPanel had their own separate query keys — three
+  // independent cache entries for one cheap, rarely-changing endpoint (perf audit).
+  // Routing through the shared ['social','connections'] key means one fetch is
+  // cached and reused across all three surfaces; onConnectionChange isn't triggered
+  // here, so connected-only filtering stays local to this hook.
+  const { data: connectionsData } = useQuery({
+    queryKey: ['social', 'connections'],
+    queryFn: getSocialConnections,
+    staleTime: 5 * 60 * 1000,
+  });
+  // WHY effect replaced by a selector-style derive: same connected-only filtering as the
+  // old .then() but from the shared cache; no setState-in-effect, no per-mount refetch.
+  // Kept the `socialConnections` name so consumers (Result.tsx → ActionDrawer/ResultHeader)
+  // read it identically to before.
+  const socialConnections = (connectionsData?.connections || []).filter((c) => c.connected);
 
   useEffect(() => () => {
     pendingTimers.current.forEach(clearTimeout);

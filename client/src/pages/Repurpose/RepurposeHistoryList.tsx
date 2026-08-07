@@ -41,7 +41,7 @@ export function RepurposeHistoryList({ history, onRetry, onRemove }: RepurposeHi
                 <XCircle size={13} style={{ color: 'var(--color-error)', flexShrink: 0, marginTop: 1 }} />
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entry.url}>
+                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', wordBreak: 'break-all' }} title={entry.url}>
                   {entry.url}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>

@@ -145,6 +145,13 @@ export const contentOutputs = pgTable('content_outputs', {
 }, (table) => ({
   jobIdIdx:   index('idx_content_outputs_job_id').on(table.jobId),
   jobTypeIdx: index('idx_content_outputs_job_type').on(table.jobId, table.outputType),
+  // WHY leading-outputType (mirror of jobTypeIdx, reversed): the GET /jobs
+  // sort=score subquery filters content_outputs by outputType='critique' then
+  // groups by jobId (perf audit) — jobTypeIdx's leading jobId cannot serve that
+  // WHERE, so without this index the subquery scans every critique row in the
+  // table before the user-narrowing join to contentJobs can apply. Applied to
+  // live DBs via `npm run db:generate && npm run db:migrate`.
+  typeJobIdx: index('idx_content_outputs_type_job').on(table.outputType, table.jobId),
 }));
 
 export const agentLogs = pgTable('agent_logs', {

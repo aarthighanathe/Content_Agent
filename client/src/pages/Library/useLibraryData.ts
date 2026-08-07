@@ -43,6 +43,7 @@ export function useLibraryData() {
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [deleteJobError, setDeleteJobError] = useState('');
   const [bulkDeleteError, setBulkDeleteError] = useState('');
+  const [failedJobIds, setFailedJobIds] = useState<string[]>([]);
 
   // WHY unified toast (#45): CSV export previously gave no visible feedback on success
   // and silently swallowed Blob/download errors. Same { message, isError? } | null shape
@@ -163,12 +164,25 @@ export function useLibraryData() {
 
   const bulkDeleteJobsMutation = useMutation({
     mutationFn: (ids: string[]) => Promise.allSettled(ids.map(id => deleteJob(id))),
-    onSuccess: () => {
+    onSuccess: (results, ids) => {
+      // WHY variables (ids), not selectedIds: selectedIds is closure-captured
+      // component state that may have changed by the time this callback fires,
+      // which would misattribute failures to the wrong job IDs. `ids` is the
+      // exact array passed to mutate(), guaranteed to match `results` by index.
+      const failed = results
+        .map((r, i) => r.status === 'rejected' ? ids[i] : null)
+        .filter((id): id is string => id !== null);
+      setFailedJobIds(failed);
       queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] });
       setSelectedIds(new Set());
       setManageMode(false);
       setBulkDeleteConfirm(false);
       setBulkDeleteError('');
+      if (failed.length > 0) {
+        flashToast(`${failed.length} job${failed.length !== 1 ? 's' : ''} failed to delete`);
+      } else {
+        flashToast('Selected jobs deleted');
+      }
     },
     onError: () => {
       setBulkDeleteError('Failed to delete — please try again.');
@@ -293,7 +307,11 @@ export function useLibraryData() {
   // adding a server-side tag WHERE clause would require the same heavier aggregate path
   // as sort=score, and tags are a low-cardinality within a page, so slicing client-side
   // is an acceptable match for the existing sort=score precedent.
-  const filteredJobs = tagFilter ? jobs.filter(j => j.tag === tagFilter) : jobs;
+    // WHY memoized: `jobs` is server-data identity-stable across unrelated re-renders
+  // (React Query only swaps it on refetch), but the filter callback still re-ran on
+  // every render when inline — memoizing the sliced array keeps the filtered page
+  // stable for downstream consumers (perf audit nicety; cost is a 10-row slice).
+  const filteredJobs = useMemo(() => tagFilter ? jobs.filter(j => j.tag === tagFilter) : jobs, [jobs, tagFilter]);
 
   // WHY derived from platformMeta, not a hardcoded array: the previous local list
   // could silently drift from the real set of platforms the app supports (a new
@@ -321,6 +339,7 @@ export function useLibraryData() {
     editingTagJobId, setEditingTagJobId,
     deleteJobConfirm, setDeleteJobConfirm, bulkDeleteConfirm, setBulkDeleteConfirm,
     deleteJobError, setDeleteJobError, bulkDeleteError, setBulkDeleteError,
+    failedJobIds, setFailedJobIds,
     toast,
     jobs, totalPages, total, jobsLoading, jobsError, jobsQuery,
     deleteJobMutation, bulkDeleteJobsMutation, tagJobMutation,

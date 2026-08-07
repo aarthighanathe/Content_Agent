@@ -35,7 +35,27 @@ router.use(async (req: Request, res: Response, next) => {
 // in index.ts) its keyGenerator would always fall back to IP-keying, silently
 // turning the documented per-user cap into a per-IP one (shared-office users
 // collide into one bucket; a user who rotates IP escapes their own cap).
-router.use(authJobRateLimit);
+//
+// SECURITY: POST /:jobId/stream-token must be exempted from rate limiting —
+// SSE reconnects during a generation should not consume the user's hourly
+// job-creation budget. The stream endpoint itself is already exempted via
+// SSE_STREAM_PATH; this exemption covers the token-minting endpoint.
+const STREAM_TOKEN_PATH = /^\/[^/]+\/stream-token$/;
+router.use((req: Request, res: Response, next) => {
+  if (STREAM_TOKEN_PATH.test(req.path)) {
+    return next();
+  }
+  // WHY run the array's handlers manually instead of `router.use(...authJobRateLimit)`:
+  // that would apply the limiter to every path unconditionally — the stream-token
+  // exemption above needs to short-circuit before the limiter chain runs at all,
+  // so the two middlewares in the array are invoked in sequence here, with each
+  // one's `next` chaining to the next entry (or to the outer `next` on the last).
+  const [failClosed, limiter] = authJobRateLimit;
+  return failClosed(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    return limiter(req, res, next);
+  });
+});
 
 // Mount sub-routers — order matters: specific paths before param-based paths
 router.use('/', createRouter);    // POST /create, POST /batch

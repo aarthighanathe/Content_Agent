@@ -65,9 +65,21 @@ export default function ResultPage() {
   const [exportModalOpen, setExportModalOpen]   = useState(false);
   // Sidebar open by default so users notice the AI Quality Analysis is available;
   // still user-toggleable via the collapse button in InsightsSidebar.
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Persist collapse state to localStorage so it survives page refreshes.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('ca_insights_sidebar_collapsed') === 'true';
+    } catch { return false; }
+  });
   const [saveError, setSaveError]               = useState('');
   const touchStartX = useRef<number | null>(null);
+
+  // Persist sidebar collapse state to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('ca_insights_sidebar_collapsed', String(sidebarCollapsed));
+    } catch { /* ignore */ }
+  }, [sidebarCollapsed]);
 
   // Template selection: an in-Result override (set by switching templates
   // post-generation — see onTemplateSwitch below) takes priority; otherwise
@@ -155,12 +167,18 @@ export default function ResultPage() {
   // brandName/handle are ONLY populated from the user's real Brand Voice settings
   // (GET /users/me) — never fabricated from the topic text. A carousel for a user who
   // hasn't set up a brand shouldn't display a made-up name/handle on the cover slide.
-  const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: getProfile, staleTime: 5 * 60 * 1000 });
+  const { data: profile } = useQuery({ queryKey: ['dashboard', 'profile'], queryFn: getProfile, staleTime: 5 * 60 * 1000 });
   const brandName = profile?.brandName?.trim() || '';
   // NOTE: there's no separate "handle" setting anywhere in the schema — only brandName.
   // The handle is derived from it so it never shows without a real brand name behind it.
   const handle = brandName ? `@${brandName.toLowerCase().replace(/[^a-z0-9]/g, '')}` : '';
-  const colorSystem  = deriveColorSystem(THEME_ACCENTS[colorTheme] ?? THEME_ACCENTS[0]);
+  // WHY memoized: deriveColorSystem builds a fresh typed/color object every call, so an
+  // un-memoized call defeats React.memo on the carousel (colors prop identity would change
+  // on every Result render, rebuilding all slides). Stable on colorTheme, which is read once.
+  const colorSystem = useMemo(
+    () => deriveColorSystem(THEME_ACCENTS[colorTheme] ?? THEME_ACCENTS[0]),
+    [colorTheme],
+  );
   const designPreset = useCarouselDesignSeed(isCarousel ? content : undefined);
 
   const slideRefs = useRef<(HTMLDivElement | null)[]>([]);

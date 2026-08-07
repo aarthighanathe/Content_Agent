@@ -89,9 +89,11 @@ router.get('/me/export', async (req: AuthRequest, res: Response) => {
       onboarding: onboarding || null,
       scheduledPosts: scheduled,
     });
+    return;
   } catch (error) {
     Sentry.captureException(error, { tags: { route: 'GET /me/export' } });
     res.status(500).json({ error: 'Failed to export data', code: 'SERVER_ERROR', retryable: true });
+    return;
   }
 });
 
@@ -146,9 +148,11 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
     }
 
     res.json({ success: true });
+    return;
   } catch (error) {
     Sentry.captureException(error, { tags: { route: 'DELETE /me' } });
     res.status(500).json({ error: 'Failed to delete account', code: 'SERVER_ERROR', retryable: true });
+    return;
   }
 });
 

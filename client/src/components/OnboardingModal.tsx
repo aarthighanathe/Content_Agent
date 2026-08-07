@@ -50,6 +50,9 @@ export function OnboardingModal() {
   }
 
   function handleSkip() {
+    // WHY: without this, dismissing via Escape/backdrop/"Skip for now" never marked
+    // userOnboarding.completed in the DB, so the modal reappeared on every new session.
+    completeOnboarding({}).catch(() => { /* non-blocking */ });
     sessionStorage.setItem('ca_onboarding_dismissed', '1');
     setShow(false);
   }

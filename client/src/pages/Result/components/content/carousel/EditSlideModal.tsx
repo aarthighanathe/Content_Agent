@@ -69,62 +69,69 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
         style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-          width: 440, maxWidth: '92vw', zIndex: 201,
+          width: 440, maxWidth: '92vw', maxHeight: '90vh', zIndex: 201,
           background: 'var(--bg-card)',
           border: '1px solid var(--rule)',
-          borderRadius: 14, padding: '22px 24px',
-          display: 'flex', flexDirection: 'column', gap: 14,
+          borderRadius: 14,
+          display: 'flex', flexDirection: 'column',
           boxShadow: '0 24px 64px rgba(0,0,0,0.75)',
         }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 24px 0', flexShrink: 0 }}>
           <span id="edit-slide-modal-title" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
             Edit Slide {index + 1}
           </span>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: 17, lineHeight: 1, padding: '2px 4px' }}
+            aria-label="Close"
+            style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: 17, lineHeight: 1, padding: 12, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             &#10005;
           </button>
         </div>
 
-        {(['headline', 'body'] as const).map(key => {
-          const max = key === 'headline' ? HEADLINE_MAX : BODY_MAX;
-          const nearLimit = form[key].length >= max * 0.9;
-          return (
-            <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", letterSpacing: 1, textTransform: 'uppercase' }}>
-                  {key === 'headline' ? 'Headline' : 'Body'}
-                </label>
-                <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color: nearLimit ? 'var(--color-error)' : 'var(--text-muted)' }}>
-                  {form[key].length}/{max}
-                </span>
+        {/* WHY a separate scroll region: the header and Save/Cancel footer must
+            stay pinned so they're never pushed off-screen on short mobile
+            viewports (landscape phones, keyboard open) — only the field area
+            scrolls internally. */}
+        <div style={{ overflowY: 'auto', padding: '14px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {(['headline', 'body'] as const).map(key => {
+            const max = key === 'headline' ? HEADLINE_MAX : BODY_MAX;
+            const nearLimit = form[key].length >= max * 0.9;
+            return (
+              <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", letterSpacing: 1, textTransform: 'uppercase' }}>
+                    {key === 'headline' ? 'Headline' : 'Body'}
+                  </label>
+                  <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color: nearLimit ? 'var(--color-error)' : 'var(--text-muted)' }}>
+                    {form[key].length}/{max}
+                  </span>
+                </div>
+                {key === 'body'
+                  ? <textarea
+                      className="input"
+                      value={form[key]}
+                      onChange={e => setForm({ ...form, [key]: e.target.value })}
+                      maxLength={max}
+                      style={{ minHeight: 90, resize: 'vertical' }}
+                    />
+                  : <input
+                      className="input"
+                      value={form[key]}
+                      onChange={e => setForm({ ...form, [key]: e.target.value })}
+                      maxLength={max}
+                    />
+                }
               </div>
-              {key === 'body'
-                ? <textarea
-                    className="input"
-                    value={form[key]}
-                    onChange={e => setForm({ ...form, [key]: e.target.value })}
-                    maxLength={max}
-                    style={{ minHeight: 90, resize: 'vertical' }}
-                  />
-                : <input
-                    className="input"
-                    value={form[key]}
-                    onChange={e => setForm({ ...form, [key]: e.target.value })}
-                    maxLength={max}
-                  />
-              }
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {error && (
-          <div style={{ fontSize: 11.5, color: 'var(--color-error)' }} role="alert">{error}</div>
-        )}
+          {error && (
+            <div style={{ fontSize: 11.5, color: 'var(--color-error)' }} role="alert">{error}</div>
+          )}
+        </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, padding: '14px 24px 22px', flexShrink: 0 }}>
           <Button variant="primary" onClick={handleSave} disabled={saving} loading={saving} style={{ flex: 1, justifyContent: 'center' }}>
             Save
           </Button>

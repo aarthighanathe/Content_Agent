@@ -187,6 +187,11 @@ export function DayDetailPanel({
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px 10px 60px', flexWrap: 'wrap' }}>
                 {post?.publishPlatform ? (
                   <>
+                    {/* Auto-publish time disclosure */}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', background: 'color-mix(in srgb, var(--text-muted) 6%, transparent)', padding: '2px 6px', borderRadius: 4 }}>
+                      <CalendarDays size={9} />
+                      Auto-publishes at 9am UTC
+                    </span>
                     {post.publishStatus === 'pending' && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
                         <Loader2 size={10} style={{ animation: 'sc-spin .8s linear infinite' }} />
@@ -219,18 +224,17 @@ export function DayDetailPanel({
                       Cancel
                     </button>
                   </>
-                ) : (
+                ) : connectedPlatforms.length > 0 ? (
                   <div style={{ position: 'relative' }}>
                     <button
                       className="sc-btn-ghost"
                       onClick={() => setPlatformMenuJobId(isPlatformMenuOpen ? null : job.id)}
-                      disabled={connectedPlatforms.length === 0}
-                      title={connectedPlatforms.length === 0 ? 'Connect a social account in Brand settings to enable auto-publish' : 'Auto-publish this post'}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: connectedPlatforms.length === 0 ? 'var(--text-muted)' : 'var(--accent)', opacity: connectedPlatforms.length === 0 ? 0.5 : 1 }}
+                      title="Auto-publish this post"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--accent)' }}
                     >
                       <Send size={10} /> Auto-publish…
                     </button>
-                    {isPlatformMenuOpen && connectedPlatforms.length > 0 && (
+                    {isPlatformMenuOpen && (
                       <div className="sc-publish-menu">
                         {connectedPlatforms.map((p) => (
                           <button
@@ -244,7 +248,7 @@ export function DayDetailPanel({
                       </div>
                     )}
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           );

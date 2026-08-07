@@ -110,6 +110,21 @@ export interface JobListResponse {
   platformCounts?: Record<string, number>;
 }
 
+// WHY a separate slim type (not ContentJob): polling consumers (Batch poll, Content
+// Multiplier) only read status/progress/hasFinal/score — the full GET /:jobId payload
+// carries every output's `content` jsonb (research report, entire carousel). The server's
+// GET /:jobId/status endpoint returns exactly this field set so pollers stop re-downloading
+// megabytes of unchanged content every 2.5s (perf audit).
+export interface JobStatus {
+  id: string;
+  status: string;
+  stage?: string;
+  progress?: number;
+  hasFinal: boolean;
+  score?: number;
+  topic?: string;
+}
+
 export interface PlatformContent {
   headline?: string;
   body?: string;

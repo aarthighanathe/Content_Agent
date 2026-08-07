@@ -69,7 +69,7 @@ export function TopicSuggestions({ suggestions, open, onClose, onPick, inputRef 
           position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
           background: 'var(--bg-card)', border: '1px solid var(--rule)',
           borderRadius: 10, boxShadow: '0 16px 48px rgba(0,0,0,0.65)',
-          zIndex: 30, overflow: 'hidden',
+          zIndex: 50, overflow: 'hidden',
         }}
       >
         <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
@@ -88,7 +88,7 @@ export function TopicSuggestions({ suggestions, open, onClose, onPick, inputRef 
         position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
         background: 'var(--bg-card)', border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
         borderRadius: 10, boxShadow: '0 16px 48px rgba(0,0,0,0.65)',
-        zIndex: 30, overflow: 'hidden', maxHeight: 200, overflowY: 'auto',
+        zIndex: 50, overflow: 'hidden', maxHeight: 200, overflowY: 'auto',
       }}
     >
       <div style={{ padding: '7px 12px', borderBottom: '1px solid var(--rule)', fontFamily: "var(--font-mono)", fontSize: 8.5, color: 'var(--text-muted)', letterSpacing: 1, textTransform: 'uppercase' }}>

@@ -115,6 +115,7 @@ export interface SocialConnection {
   label: string;
   connected: boolean;
   displayName: string | null;
+  expiresAt?: number | null;
 }
 
 export interface SSEProgress {

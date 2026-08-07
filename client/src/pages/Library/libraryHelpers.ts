@@ -114,9 +114,15 @@ export const LIBRARY_STYLES = `
   .lib-collection-pill.active { border-color:color-mix(in srgb, var(--accent) 40%, transparent); background:color-mix(in srgb, var(--accent) 10%, transparent); color:var(--accent); }
   .lib-collection-pill:hover:not(.active) { color:var(--text-secondary); }
   .lib-collection-pill-wrap { display:inline-flex; align-items:center; gap:2px; position:relative; }
-  .lib-collection-delete { background:none; border:none; cursor:pointer; color:var(--text-muted); display:flex; align-items:center; padding:2px; border-radius:50%; opacity:0; transition:opacity .15s; }
-  .lib-collection-pill-wrap:hover .lib-collection-delete { opacity:0.7; }
+  .lib-collection-delete { background:none; border:none; cursor:pointer; color:var(--text-muted); display:flex; align-items:center; justify-content:center; width:24px; height:24px; padding:2px; border-radius:50%; opacity:0; transition:opacity .15s; }
+  .lib-collection-pill-wrap:hover .lib-collection-delete,
+  .lib-collection-pill-wrap:focus-within .lib-collection-delete { opacity:0.7; }
   .lib-collection-delete:hover { opacity:1 !important; color:var(--color-error); }
+  /* WHY (hover: none): touch devices have no hover state, so the delete button
+     would otherwise stay permanently invisible/unreachable on mobile. */
+  @media (hover: none) {
+    .lib-collection-delete { opacity:0.55; width:32px; height:32px; }
+  }
   .lib-collection-new-input-wrap { display:flex; align-items:center; gap:6px; }
   .lib-collection-new-input { background:color-mix(in srgb, var(--bg-raised) 80%, transparent); border:1px solid var(--rule); border-radius:20px; padding:5px 12px; color:var(--text-primary); font-size:11px; font-family:var(--font-mono); outline:none; width:140px; transition:border-color .15s; }
   .lib-collection-new-input:focus { border-color:color-mix(in srgb, var(--accent) 40%, transparent); }

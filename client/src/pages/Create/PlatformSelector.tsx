@@ -23,6 +23,11 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
             grid-template-columns: 1fr !important;
           }
         }
+        @media (min-width: 380px) and (max-width: 480px) {
+          .platform-grid-375-fix {
+            grid-template-columns: 1fr !important;
+          }
+        }
       `}</style>
       <div
         className="platform-grid-375-fix"

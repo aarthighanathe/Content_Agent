@@ -282,10 +282,12 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         {/* WHY this note: scheduling currently only saves the reminder — there is
             no delivery worker wired up yet to actually publish at the scheduled
             time (FUNCTIONAL_AUDIT_2026-07.md finding #5). The old "Post scheduled!"
-            confirmation implied automatic publishing, which never happens. */}
+            confirmation implied automatic publishing, which never happens.
+            Additionally, scheduled posts are stored in-memory only and will be lost
+            on server restart (REVIEW_FINDINGS.md SEC-05). */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 8, padding: '9px 12px', fontSize: 11.5, color: 'color-mix(in srgb, var(--accent) 85%, transparent)', lineHeight: 1.5 }}>
           <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>This saves a reminder only — auto-publishing isn't available yet. Come back at the scheduled time and post it yourself from here.</span>
+          <span>This saves a reminder only — auto-publishing isn't available yet. Come back at the scheduled time and post it yourself from here. <strong>Note:</strong> Scheduled posts are stored in-memory and will be lost if the server restarts.</span>
         </div>
 
         {scheduleError && (

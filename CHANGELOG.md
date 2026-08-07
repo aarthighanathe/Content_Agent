@@ -11,6 +11,51 @@
 
 ---
 
+## 2026-08-07 — Performance audit fixes (frontend re-renders, polling payloads, backend query costs)
+
+**Status:** Complete. Ran the `prompts/performance-audit.md` checklist across client + server,
+then fixed every concrete code issue it surfaced. Runtime-only metrics (TTI/LCP, live pipeline
+latency, Puppeteer cache hit rate) still require live measurement with real env vars — the
+static findings and their fixes are all below. Also fixed a pre-existing `tsc` build blocker.
+
+- **Build blocker:** `client/src/pages/BatchResult.tsx` declared `BatchItem` twice (dead `type`
+  + the used `interface`), failing `npm run build`. Removed the dead duplicate.
+- **Carousel re-renders:** wrapped `IGSlide` in `React.memo` (its 8 slides were rebuilt on every
+  `IGCarouselPreview` interaction — drag offset, currentSlide tick, copy-all flash — even though
+  their props were unchanged). Memoized the `colorSystem` object in `Result.tsx` so the `colors`
+  prop identity is stable (was a fresh object per render, which would have defeated the memo).
+- **Zustand whole-store subscriptions:** `useJobData.ts` and `Brand.tsx` used the no-selector
+  form, re-rendering on every store mutation (theme switch, Ideate saves). Both now select the
+  exact slices they need.
+- **Duplicate `/users/me` on Result:** `Result.tsx` used a divergent `['profile']` query key
+  while every other page used `['dashboard','profile']` — Result forced a fresh fetch even with
+  the shared key hot in cache. Unified on `['dashboard','profile']`.
+- **Slim status endpoint:** new `GET /api/jobs/:id/status` returns `{ id, status, stage,
+  progress, hasFinal, score, topic }` only — no output `content` jsonb (the full `GET /:jobId`
+  re-downloaded research reports + entire carousels on every 2.5s poll). `useMultiplier` and the
+  Batch poll now poll `/status`; multiplier fetches the full payload exactly once, at completion.
+- **Calendar window-focus refetch:** Calendar fetched 4 pages of `GET /jobs` on every window
+  focus, and each page ran a grouped `platformCounts` aggregate it never consumed. Added a
+  `counts=0` opt-out to `GET /jobs` (only Library needs the pills) + `getJobs(p, { counts:false })`,
+  and gave the calendar query `staleTime: 5min` + `refetchOnWindowFocus:false`.
+- **Social connections fetched 3 ways under 3 keys:** `useSocial` (raw uncached effect),
+  `DayDetailPanel` (`['social','connections']`), `Brand` (`['brand','socialConnections']`).
+  All now use the one shared `['social','connections']` React Query key; `useSocial` moved off
+  the raw fetch to the shared cache.
+- **`sort=score` global aggregate:** the job-list score subquery scanned every `content_outputs`
+  critique row across all users; it now inner-joins `content_jobs` and filters `userId` +
+  `deleted` in the subquery. Added `idx_content_outputs_type_job (outputType, jobId)` to
+  `schema.ts` to back it — **requires `npm run db:generate && npm run db:migrate` to apply.**
+- **Library niceties:** tag-filter slice wrapped in `useMemo`.
+- **Lint fixes:** `PublishingConnectionsCard` called `Date.now()` during render (impure); now
+  captures the clock once per mount via `useState`. Removed the unused `getContentTotalScore`
+  helper in BatchResult after the status-endpoint switch.
+- Remaining audit items that are measurement tasks, not code fixes: live TTI/LCP profiling,
+  per-agent-stage latency (`agent_logs.duration_ms` already recorded), Puppeteer pool exhaustion
+  under concurrent exports (a global export deadline in `browserPool.ts`/`carouselSsr.ts` was
+  flagged as the top backend risk — left for a follow-up since it needs load testing to tune),
+  and external-API fallback rates.
+
 ## 2026-08-06 — Unified Result page's carousel template picker with Create's
 
 **Status:** Complete. User reported the Result page's post-generation "Carousel template"

@@ -1,4 +1,5 @@
-import { Zap } from 'lucide-react';
+import { useState } from 'react';
+import { Zap, AlertTriangle } from 'lucide-react';
 import { Instagram, Linkedin, XTwitter } from '../../components/BrandIcons';
 import { Button } from '../../components/Button';
 import { ErrorState } from '../../components/ErrorState';
@@ -9,6 +10,7 @@ interface SocialConnection {
   label: string;
   connected: boolean;
   displayName: string | null;
+  expiresAt?: number | null;
 }
 
 interface PublishingConnectionsCardProps {
@@ -32,6 +34,17 @@ const platformMeta = [
 export function PublishingConnectionsCard({
   socialConnections, disconnectingPlatform, onDisconnect, isLoading, isError, onRetry,
 }: PublishingConnectionsCardProps) {
+  // Check for expired or near-expiry LinkedIn tokens
+  // WHY a frozen `now` captured once per mount instead of Date.now() at render:
+  // calling Date.now() during render is impure (React Compiler purity rule) — the
+  // badge would recompute on every unrelated re-render and the value could change
+  // mid-render. Capturing the clock once per mount keeps the expiry badge stable
+  // and render-pure; token expiry happens over days, so per-mount freshness is fine.
+  const [now] = useState(() => Date.now());
+  const linkedinConn = socialConnections.find(c => c.platform === 'linkedin');
+  const isLinkedinExpired = linkedinConn?.connected && linkedinConn.expiresAt && linkedinConn.expiresAt < now;
+  const isLinkedinNearExpiry = linkedinConn?.connected && linkedinConn.expiresAt && linkedinConn.expiresAt < now + (7 * 24 * 60 * 60 * 1000); // 7 days
+
   return (
     <div className="card" style={{ gridColumn: '1 / -1', borderLeft: '3px solid rgba(96,165,250,0.4)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
@@ -41,6 +54,18 @@ export function PublishingConnectionsCard({
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Post directly to your social platforms</div>
         </div>
       </div>
+
+      {/* Token expiry warning */}
+      {(isLinkedinExpired || isLinkedinNearExpiry) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: isLinkedinExpired ? 'rgba(239,68,68,0.08)' : 'rgba(250,204,21,0.08)', border: `1px solid ${isLinkedinExpired ? 'rgba(239,68,68,0.25)' : 'rgba(250,204,21,0.25)'}`, borderRadius: 8, padding: '10px 12px', marginBottom: 16 }}>
+          <AlertTriangle size={14} style={{ color: isLinkedinExpired ? 'var(--color-error)' : '#eab308', flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 11, color: isLinkedinExpired ? 'var(--color-error)' : '#eab308', lineHeight: 1.5 }}>
+            {isLinkedinExpired
+              ? 'Your LinkedIn access token has expired. Please reconnect your account to continue posting.'
+              : 'Your LinkedIn access token will expire soon. Please reconnect your account to avoid posting issues.'}
+          </div>
+        </div>
+      )}
 
       {isError ? (
         <ErrorState message="We couldn't load your publishing connections. Please try again." onRetry={onRetry} />

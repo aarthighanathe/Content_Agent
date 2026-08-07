@@ -294,15 +294,23 @@ router.post('/repurpose/batch', async (req: AuthRequest, res: Response) => {
     const userId = req.dbUserId || req.userId || 'demo';
     const userProfile = await getUserProfile(userId);
 
+    // WHY resolve instead of throw on failure: keeping every outcome (expected
+    // extraction failure AND unexpected error) inside the fulfilled branch of
+    // Promise.allSettled gives each result a single known shape, so downstream
+    // code never has to narrow `unknown`/PromiseRejectedResult.reason.
     const itemResults = await Promise.allSettled(
       items.map(async (item) => {
-        const extracted = await fetchAndExtractArticle(item.url);
-        if (!extracted.ok) {
-          return { ok: false as const, url: item.url, error: extracted.error };
+        try {
+          const extracted = await fetchAndExtractArticle(item.url);
+          if (!extracted.ok) {
+            return { ok: false as const, url: item.url, error: extracted.error };
+          }
+          const targetPlatforms = item.platforms ?? [item.platform];
+          const jobs = await createJobsForPlatforms(userId, userProfile, item.url, extracted.article, targetPlatforms, item.tone, item.targetAudience);
+          return { ok: true as const, url: item.url, jobs };
+        } catch (err) {
+          return { ok: false as const, url: item.url, error: err instanceof Error ? err.message : String(err) };
         }
-        const targetPlatforms = item.platforms ?? [item.platform];
-        const jobs = await createJobsForPlatforms(userId, userProfile, item.url, extracted.article, targetPlatforms, item.tone, item.targetAudience);
-        return { ok: true as const, url: item.url, jobs };
       }),
     );
 
@@ -311,7 +319,7 @@ router.post('/repurpose/batch', async (req: AuthRequest, res: Response) => {
 
     for (const r of itemResults) {
       if (r.status === 'rejected') {
-        failedItems.push({ url: '', error: String(r.reason) });
+        failedItems.push({ url: '', error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
         continue;
       }
       if (!r.value.ok) {

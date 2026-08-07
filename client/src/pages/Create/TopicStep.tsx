@@ -44,6 +44,7 @@ interface TopicStepProps {
   loading: boolean;
   generateLabel: string;
   onSubmit: () => void;
+  countdownText?: string | null;
 }
 
 export function TopicStep({
@@ -54,7 +55,7 @@ export function TopicStep({
   hasBrandVoice, hasContentDna,
   targetAudience, onTargetAudienceChange, audiencePlaceholder,
   templateId, onTemplateChange, paletteId, onPaletteChange,
-  errorMsg, loading, generateLabel, onSubmit,
+  errorMsg, loading, generateLabel, onSubmit, countdownText,
 }: TopicStepProps) {
   return (
     <div className="create-topic-step" style={{ marginBottom: 32, padding: '0 16px' }}>
@@ -220,7 +221,7 @@ export function TopicStep({
       {/* Error message */}
       {errorMsg && (
         <div style={{ marginBottom: 20, padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 12, color: 'var(--color-error)', display: 'flex', alignItems: 'center', gap: 6 }} role="alert">
-          <AlertTriangle size={13} /> {errorMsg}
+          <AlertTriangle size={13} /> {errorMsg}{countdownText && <span style={{ marginLeft: 6, fontWeight: 600 }}>({countdownText})</span>}
         </div>
       )}
 

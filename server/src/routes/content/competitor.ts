@@ -137,10 +137,12 @@ Return ONLY this JSON (no markdown, no extra text):
     }
 
     res.json({ handle: cleanHandle, analysis: parsed, analysisId });
+    return;
   } catch (error: unknown) {
     console.error('Competitor analysis failed:', error);
     Sentry.captureException(error, { tags: { route: 'POST /competitor' } });
     res.status(500).json({ error: 'Failed to analyze competitor', code: 'SERVER_ERROR', retryable: true });
+    return;
   }
 });
 
@@ -182,10 +184,44 @@ router.get('/competitor/history', async (req: AuthRequest, res: Response) => {
         createdAt: row.createdAt,
       })),
     });
+    return;
   } catch (error: unknown) {
     console.error('Failed to load competitor analysis history:', error);
     Sentry.captureException(error, { tags: { route: 'GET /competitor/history' } });
     res.status(500).json({ error: 'Failed to load history', code: 'SERVER_ERROR', retryable: true });
+    return;
+  }
+});
+
+// DELETE /api/content/competitor/:id — soft-delete a competitor analysis
+router.delete('/competitor/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const analysisId = req.params.id as string;
+    const userId = req.dbUserId;
+
+    if (!db || !userId || !isValidUUID(userId)) {
+      return res.status(503).json({ error: 'Database unavailable', code: 'DB_UNAVAILABLE', retryable: true });
+    }
+
+    if (!isValidUUID(analysisId)) {
+      return res.status(400).json({ error: 'Invalid analysis ID', code: 'INVALID_ID', retryable: false });
+    }
+
+    const result = await db.update(competitorAnalyses)
+      .set({ deleted: 1 })
+      .where(and(eq(competitorAnalyses.id, analysisId), eq(competitorAnalyses.userId, userId)));
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Analysis not found', code: 'NOT_FOUND', retryable: false });
+    }
+
+    res.json({ success: true });
+    return;
+  } catch (error: unknown) {
+    console.error('Failed to delete competitor analysis:', error);
+    Sentry.captureException(error, { tags: { route: 'DELETE /competitor/:id' } });
+    res.status(500).json({ error: 'Failed to delete analysis', code: 'SERVER_ERROR', retryable: true });
+    return;
   }
 });
 

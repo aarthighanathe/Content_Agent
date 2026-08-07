@@ -499,6 +499,11 @@ html:not([data-theme]) body::after {
   padding: 12px 0;
 }
 
+/* ── Collapsed sidebar tooltip on hover ── */
+.sidebar-collapsed-layout .sidebar-link:hover .sidebar-tooltip {
+  opacity: 1;
+}
+
 /* ── Main inner wrapper ── */
 .main-inner {
   max-width: 1280px;
@@ -672,8 +677,8 @@ html:not([data-theme]) body::after {
   }
 
   .mobile-more-close {
-    width: 28px;
-    height: 28px;
+    width: 44px;
+    height: 44px;
     background: color-mix(in srgb, var(--text-primary) 7%, transparent);
     border: 1px solid var(--rule);
     border-radius: 8px;
@@ -1667,13 +1672,6 @@ textarea.input {
   .grid-halves {
     grid-template-columns: 1fr !important;
     gap: 12px !important;
-  }
-
-  .job-row {
-    flex-wrap: nowrap !important;
-    gap: 8px !important;
-    padding: 12px 14px !important;
-    align-items: center !important;
   }
 
   .hero-cards { display: none !important; }

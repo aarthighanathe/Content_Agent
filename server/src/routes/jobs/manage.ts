@@ -3,7 +3,7 @@ import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../../middleware/auth.js';
 import { sseManager } from '../../lib/sse.js';
-import { setJobInStore } from '../../workers/contentWorker.js';
+import { setJobInStore, getJobFromStore } from '../../workers/contentWorker.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { getUserProfile } from '../users.js';
 import { db } from '../../db/index.js';
@@ -42,6 +42,79 @@ async function updateJobWithCacheAside(
     setJobInStore(jobId, memJob);
   }
 }
+
+// GET /:jobId/status — lightweight status for pollers (Batch poll, Content Multiplier).
+// WHY a dedicated slim endpoint instead of reusing GET /:jobId: the pollers only read
+// status/progress/hasFinal/score/topic, but GET /:jobId returns every contentOutputs row
+// including the full `content` JSON (research report, entire carousel slide array). With
+// several jobs polling every 2.5s, that re-downloaded megabytes of unchanged payload per
+// tick — the single largest network waste found in the perf audit. This endpoint selects
+// only the scalar columns the pollers actually consume.
+// SECURITY: same 404-not-403 ownership semantics as requireJobOwnership — never confirm a
+// jobId exists for another user.
+router.get('/:jobId/status', async (req: AuthRequest, res: Response) => {
+  try {
+    const jobId = req.params.jobId as string;
+    const userId = req.dbUserId || req.userId || 'demo';
+
+    // In-memory path first (in-flight or recently-finished) — cheap, no content columns.
+    const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
+    if (memJob) {
+      if (memJob.userId !== userId || memJob.deleted === 1) {
+        return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
+      }
+      const memOutputs = readOutputs(memJob);
+      const crit = memOutputs.find((o) => o.outputType === 'critique');
+      const score = typeof crit?.qualityScore === 'number' ? crit.qualityScore : undefined;
+      return res.json({
+        id: jobId,
+        status: memJob.status,
+        stage: memJob.stage,
+        progress: typeof memJob.progress === 'number' ? memJob.progress : (memJob.status === 'done' ? 100 : 0),
+        hasFinal: memOutputs.some((o) => o.outputType === 'final'),
+        score,
+        topic: memJob.topic,
+      });
+    }
+
+    // Memory miss — fall back to DB with a SELECT that excludes the heavy content jsonb.
+    if (db) {
+      try {
+        const ownedCols = await db.query.contentJobs.findFirst({
+          where: (j, { eq: jeq, and: jand }) =>
+            jand(jeq(j.id, jobId), jeq(j.userId, userId), jeq(j.deleted, 0)),
+          columns: { status: true, topic: true },
+        });
+        if (!ownedCols) {
+          return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
+        }
+        const hasFinal = await db.query.contentOutputs.findFirst({
+          where: (o, { eq: jeq, and: jand }) => jand(jeq(o.jobId, jobId), jeq(o.outputType, 'final')),
+          columns: { id: true },
+        });
+        const lastCrit = await db.query.contentOutputs.findFirst({
+          where: (o, { eq: jeq, and: jand }) => jand(jeq(o.jobId, jobId), jeq(o.outputType, 'critique')),
+          orderBy: (o, { desc }) => [desc(o.createdAt)],
+          columns: { qualityScore: true },
+        });
+        return res.json({
+          id: jobId,
+          status: ownedCols.status,
+          stage: ownedCols.status,
+          progress: ownedCols.status === 'done' ? 100 : 0,
+          hasFinal: !!hasFinal,
+          score: typeof lastCrit?.qualityScore === 'number' ? lastCrit.qualityScore : undefined,
+          topic: ownedCols.topic,
+        });
+      } catch { /* fall through to 404 */ }
+    }
+
+    return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
+  } catch (error) {
+    logger.error('[DB] GET /:jobId/status failed', { jobId: req.params.jobId, error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ error: 'Failed to fetch job status', code: 'SERVER_ERROR', retryable: true });
+  }
+});
 
 // GET /:jobId
 router.get('/:jobId', async (req: AuthRequest, res: Response) => {

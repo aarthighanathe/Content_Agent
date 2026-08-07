@@ -43,6 +43,13 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
       .finally(() => setLoading(false));
   }
 
+  // WHY []: HashtagPanel is only ever rendered behind `activeTab === 'hashtags' &&`
+  // in ActionDrawer.tsx, so React fully unmounts/remounts it each time the user
+  // leaves and returns to this tab — jobData/content are fixed for the lifetime of
+  // a single mount (the Result page doesn't swap jobs while the drawer is open).
+  // A real dependency array (jobData, content, fetchHashtags) would re-fire this
+  // effect on every parent re-render that produces a new `content` object identity,
+  // re-triggering a paid hashtag-research API call the user never asked for.
   useEffect(() => {
     if (!jobData || data || loading) return;
     const t = setTimeout(fetchHashtags, 0);

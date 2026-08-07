@@ -63,13 +63,19 @@ export interface CalendarJobsResult {
 
 export async function fetchCalendarJobs(): Promise<CalendarJobsResult> {
   const pageNumbers = Array.from({ length: FETCH_PAGES }, (_, i) => i + 1);
-  const results = await Promise.allSettled(pageNumbers.map((p) => getJobs(p)));
+  // WHY counts:false: calendar only needs jobs + totalPages (the month grid).
+  // The server's default per-platform pill aggregate is unused here — opting out
+  // drops 4 grouped COUNT queries (one per fetched page) from every load (perf audit).
+  const results = await Promise.allSettled(pageNumbers.map((p) => getJobs(p, { counts: false })));
   const fulfilled = results.filter(
     (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof getJobs>>> => r.status === 'fulfilled',
   );
   if (fulfilled.length === 0) throw new Error('Failed to load calendar data');
 
-  const totalPages = fulfilled[0].value.totalPages ?? 1;
+  // WHY guard fulfilled[0].value: Promise.allSettled filters by status='fulfilled', but the
+  // value itself could still be malformed or null from the API. Accessing .totalPages without
+  // this check would crash if the API returns an unexpected shape.
+  const totalPages = fulfilled[0]?.value?.totalPages ?? 1;
   const hitFetchCap = totalPages > FETCH_PAGES;
 
   const all = fulfilled.flatMap((r) => r.value.jobs || []) as CalendarJob[];
@@ -108,6 +114,8 @@ export function useSchedule() {
       }
       return { map, postsByJobId };
     },
+    // Poll every 30 seconds to check for auto-publish status changes
+    refetchInterval: 30000,
   });
 
   const scheduleMutation = useMutation({

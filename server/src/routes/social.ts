@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import type { NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/index.js';
@@ -173,16 +174,21 @@ export async function dbGetToken(userId: string, platform: string): Promise<Soci
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 // GET /api/social/connections
-router.get('/connections', async (req: AuthRequest, res: Response) => {
-  const userId = req.dbUserId || req.userId || 'demo';
-  const tokens = await dbGetTokens(userId);
-  const connections = Object.entries(tokens).map(([platform, data]) => ({
-    platform,
-    label: PLATFORM_LABELS[platform] || platform,
-    connected: !!data.accessToken,
-    displayName: data.displayName || null,
-  }));
-  res.json({ connections });
+router.get('/connections', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.dbUserId || req.userId || 'demo';
+    const tokens = await dbGetTokens(userId);
+    const connections = Object.entries(tokens).map(([platform, data]) => ({
+      platform,
+      label: PLATFORM_LABELS[platform] || platform,
+      connected: !!data.accessToken,
+      displayName: data.displayName || null,
+      expiresAt: data.expiresAt || null,
+    }));
+    return res.json({ connections });
+  } catch (error: unknown) {
+    next(error);
+  }
 });
 
 // GET /api/social/connect/:platform — initiate OAuth
@@ -190,67 +196,77 @@ router.get('/connections', async (req: AuthRequest, res: Response) => {
 // route calls external LinkedIn/Twitter token + profile APIs and needs
 // backpressure, but /connections (a frequent read-only DB lookup, no external
 // call) and /post/schedule shouldn't share that same tight OAuth-dance budget.
-router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Response) => {
-  const platform = req.params.platform as string;
-  const userId = req.dbUserId || req.userId || 'demo';
-  const callbackUrl = `${env.APP_URL}/api/social/callback/${platform}`;
+router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const platform = req.params.platform as string;
+    const userId = req.dbUserId || req.userId || 'demo';
+    const callbackUrl = `${env.APP_URL}/api/social/callback/${platform}`;
 
-  if (platform === 'linkedin') {
-    const clientId = env.LINKEDIN_CLIENT_ID;
-    if (!clientId) {
-      res.status(501).json({ error: 'LinkedIn OAuth not configured. Set LINKEDIN_CLIENT_ID in .env', code: 'NOT_CONFIGURED' });
+    if (platform === 'linkedin') {
+      const clientId = env.LINKEDIN_CLIENT_ID;
+      if (!clientId) {
+        res.status(501).json({ error: 'LinkedIn OAuth not configured. Set LINKEDIN_CLIENT_ID in .env', code: 'NOT_CONFIGURED' });
+        return;
+      }
+      const scopes = ['r_liteprofile', 'r_emailaddress', 'w_member_social'].join('%20');
+      const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID() });
+      const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}`;
+      res.redirect(url);
       return;
     }
-    const scopes = ['r_liteprofile', 'r_emailaddress', 'w_member_social'].join('%20');
-    const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID() });
-    const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}`;
-    res.redirect(url);
-    return;
-  }
 
-  if (platform === 'twitter') {
-    const clientId = env.TWITTER_CLIENT_ID;
-    if (!clientId) {
-      res.status(501).json({ error: 'Twitter OAuth not configured. Set TWITTER_CLIENT_ID in .env', code: 'NOT_CONFIGURED' });
+    if (platform === 'twitter') {
+      const clientId = env.TWITTER_CLIENT_ID;
+      if (!clientId) {
+        res.status(501).json({ error: 'Twitter OAuth not configured. Set TWITTER_CLIENT_ID in .env', code: 'NOT_CONFIGURED' });
+        return;
+      }
+      const scopes = ['tweet.read', 'tweet.write', 'users.read', 'offline.access'].join('%20');
+      // SECURITY: code_challenge_method=plain requires code_verifier === code_challenge
+      // at token exchange. The verifier must be generated once here and carried through
+      // to the callback verbatim (via the signed state param) — recomputing it at
+      // callback time with a fresh value would never match.
+      const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
+      const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID(), codeVerifier });
+      const url = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${codeVerifier}&code_challenge_method=plain`;
+      res.redirect(url);
       return;
     }
-    const scopes = ['tweet.read', 'tweet.write', 'users.read', 'offline.access'].join('%20');
-    // SECURITY: code_challenge_method=plain requires code_verifier === code_challenge
-    // at token exchange. The verifier must be generated once here and carried through
-    // to the callback verbatim (via the signed state param) — recomputing it at
-    // callback time with a fresh value would never match.
-    const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
-    const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID(), codeVerifier });
-    const url = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${codeVerifier}&code_challenge_method=plain`;
-    res.redirect(url);
-    return;
-  }
 
-  res.status(400).json({ error: `Unsupported platform: ${platform}` });
+    res.status(400).json({ error: `Unsupported platform: ${platform}` });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // GET /api/social/callback/:platform — OAuth callback
+// WHY no next(error) anywhere in this handler: an OAuth callback is a top-level
+// browser redirect the user is mid-flow on, not an API call with a JSON error
+// consumer — every failure path (bad state, missing token, upstream API error)
+// redirects back to the Brand page with a social_error query param instead of
+// falling through to the generic error middleware, which would show the user a
+// raw JSON/HTML error page in the middle of an OAuth redirect chain.
 router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Response) => {
   const platform = req.params.platform as string;
   const { code, state, error: oauthError } = req.query as Record<string, string>;
   const frontendUrl = env.FRONTEND_URL;
 
-  if (oauthError) {
-    res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent(oauthError)}`);
-    return;
-  }
-
-  const decoded = verifyOAuthState(state);
-  if (!decoded) {
-    // Invalid or tampered OAuth state — reject the callback and do not process tokens
-    res.status(400).send('Invalid OAuth state');
-    return;
-  }
-  const userId = (decoded.userId as string) || 'demo';
-
-  const callbackUrl = `${env.APP_URL}/api/social/callback/${platform}`;
-
   try {
+    if (oauthError) {
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent(oauthError)}`);
+      return;
+    }
+
+    const decoded = verifyOAuthState(state);
+    if (!decoded) {
+      // Invalid or tampered OAuth state — reject the callback and redirect to Brand page with error
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Invalid OAuth state')}`);
+      return;
+    }
+    const userId = (decoded.userId as string) || 'demo';
+
+    const callbackUrl = `${env.APP_URL}/api/social/callback/${platform}`;
+
     if (platform === 'linkedin') {
       const clientId = env.LINKEDIN_CLIENT_ID!;
       const clientSecret = env.LINKEDIN_CLIENT_SECRET!;
@@ -304,19 +320,23 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
       });
     }
 
-    res.redirect(`${frontendUrl}/brand?social_connected=${platform}`);
+    return res.redirect(`${frontendUrl}/brand?social_connected=${platform}`);
   } catch (err: unknown) {
     console.error(`OAuth callback failed for ${platform}:`, err instanceof Error ? err.message : String(err));
-    res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Connection failed — please try again')}`);
+    return res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Connection failed — please try again')}`);
   }
 });
 
 // DELETE /api/social/disconnect/:platform
-router.delete('/disconnect/:platform', async (req: AuthRequest, res: Response) => {
-  const platform = req.params.platform as string;
-  const userId = req.dbUserId || req.userId || 'demo';
-  await dbDeleteToken(userId, platform);
-  res.json({ ok: true });
+router.delete('/disconnect/:platform', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const platform = req.params.platform as string;
+    const userId = req.dbUserId || req.userId || 'demo';
+    await dbDeleteToken(userId, platform);
+    return res.json({ ok: true });
+  } catch (error: unknown) {
+    next(error);
+  }
 });
 
 // POST /api/social/post — post content to a connected platform
@@ -324,24 +344,30 @@ router.delete('/disconnect/:platform', async (req: AuthRequest, res: Response) =
 // Without rate limiting, a user could script repeated posts and risk the OAuth app
 // being rate-limited/banned by the platform. This complies with CLAUDE.md's rule
 // that any endpoint calling external APIs must have a rate limiter.
-router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response) => {
-  const body = parseBody(postSocialSchema, req.body, res);
-  if (!body) return;
-  const { platform, content } = body;
-  const userId = req.dbUserId || req.userId || 'demo';
-  const conn = await dbGetToken(userId, platform);
-
-  if (!conn?.accessToken) {
-    res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED' });
-    return;
-  }
-
+router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { postId, postUrl } = await publishToSocialPlatform(platform, content, conn);
-    res.json({ ok: true, postId, postUrl, platform });
-  } catch (err: unknown) {
-    console.error(`[social] Failed to post to ${platform}:`, err);
-    res.status(500).json({ error: 'Failed to post content', code: 'POST_FAILED', retryable: true });
+    const body = parseBody(postSocialSchema, req.body, res);
+    if (!body) return;
+    const { platform, content } = body;
+    const userId = req.dbUserId || req.userId || 'demo';
+    const conn = await dbGetToken(userId, platform);
+
+    if (!conn?.accessToken) {
+      res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED' });
+      return;
+    }
+
+    try {
+      const { postId, postUrl } = await publishToSocialPlatform(platform, content, conn);
+      res.json({ ok: true, postId, postUrl, platform });
+      return;
+    } catch (err: unknown) {
+      console.error(`[social] Failed to post to ${platform}:`, err);
+      res.status(500).json({ error: 'Failed to post content', code: 'POST_FAILED', retryable: true });
+      return;
+    }
+  } catch (error) {
+    next(error);
   }
 });
 
@@ -372,35 +398,37 @@ router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response) =>
 // system, not just in comments.
 const socialScheduleIntents = new Map<string, { userId: string; platform: string; scheduledAt: string; content: unknown; jobId?: string; createdAt: string }>();
 
-router.post('/schedule', async (req: AuthRequest, res: Response) => {
-  const body = parseBody(scheduleSocialSchema, req.body, res);
-  if (!body) return;
-  const { platform, content, jobId, scheduledAt } = body;
-  const userId = req.dbUserId || req.userId || 'demo';
+router.post('/schedule', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const body = parseBody(scheduleSocialSchema, req.body, res);
+    if (!body) return;
+    const { platform, content, jobId, scheduledAt } = body;
+    const userId = req.dbUserId || req.userId || 'demo';
 
-  const scheduledDate = new Date(scheduledAt);
-  if (scheduledDate <= new Date()) {
-    res.status(400).json({ error: 'scheduledAt must be a future date', code: 'VALIDATION_ERROR' });
-    return;
+    const scheduledDate = new Date(scheduledAt);
+    if (scheduledDate <= new Date()) {
+      return res.status(400).json({ error: 'scheduledAt must be a future date', code: 'VALIDATION_ERROR' });
+    }
+
+    const conn = await dbGetToken(userId, platform);
+    if (!conn?.accessToken) {
+      return res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED' });
+    }
+
+    const scheduleId = `${userId}:${platform}:${Date.now()}`;
+    socialScheduleIntents.set(scheduleId, {
+      userId, platform, scheduledAt, content, jobId,
+      createdAt: new Date().toISOString(),
+    });
+
+    // Auto-evict after scheduled time + 1 hour
+    const msUntil = scheduledDate.getTime() - Date.now() + 60 * 60 * 1000;
+    setTimeout(() => socialScheduleIntents.delete(scheduleId), msUntil);
+
+    return res.json({ ok: true, scheduleId, scheduledAt, platform });
+  } catch (error: unknown) {
+    next(error);
   }
-
-  const conn = await dbGetToken(userId, platform);
-  if (!conn?.accessToken) {
-    res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED' });
-    return;
-  }
-
-  const scheduleId = `${userId}:${platform}:${Date.now()}`;
-  socialScheduleIntents.set(scheduleId, {
-    userId, platform, scheduledAt, content, jobId,
-    createdAt: new Date().toISOString(),
-  });
-
-  // Auto-evict after scheduled time + 1 hour
-  const msUntil = scheduledDate.getTime() - Date.now() + 60 * 60 * 1000;
-  setTimeout(() => socialScheduleIntents.delete(scheduleId), msUntil);
-
-  res.json({ ok: true, scheduleId, scheduledAt, platform });
 });
 
 export default router;

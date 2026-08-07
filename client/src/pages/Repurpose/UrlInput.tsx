@@ -17,6 +17,19 @@ export function UrlInput({
 }: UrlInputProps) {
   // Count valid-looking lines for the batch count badge
   const batchLineCount = batchUrls.split('\n').filter(l => l.trim().length > 0).length;
+  const MAX_BATCH_LINES = 50;
+
+  // Handle batch URLs change with max-line guard
+  const handleBatchUrlsChange = (value: string) => {
+    const lines = value.split('\n');
+    if (lines.length > MAX_BATCH_LINES) {
+      // Truncate to max lines
+      const truncated = lines.slice(0, MAX_BATCH_LINES).join('\n');
+      onBatchUrlsChange(truncated);
+    } else {
+      onBatchUrlsChange(value);
+    }
+  };
 
   return (
     <div style={{ marginBottom: 24 }}>
@@ -46,7 +59,7 @@ export function UrlInput({
           <textarea
             placeholder={'https://example.com/article-1\nhttps://example.com/article-2\nhttps://example.com/article-3'}
             value={batchUrls}
-            onChange={e => onBatchUrlsChange(e.target.value)}
+            onChange={e => handleBatchUrlsChange(e.target.value)}
             disabled={loading}
             rows={5}
             style={{

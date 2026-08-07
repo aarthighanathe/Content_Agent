@@ -4,6 +4,7 @@ import type { ApiError } from '../../types/api';
 export interface SubmitError {
   message: string;
   retryable: boolean;
+  retryAfterMs?: number;
 }
 
 function formatRetryAfter(ms: number): string {
@@ -27,7 +28,7 @@ export function getSubmitError(err: unknown): SubmitError {
 
     if (code === 'RATE_LIMITED') {
       const when = typeof data?.retryAfterMs === 'number' ? ` Try again ${formatRetryAfter(data.retryAfterMs)}.` : '';
-      return { message: `${data?.error || 'Rate limit reached.'}${when}`, retryable: false };
+      return { message: `${data?.error || 'Rate limit reached.'}${when}`, retryable: false, retryAfterMs: data?.retryAfterMs };
     }
     if (code === 'VALIDATION_ERROR') {
       return { message: data?.error || 'Please check your topic and try again.', retryable: true };

@@ -90,6 +90,7 @@ export default function CreatePage() {
 
   const [loading, setLoading] = useState(false);
   const [errorMsg,     setErrorMsg]     = useState('');
+  const [retryAfterMs, setRetryAfterMs] = useState<number | null>(null);
 
   // WHY a separate mode, not folded into the single-topic form: batch submits
   // up to 7 topic+platform pairs in one request (POST /jobs/batch, already
@@ -194,6 +195,29 @@ export default function CreatePage() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  // Countdown timer for rate-limit retry
+  useEffect(() => {
+    if (retryAfterMs === null) return;
+    const interval = setInterval(() => {
+      setRetryAfterMs((prev) => {
+        if (prev === null) return null;
+        const next = prev - 1000;
+        return next <= 0 ? null : next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [retryAfterMs]);
+
+  // Format countdown for display
+  const countdownText = retryAfterMs !== null ? formatCountdown(retryAfterMs) : null;
+
+  function formatCountdown(ms: number): string {
+    const seconds = Math.ceil(ms / 1000);
+    if (seconds <= 60) return `${seconds}s`;
+    const minutes = Math.ceil(seconds / 60);
+    return `${minutes}m`;
+  }
+
   // WHY auto-dismiss on a timer, matching Brand.tsx's flashToast duration: this
   // draft-write failure is a low-stakes notice ("your topic won't survive a trip
   // to /brand and back"), not something requiring the user to manually clear it.
@@ -202,6 +226,13 @@ export default function CreatePage() {
     const t = setTimeout(() => dismissDraftWriteFailed(), 4000);
     return () => clearTimeout(t);
   }, [draftWriteFailed, dismissDraftWriteFailed]);
+
+  // WHY cross-tab warning: sessionStorage is tab-specific by design — opening Create
+  // in a new tab won't show drafts from other tabs. This disclosure informs users
+  // of that limitation so they don't lose work by assuming drafts sync across tabs.
+  // Rendered once, near the bottom of the page (see the .toast block below) —
+  // matching Brand.tsx/Library.tsx's shared toast convention.
+  const hasDraft = !!(draft.platform || draft.topic || draft.tone || draft.targetAudience);
 
   // WHY learned default before the static map: a user's own recent history
   // (most-frequent targetAudience they've actually typed for this platform,
@@ -248,8 +279,9 @@ export default function CreatePage() {
       navigate(`/result/${jobId}`);
     } catch (err: unknown) {
       // NOTE: Error is displayed to user via setErrorMsg; no need for console.error in production
-      const { message } = getSubmitError(err);
+      const { message, retryAfterMs } = getSubmitError(err);
       setErrorMsg(message);
+      setRetryAfterMs(retryAfterMs ?? null);
       setLoading(false);
     }
   }
@@ -369,6 +401,7 @@ export default function CreatePage() {
         loading={loading}
         generateLabel={GENERATE_LABELS[platform] || 'Content'}
         onSubmit={handleSubmit}
+        countdownText={countdownText}
       />
       )}
 
@@ -388,6 +421,14 @@ export default function CreatePage() {
         <div className="toast toast-error" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <AlertCircle size={12} />
           Couldn't save your draft — it may not survive leaving this page.
+        </div>
+      )}
+
+      {/* Cross-tab navigation warning: drafts are sessionStorage-specific (per-tab) */}
+      {hasDraft && (
+        <div className="toast" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', color: 'color-mix(in srgb, var(--accent) 85%, transparent)' }}>
+          <AlertCircle size={12} />
+          Draft is saved in this tab only — opening Create in another tab won't see this draft.
         </div>
       )}
     </div>

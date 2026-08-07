@@ -53,10 +53,67 @@ Hook: 1-2 punchy sentences. Segment: 50 words max. Return ONLY the JSON.`,
       return;
     }
 
+    // SECURITY: enforce server-side truncation to prevent full LLM output exposure
+    // The prompts ask for limited content, but we enforce caps here as a safety net
+    if (platform === 'instagram_carousel' && Array.isArray(parsed)) {
+      // Cap at 3 slides, 60 words per slide body
+      parsed = parsed.slice(0, 3).map((slide: unknown) => {
+        if (!slide || typeof slide !== 'object') return slide;
+        const s = slide as Record<string, unknown>;
+        const body = typeof s.body === 'string' ? s.body.split(/\s+/).slice(0, 60).join(' ') : s.body;
+        return { ...s, body };
+      });
+    } else if (platform === 'twitter_thread' && parsed && typeof parsed === 'object' && 'tweets' in parsed && Array.isArray((parsed as Record<string, unknown>).tweets)) {
+      // Cap at 3 tweets, 280 chars each
+      const p = parsed as Record<string, unknown>;
+      const tweets = p.tweets as unknown[];
+      parsed = {
+        ...p,
+        tweets: tweets.slice(0, 3).map((tweet: unknown) => {
+          if (!tweet || typeof tweet !== 'object') return tweet;
+          const t = tweet as Record<string, unknown>;
+          const text = typeof t.text === 'string' ? t.text.slice(0, 280) : t.text;
+          return { ...t, text };
+        }),
+      };
+    } else if (platform === 'linkedin_post' && parsed && typeof parsed === 'object' && 'body' in parsed) {
+      // Cap body at 80 words
+      const p = parsed as Record<string, unknown>;
+      const words = typeof p.body === 'string' ? p.body.split(/\s+/) : [];
+      parsed = {
+        ...p,
+        body: words.slice(0, 80).join(' '),
+      };
+    } else if (platform === 'instagram_caption' && parsed && typeof parsed === 'object' && 'caption' in parsed) {
+      // Cap caption at 60 words
+      const p = parsed as Record<string, unknown>;
+      const words = typeof p.caption === 'string' ? p.caption.split(/\s+/) : [];
+      parsed = {
+        ...p,
+        caption: words.slice(0, 60).join(' '),
+        hashtags: Array.isArray(p.hashtags) ? p.hashtags.slice(0, 3) : p.hashtags,
+      };
+    } else if (platform === 'video_script' && parsed && typeof parsed === 'object' && 'segments' in parsed && Array.isArray((parsed as Record<string, unknown>).segments)) {
+      // Cap at 1 segment, 50 words
+      const p = parsed as Record<string, unknown>;
+      const segments = p.segments as unknown[];
+      parsed = {
+        ...p,
+        segments: segments.slice(0, 1).map((seg: unknown) => {
+          if (!seg || typeof seg !== 'object') return seg;
+          const sg = seg as Record<string, unknown>;
+          const script = typeof sg.script === 'string' ? sg.script.split(/\s+/).slice(0, 50).join(' ') : sg.script;
+          return { ...sg, script };
+        }),
+      };
+    }
+
     res.json({ platform, topic: topicTrimmed, preview: parsed, truncated: true });
+    return;
   } catch (error: unknown) {
     console.error('Demo generation failed:', error instanceof Error ? error.message : String(error));
     res.status(500).json({ error: 'Demo generation failed. Please try again.' });
+    return;
   }
 });
 

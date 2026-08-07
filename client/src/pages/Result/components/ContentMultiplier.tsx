@@ -38,7 +38,13 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply, show, onT
       </button>
 
       {show && (
-        <div className="rp-mult-grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(224px,1fr))' }}>
+        <>
+          {/* Stale research disclosure */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 8, padding: '9px 12px', fontSize: 11.5, color: 'color-mix(in srgb, var(--accent) 85%, transparent)', lineHeight: 1.5, marginBottom: 12 }}>
+            <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>This content reuses research from the original job. Research may be outdated.</span>
+          </div>
+          <div className="rp-mult-grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(224px,1fr))' }}>
           {filtered.map((p) => {
             const mj       = multiplyJobs[p.id];
             const isSource = p.id === jobData?.sourcePlatform && !!jobData?.sourceJobId;
@@ -112,6 +118,7 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply, show, onT
             );
           })}
         </div>
+        </>
       )}
     </div>
   );

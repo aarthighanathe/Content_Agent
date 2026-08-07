@@ -111,7 +111,7 @@ export const CALENDAR_STYLES = `
        button in the CalendarGrid header. */
     .sc-sidebar{width:0!important;min-width:0!important;}
     .sc-cell{min-height:52px;padding:5px;}
-    .sc-pill{display:none;}
+    .sc-pill{padding:4px 6px;min-height:32px;}
     .sc-grid{gap:3px;}
     .sc-mobile-sheet{display:flex;}
   }

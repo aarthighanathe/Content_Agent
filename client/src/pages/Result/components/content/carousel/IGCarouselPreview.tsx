@@ -100,7 +100,7 @@ function Avatar({ name, colors, size = 38 }: { name: string; colors: ColorSystem
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
       <span style={{ color: '#fff', fontWeight: 800, fontSize: Math.round(size * 0.42), fontFamily: FONT }}>
-        {(name || 'B').trim()[0].toUpperCase()}
+        {(name.trim()[0] || 'B').toUpperCase()}
       </span>
     </div>
   );
@@ -236,6 +236,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
           {internalSlide > 0 && (
             <button
               onClick={e => { e.stopPropagation(); goTo(internalSlide - 1); }}
+              aria-label="Previous slide"
               style={{
                 position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
                 zIndex: 20, width: 32, height: 32, borderRadius: '50%',
@@ -252,6 +253,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
           {internalSlide < total - 1 && (
             <button
               onClick={e => { e.stopPropagation(); goTo(internalSlide + 1); }}
+              aria-label="Next slide"
               style={{
                 position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
                 zIndex: 20, width: 32, height: 32, borderRadius: '50%',
@@ -273,7 +275,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
           }}>
             {slides.map((slide, i) => (
               <IGSlide
-                key={i}
+                key={slide.slide_number ?? i}
                 ref={el => { slideRefs.current[i] = el; }}
                 slide={slide}
                 index={i}
@@ -294,17 +296,28 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
 
         {/* Position dots */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 5, padding: '10px 0 6px' }}>
-          {slides.map((_, i) => (
-            <div
-              key={i}
+          {slides.map((slide, i) => (
+            <button
+              key={slide.slide_number ?? i}
+              type="button"
               onClick={() => goTo(i)}
+              aria-label={`Go to slide ${i + 1}`}
+              aria-current={i === internalSlide}
               style={{
-                width: i === internalSlide ? 16 : 5, height: 5, borderRadius: 3,
-                background: i === internalSlide ? colors.BRAND_PRIMARY : 'rgba(255,255,255,0.18)',
-                transition: 'width 0.22s, background 0.22s',
-                cursor: 'pointer',
+                width: 32, height: 32, padding: 0,
+                background: 'none', border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
-            />
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  width: i === internalSlide ? 16 : 5, height: 5, borderRadius: 3,
+                  background: i === internalSlide ? colors.BRAND_PRIMARY : 'rgba(255,255,255,0.18)',
+                  transition: 'width 0.22s, background 0.22s',
+                }}
+              />
+            </button>
           ))}
         </div>
 

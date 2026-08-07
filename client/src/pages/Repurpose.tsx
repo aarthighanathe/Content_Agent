@@ -90,7 +90,22 @@ export default function RepurposePage() {
   const effectiveAudience = audience.trim() || AUDIENCE_DEFAULTS[platform] || 'general audience';
 
   // Parse batch textarea: one URL per non-empty line
-  const parsedBatchUrls = batchUrls.split('\n').map((l) => l.trim()).filter(Boolean);
+  // Supports "platform|url" format for per-URL platform selection
+  const parsedBatchUrls = batchUrls.split('\n').map((l) => l.trim()).filter(Boolean).map((line) => {
+    const parts = line.split('|');
+    if (parts.length === 2) {
+      const [platformPart, urlPart] = parts;
+      const trimmedPlatform = platformPart.trim();
+      const trimmedUrl = urlPart.trim();
+      // Validate platform is one of the supported platforms
+      const validPlatform = platforms.find(p => p.id === trimmedPlatform);
+      if (validPlatform) {
+        return { url: trimmedUrl, platform: validPlatform.id };
+      }
+    }
+    // Default to the selected platform if no platform specified
+    return { url: line, platform };
+  });
 
   const isValid = batchMode
     ? parsedBatchUrls.length > 0 && tone && platform
@@ -129,17 +144,17 @@ export default function RepurposePage() {
 
     // ── Batch-URL mode: N URLs → one job each ────────────────────────────────────
     if (batchMode) {
-      const badUrls = parsedBatchUrls.filter((u) => { try { const p = new URL(u); return !['http:', 'https:'].includes(p.protocol); } catch { return true; } });
+      const badUrls = parsedBatchUrls.filter((item) => { try { const p = new URL(item.url); return !['http:', 'https:'].includes(p.protocol); } catch { return true; } });
       if (badUrls.length > 0) {
-        setError(`Invalid URL(s): ${badUrls.slice(0, 2).join(', ')}${badUrls.length > 2 ? ' …' : ''}`);
+        setError(`Invalid URL(s): ${badUrls.slice(0, 2).map((i) => i.url).join(', ')}${badUrls.length > 2 ? ' …' : ''}`);
         return;
       }
       setLoading(true);
       setError('');
       try {
-        const items = parsedBatchUrls.map((u) => ({
-          url: u,
-          platform,
+        const items = parsedBatchUrls.map((item) => ({
+          url: item.url,
+          platform: item.platform,
           tone,
           targetAudience: effectiveAudience,
         }));

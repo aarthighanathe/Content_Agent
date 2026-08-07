@@ -38,12 +38,14 @@ export function ToneSelector({ value, onChange }: ToneSelectorProps) {
             data-selected={sel}
             aria-pressed={sel}
             onClick={() => onChange(sel ? '' : t.id)}
+            title={sel ? 'Click to deselect' : t.label}
             style={{
               background: sel ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'var(--bg-raised)',
               border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--rule)'}`,
               color: sel ? 'var(--accent)' : 'var(--text-muted)',
               fontSize: 'clamp(11px,2vw,13px)',
-              padding: '8px 16px',
+              padding: '13px 16px',
+              minHeight: 44,
               borderRadius: 24,
               cursor: 'pointer',
               transition: 'all .18s',

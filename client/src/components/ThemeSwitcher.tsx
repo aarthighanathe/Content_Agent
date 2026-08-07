@@ -118,6 +118,7 @@ export function ThemeSwitcher({ collapsed = false, align = 'down' }: ThemeSwitch
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={collapsed ? 'Change theme' : undefined}
         title="Change theme"
         style={{
           display: 'flex',

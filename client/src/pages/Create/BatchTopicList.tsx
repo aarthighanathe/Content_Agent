@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Plus, Trash2, Sparkles, AlertCircle } from 'lucide-react';
 import { Dropdown } from '../../components/Dropdown';
 import { platforms } from './platforms';
@@ -6,6 +7,7 @@ export interface BatchRow {
   id: string;
   topic: string;
   platform: string;
+  error?: string;
 }
 
 const PLATFORM_OPTIONS = platforms.map((p) => ({ value: p.id, label: p.label }));
@@ -33,20 +35,59 @@ export function BatchTopicList({
   rows, onRowsChange, tone, onToneChange, targetAudience, onTargetAudienceChange,
   loading, errorMsg, onSubmit,
 }: BatchTopicListProps) {
+  // WHY a ref map, not a single ref: rows are added/removed dynamically, so each
+  // row's input needs its own addressable ref keyed by the row's stable id.
+  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const focusRowIdRef = useRef<string | null>(null);
+
+  // WHY an effect, not focusing inline in addRow(): the new row's <input> doesn't
+  // exist in the DOM until after this render commits, so the ref map has no entry
+  // for it yet at the moment addRow() runs.
+  useEffect(() => {
+    const id = focusRowIdRef.current;
+    if (!id) return;
+    focusRowIdRef.current = null;
+    inputRefs.current.get(id)?.focus();
+  }, [rows]);
+
   function updateRow(id: string, patch: Partial<BatchRow>): void {
-    onRowsChange(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    onRowsChange(rows.map((r) => (r.id === id ? { ...r, ...patch, error: undefined } : r)));
   }
 
   function addRow(): void {
     if (rows.length >= MAX_BATCH_ROWS) return;
-    onRowsChange([...rows, { id: crypto.randomUUID(), topic: '', platform: 'instagram_carousel' }]);
+    const id = crypto.randomUUID();
+    focusRowIdRef.current = id;
+    onRowsChange([...rows, { id, topic: '', platform: 'instagram_carousel' }]);
   }
 
   function removeRow(id: string): void {
+    inputRefs.current.delete(id);
     onRowsChange(rows.filter((r) => r.id !== id));
   }
 
-  const validRowCount = rows.filter((r) => r.topic.trim().length >= 3).length;
+  const validRowCount = rows.filter((r) => r.topic.trim().length >= 3 && !r.error).length;
+
+  // WHY blank rows aren't errors: Create.tsx's handleBatchSubmit already filters
+  // to rows with topic.trim().length >= 3 and silently ignores the rest, so a
+  // user leaving one row blank (out of several) is a valid partial submission,
+  // not a mistake. Only a row with SOME text that's too short is flagged, since
+  // that's more likely a typo than an intentionally-skipped row.
+  function handleSubmitWithValidation(): void {
+    const validated = rows.map((r) => {
+      const trimmed = r.topic.trim();
+      if (trimmed.length > 0 && trimmed.length < 3) {
+        return { ...r, error: 'Topic must be at least 3 characters' };
+      }
+      return { ...r, error: undefined };
+    });
+    onRowsChange(validated);
+
+    // Only submit if there are no errors and at least one row is ready to go
+    if (validated.every((r) => !r.error) && validated.some((r) => r.topic.trim().length >= 3)) {
+      onSubmit();
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -69,14 +110,25 @@ export function BatchTopicList({
             }}>
               {i + 1}
             </div>
-            <input
-              className="input"
-              value={row.topic}
-              onChange={(e) => updateRow(row.id, { topic: e.target.value })}
-              maxLength={250}
-              placeholder="Topic for this post…"
-              style={{ flex: 1, minWidth: 0 }}
-            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <input
+                ref={(el) => {
+                  if (el) inputRefs.current.set(row.id, el);
+                  else inputRefs.current.delete(row.id);
+                }}
+                className="input"
+                value={row.topic}
+                onChange={(e) => updateRow(row.id, { topic: e.target.value })}
+                maxLength={250}
+                placeholder="Topic for this post…"
+                style={{ flex: 1, minWidth: 0, borderColor: row.error ? 'var(--color-error)' : undefined }}
+              />
+              {row.error && (
+                <div style={{ fontSize: 10.5, color: 'var(--color-error)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <AlertCircle size={10} /> {row.error}
+                </div>
+              )}
+            </div>
             <div style={{ flexShrink: 0 }}>
               <Dropdown
                 value={row.platform}
@@ -155,7 +207,7 @@ export function BatchTopicList({
       <button
         type="button"
         className="btn-primary"
-        onClick={onSubmit}
+        onClick={handleSubmitWithValidation}
         disabled={loading || validRowCount === 0}
         style={{ alignSelf: 'flex-start' }}
       >

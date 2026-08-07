@@ -50,3 +50,6 @@ coverage/
 
 # Puppeteer local Chromium (large binary)
 .local-chromium/
+
+# Local audit/review prompt library (not part of the shipped product)
+/prompts/

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ContentJob, JobListResponse, PlatformContent } from './types/job';
+import type { ContentJob, JobListResponse, JobStatus, PlatformContent } from './types/job';
 import type {
   Profile,
   SocialConnection,
@@ -91,6 +91,11 @@ export interface GetJobsOptions {
   search?: string;
   platform?: string;
   sort?: 'date' | 'score' | 'platform';
+  // WHY opt-out flag: the server returns per-platform pill counts on every list
+  // fetch by default (a second grouped aggregate query). Calendar needs jobs +
+  // totalPages but never renders the platform pills, so it opts out to drop those
+  // aggregate queries (perf audit) — Library still uses them for its filter pills.
+  counts?: boolean;
 }
 
 export async function getJobs(page: number = 1, options?: GetJobsOptions): Promise<JobListResponse> {
@@ -98,12 +103,21 @@ export async function getJobs(page: number = 1, options?: GetJobsOptions): Promi
   if (options?.search) params.search = options.search;
   if (options?.platform && options.platform !== 'all') params.platform = options.platform;
   if (options?.sort) params.sort = options.sort;
+  if (options?.counts === false) params.counts = 0;
   const response = await api.get('/jobs', { params });
   return response.data;
 }
 
 export async function getJob(jobId: string): Promise<ContentJob> {
   const response = await api.get(`/jobs/${jobId}`);
+  return response.data;
+}
+
+// WHY separate from getJob: pollers only need the terminal/progress/score fields — this
+// hits the server's slim GET /:jobId/status which omits the heavy `content` jsonb that
+// makes the full job payload so expensive to fetch repeatedly (perf audit).
+export async function getJobStatus(jobId: string): Promise<JobStatus> {
+  const response = await api.get(`/jobs/${jobId}/status`);
   return response.data;
 }
 
@@ -313,6 +327,11 @@ export async function analyzeCompetitor(data: { handle: string; industry?: strin
 
 export async function getCompetitorHistory(): Promise<CompetitorAnalysisHistoryResponse> {
   const response = await api.get('/content/competitor/history');
+  return response.data;
+}
+
+export async function deleteCompetitorAnalysis(id: string): Promise<{ success: boolean }> {
+  const response = await api.delete(`/content/competitor/${id}`);
   return response.data;
 }
 

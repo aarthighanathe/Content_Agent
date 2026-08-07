@@ -32,7 +32,14 @@ export default function CalendarPage() {
   // layouts can be toggled independently without fighting each other's CSS.
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const jobsQuery = useQuery({ queryKey: ['calendar', 'jobs'], queryFn: fetchCalendarJobs });
+  // WHY eager stale + no focus refetch: the Calendar jobs list is low-volatility
+  // (jobs don't change once terminal, which is all the grid shows) but is fetched
+  // 4 pages at once. The default 30s staleTime + null default focus-refetch re-issued
+  // 4 GETs on every window focus (each with the now-optional pill aggregate). An
+  // explicit 5-min stale window + refetchOnWindowFocus:false keeps month-grid data
+  // fresh enough while avoiding that burst (perf audit). Auto-publish status is
+  // still picked up live via the separate 30s-polled schedule query.
+  const jobsQuery = useQuery({ queryKey: ['calendar', 'jobs'], queryFn: fetchCalendarJobs, staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false });
   const jobs: CalendarJob[] = jobsQuery.data?.jobs || [];
   const hitFetchCap = jobsQuery.data?.hitFetchCap ?? false;
   // WHY combined across both queries: the grid/sidebar render from both the

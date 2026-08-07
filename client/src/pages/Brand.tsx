@@ -24,7 +24,10 @@ import type { DnaHistoryEntry } from './Brand/dnaHistory';
 const PROFILE_QUERY_KEY = ['dashboard', 'profile'];
 
 export default function BrandSettings() {
-  const { setUserProfile } = useAppStore();
+  // WHY selector form: setUserProfile is a stable action; the no-selector form
+  // subscribed this page to the whole store, re-rendering on every currentJob
+  // SSE tick / theme change (perf audit).
+  const setUserProfile = useAppStore((s) => s.setUserProfile);
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { signOut } = useClerk();
@@ -66,7 +69,7 @@ export default function BrandSettings() {
   useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   const profileQuery = useQuery({ queryKey: PROFILE_QUERY_KEY, queryFn: getProfile });
-  const socialConnectionsQuery = useQuery({ queryKey: ['brand', 'socialConnections'], queryFn: getSocialConnections });
+  const socialConnectionsQuery = useQuery({ queryKey: ['social', 'connections'], queryFn: getSocialConnections });
   const socialConnections = socialConnectionsQuery.data?.connections ?? [];
 
   // WHY extracted from the hydration effect below: "Reset" (handleReset) needs the
@@ -189,7 +192,7 @@ export default function BrandSettings() {
   const disconnectSocialMutation = useMutation({
     mutationFn: disconnectSocial,
     onSuccess: (_data, platform) => {
-      queryClient.setQueryData(['brand', 'socialConnections'], (prev: { connections: typeof socialConnections } | undefined) =>
+      queryClient.setQueryData(['social', 'connections'], (prev: { connections: typeof socialConnections } | undefined) =>
         prev ? { connections: prev.connections.map(c => c.platform === platform ? { ...c, connected: false, displayName: null } : c) } : prev
       );
       flashToast(`${platform} disconnected`, false, 2500);

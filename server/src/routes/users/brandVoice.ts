@@ -31,8 +31,10 @@ router.post('/brand-voice', async (req: AuthRequest, res: Response) => {
     }
 
     res.json({ success: true, profile: result.profile });
+    return;
   } catch (error) {
     res.status(500).json({ error: 'Failed to update brand voice', code: 'SERVER_ERROR', retryable: true });
+    return;
   }
 });
 
@@ -92,9 +94,11 @@ Extract the writing style and return ONLY this JSON (no markdown, no extra text)
     }
 
     res.json({ success: true, contentDna });
+    return;
   } catch (error: unknown) {
     console.error('Failed to analyze voice:', error);
     res.status(500).json({ error: 'Failed to analyze writing style' });
+    return;
   }
 });
 

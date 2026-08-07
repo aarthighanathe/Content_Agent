@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Sparkles, Timer, CalendarDays, AlertTriangle } from 'lucide-react';
-import { getJob } from '../api';
+import { getJobStatus } from '../api';
 import { platformMeta } from '../lib/platformMeta';
 
 interface BatchJobRef {
@@ -14,19 +14,6 @@ interface BatchItem extends BatchJobRef {
   status: 'pending' | 'processing' | 'done' | 'failed';
   progress: number;
   score?: number;
-}
-
-// WHY content.totalScore read via a type guard, not a cast: JobOutput.content
-// is typed unknown (its shape varies by outputType) — matches the pattern
-// already used in Library/libraryHelpers.ts's getContentTotalScore.
-function getContentTotalScore(content: unknown): number | undefined {
-  if (
-    typeof content === 'object' && content !== null &&
-    'totalScore' in content && typeof (content as { totalScore?: unknown }).totalScore === 'number'
-  ) {
-    return (content as { totalScore: number }).totalScore;
-  }
-  return undefined;
 }
 
 // WHY router state, not URL params (rewritten 2026-08-04): the previous version
@@ -61,25 +48,34 @@ export default function BatchResultPage() {
     if (items.length === 0 || allDone) return undefined;
 
     const interval = setInterval(() => {
-      Promise.all(
+      // WHY Promise.allSettled instead of Promise.all: if one job's API call fails, we still want
+      // to update state for the jobs that succeeded. Promise.all would reject the entire batch,
+      // blocking all updates until the next interval.
+      Promise.allSettled(
         itemsRef.current.map(async (item) => {
           if (item.status === 'done' || item.status === 'failed') return item;
           try {
-            const d = await getJob(item.jobId);
-            const critiqueOutput = d?.outputs?.filter((o) => o.outputType === 'critique')?.pop();
-            const score = getContentTotalScore(critiqueOutput?.content) ?? critiqueOutput?.qualityScore ?? undefined;
+            // WHY the slim /status endpoint rather than getJob: the batch polls up to 7 jobs
+            // every 2.5s and only ever consumes status/progress/score — the full payload
+            // re-downloads every output's `content` jsonb (research report, whole carousel)
+            // per tick for zero gain (perf audit). score comes from /status directly.
+            const s = await getJobStatus(item.jobId);
             return {
               ...item,
-              topic: d.topic || item.topic,
-              status: d.status === 'done' ? 'done' : d.status === 'failed' ? 'failed' : 'processing',
-              progress: d.status === 'done' ? 100 : d.progress ?? (item.progress < 80 ? item.progress + 8 : item.progress),
-              score,
+              topic: s.topic || item.topic,
+              status: s.status === 'done' ? 'done' : s.status === 'failed' ? 'failed' : 'processing',
+              progress: s.status === 'done' ? 100 : s.progress ?? (item.progress < 80 ? item.progress + 8 : item.progress),
+              score: s.score,
             } as BatchItem;
           } catch {
             return item;
           }
         }),
-      ).then(setItems).catch(() => {});
+      ).then((results) => {
+        // Filter out rejected promises and only update with fulfilled results
+        const fulfilled = results.filter((r): r is PromiseFulfilledResult<BatchItem> => r.status === 'fulfilled');
+        setItems(fulfilled.map((r) => r.value));
+      }).catch(() => {});
     }, 2500);
 
     return () => clearInterval(interval);

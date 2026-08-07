@@ -67,7 +67,7 @@ export default function LibraryPage() {
         platformCounts={lib.platformCounts}
         total={lib.total}
         sort={lib.sort}
-        onSortChange={(s) => { lib.setSort(s); lib.setShowSortMenu(false); }}
+        onSortChange={(s) => { lib.setSort(s); lib.setPage(1); lib.setShowSortMenu(false); }}
         showSortMenu={lib.showSortMenu}
         onToggleSortMenu={() => lib.setShowSortMenu(!lib.showSortMenu)}
         pageTags={lib.pageTags}
@@ -120,10 +120,10 @@ export default function LibraryPage() {
         <ConfirmDeleteModal
           title={`Delete ${lib.selectedIds.size} item${lib.selectedIds.size !== 1 ? 's' : ''}?`}
           message="This action is permanent and cannot be undone."
-          onCancel={() => { lib.setBulkDeleteConfirm(false); lib.setBulkDeleteError(''); }}
+          onCancel={() => { lib.setBulkDeleteConfirm(false); lib.setBulkDeleteError(''); lib.setFailedJobIds([]); }}
           onConfirm={lib.handleConfirmBulkDelete}
           isPending={lib.bulkDeleteJobsMutation.isPending}
-          error={lib.bulkDeleteError}
+          error={lib.bulkDeleteError || (lib.failedJobIds.length > 0 ? `Failed to delete ${lib.failedJobIds.length} job${lib.failedJobIds.length !== 1 ? 's' : ''}: ${lib.failedJobIds.slice(0, 3).join(', ')}${lib.failedJobIds.length > 3 ? '...' : ''}` : '')}
         />
       )}
 

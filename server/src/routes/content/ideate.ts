@@ -179,10 +179,12 @@ Return ONLY this JSON (no markdown, no extra text):
     }
 
     res.json({ ideas: parsed.ideas || [] });
+    return;
   } catch (error: unknown) {
     console.error('Ideation failed:', error);
     Sentry.captureException(error, { tags: { route: 'POST /ideate' } });
     res.status(500).json({ error: 'Failed to generate ideas', code: 'SERVER_ERROR', retryable: true });
+    return;
   }
 });
 

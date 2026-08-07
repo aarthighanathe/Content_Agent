@@ -41,8 +41,13 @@ interface IGSlideProps {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
+// WHY wrapped in React.memo: IGCarouselPreview re-renders on every interaction
+// (drag offset, currentSlide ticks, copy-all flash) while the slides' props
+// (slide/colors/brandName/templateId/...) are unchanged — memo lets all 8 slides
+// skip a full layout+SVG rebuild, which was the dominant result-page re-render cost.
 
-export const IGSlide = React.forwardRef<HTMLDivElement, IGSlideProps>(
+export const IGSlide = React.memo(
+  React.forwardRef<HTMLDivElement, IGSlideProps>(
   // NOTE: isLast stays in IGSlideProps (callers pass it) but is no longer consumed here —
   // it only ever fed the now-removed SwipeArrow.
   function IGSlide({ slide, index, total, colors, brandName, handle, width = 420, height = 525, designPreset = 0, templateId, paletteId }, ref) {
@@ -63,6 +68,10 @@ export const IGSlide = React.forwardRef<HTMLDivElement, IGSlideProps>(
       // palette in the gallery had zero visual effect. Resolving it once here
       // and overriding `colors` for the template branch only is the smallest
       // fix that makes paletteId actually do something.
+      // NOTE: computed here rather than useMemo'd on purpose — this derive is
+      // cheap (small object) and only re-runs when IGSlide itself re-renders
+      // (the outer React.memo already gates IGSlide on stable props), so caching
+      // it would add a conditional hook call for no measurable win.
       const templatePalette = paletteId ? getPalette(resolvedTemplateId, paletteId) : undefined;
       const templateColors: ColorSystem = templatePalette
         ? deriveColorSystemFromPalette(templatePalette.colors)
@@ -110,5 +119,6 @@ export const IGSlide = React.forwardRef<HTMLDivElement, IGSlideProps>(
 
       </div>
     );
-  }
+  },
+  ),
 );

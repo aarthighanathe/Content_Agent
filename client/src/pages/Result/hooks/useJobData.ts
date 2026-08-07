@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../../../store';
 import { getJob, regenerateJob, getStreamToken } from '../../../api';
 import type { ContentJob, SSEEvent } from '../../../types/job';
@@ -11,8 +12,16 @@ import type { ContentJob, SSEEvent } from '../../../types/job';
 type JobData = ContentJob | null;
 
 export function useJobData(jobId: string | undefined) {
-  const { currentJob, connectToStream, disconnectStream } = useAppStore();
+  // WHY slice selectors, not the whole-store no-selector form: subscribing with
+  // no selector makes this hook (and the whole Result tree via Result.tsx) re-render
+  // on every store mutation — theme switches, Ideate saves, userProfile updates —
+  // not just on currentJob/SSE progress. Selecting the exact slices keeps Result
+  // renders tied to the job stream (perf audit).
+  const currentJob         = useAppStore((s) => s.currentJob);
+  const connectToStream    = useAppStore((s) => s.connectToStream);
+  const disconnectStream   = useAppStore((s) => s.disconnectStream);
   const { getToken } = useAuth();
+  const queryClient = useQueryClient();
   const [jobData, setJobData]           = useState<JobData>(null);
   const [regenerating, setRegenerating] = useState(false);
   // WHY: tracks the last time mergeSSEIntoJobData actually processed an event, so the
@@ -171,11 +180,17 @@ export function useJobData(jobId: string | undefined) {
           const prevTerminal = prev?.status === 'failed' || (prev?.status === 'done' && Array.isArray(prev?.outputs) && prev.outputs.some((o) => o.outputType === 'final'));
           return prevTerminal ? prev : d;
         });
-        if (isTerminal) { setRegenerating(false); clearInterval(iv); }
+        if (isTerminal) {
+          setRegenerating(false);
+          clearInterval(iv);
+          // WHY: Library's job list (React Query) has no other trigger to refetch once this
+          // job reaches a terminal state, so it stayed stale until its 30s staleTime expired.
+          queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }).catch(() => {});
+        }
       } catch {}
     }, 2000);
     return () => clearInterval(iv);
-  }, [jobId]);
+  }, [jobId, queryClient]);
 
   async function handleRegenerate(feedback?: string) {
     // WHY guarded here, not just by disabling individual buttons: this is called

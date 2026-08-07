@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getJob, multiplyJob } from '../../../api';
+import { getJob, getJobStatus, multiplyJob } from '../../../api';
 import type { PlatformContent } from '../../../types/job';
 
 export type MultiplyEntry = {
@@ -49,19 +49,26 @@ export function useMultiplier(jobId: string | undefined) {
       setMultiplyJobs((p) => ({ ...p, [targetPlatform]: { jobId: newJobId, status: 'processing', progress: 10 } }));
       const poll = setInterval(async () => {
         try {
-          const d           = await getJob(newJobId);
-          const finalOutput = d?.outputs?.find((o) => o.outputType === 'final');
-          if (d?.status === 'done' && finalOutput) {
+          // WHY the slim /status endpoint instead of getJob: only progress/terminal
+          // state matters while polling; the full payload (every output's content
+          // jsonb) only needs to be fetched once, when the job actually finishes
+          // and hasFinal flips true — see the branch below (perf audit).
+          const s           = await getJobStatus(newJobId);
+          if (s?.status === 'done' && s.hasFinal) {
             clearInterval(poll);
             activeIntervals.current.delete(poll);
-            const content = asPlatformContent(finalOutput.content);
+            // One full fetch to grab the finished content — the only time this job's
+            // heavy payload is transferred.
+            const d = await getJob(newJobId);
+            const finalOutput = d?.outputs?.find((o) => o.outputType === 'final');
+            const content = finalOutput ? asPlatformContent(finalOutput.content) : undefined;
             setMultiplyJobs((p) => ({ ...p, [targetPlatform]: { jobId: newJobId, status: 'done', content, progress: 100 } }));
-          } else if (d?.status === 'failed') {
+          } else if (s?.status === 'failed') {
             clearInterval(poll);
             activeIntervals.current.delete(poll);
             setMultiplyJobs((p) => ({ ...p, [targetPlatform]: { jobId: newJobId, status: 'failed', progress: 0 } }));
           } else {
-            setMultiplyJobs((p) => ({ ...p, [targetPlatform]: { ...p[targetPlatform], progress: d?.progress ?? p[targetPlatform]?.progress ?? 10 } }));
+            setMultiplyJobs((p) => ({ ...p, [targetPlatform]: { ...p[targetPlatform], progress: s?.progress ?? p[targetPlatform]?.progress ?? 10 } }));
           }
         } catch {}
       }, 2500);

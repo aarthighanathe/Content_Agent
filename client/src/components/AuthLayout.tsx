@@ -109,7 +109,6 @@ export default function AuthLayout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  title={collapsed ? item.label : undefined}
                   className={({ isActive }) =>
                     `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`
                   }
@@ -118,6 +117,17 @@ export default function AuthLayout() {
                   <span className="sidebar-link-label" style={{ flex: 1 }}>
                     {item.label}
                   </span>
+                  {collapsed && (
+                    <span className="sidebar-tooltip" style={{
+                      position: 'absolute', left: '100%', top: '50%', transform: 'translateY(-50%)',
+                      marginLeft: 8, background: 'var(--bg-card)', border: '1px solid var(--rule)',
+                      borderRadius: 6, padding: '4px 8px', fontSize: 11, color: 'var(--text-primary)',
+                      whiteSpace: 'nowrap', opacity: 0, pointerEvents: 'none', transition: 'opacity .15s',
+                      zIndex: 100, boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    }}>
+                      {item.label}
+                    </span>
+                  )}
                 </NavLink>
               ))}
             </nav>

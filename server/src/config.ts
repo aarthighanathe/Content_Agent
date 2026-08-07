@@ -84,10 +84,13 @@ function parseEnv() {
 
   // SECURITY: the dev default makes OAuth state HMAC trivially forgeable —
   // acceptable for local dev, unacceptable once real users can hit the OAuth
-  // flow in production. Fail startup rather than silently running insecurely.
-  if (result.data.NODE_ENV === 'production' && result.data.OAUTH_STATE_SECRET === DEV_OAUTH_STATE_SECRET) {
+  // flow in production or staging. Fail startup rather than silently running insecurely.
+  // Reject the dev default if NODE_ENV is production OR if the app is running on a
+  // non-localhost domain (catches staging/preview deployments that set NODE_ENV=development).
+  const isLocalhost = result.data.APP_URL.includes('localhost') || result.data.APP_URL.includes('127.0.0.1');
+  if (result.data.OAUTH_STATE_SECRET === DEV_OAUTH_STATE_SECRET && !isLocalhost) {
     throw new Error(
-      'Environment configuration invalid:\n  OAUTH_STATE_SECRET: must be set to a unique value in production (dev default detected)',
+      'Environment configuration invalid:\n  OAUTH_STATE_SECRET: must be set to a unique value in non-localhost environments (dev default detected)',
     );
   }
 
