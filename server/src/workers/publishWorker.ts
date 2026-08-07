@@ -16,7 +16,11 @@ import { publishToSocialPlatform } from '../lib/socialPublish.js';
 import { readOutputs } from '../routes/content/shared.js';
 import { assembleJobFromDB } from '../routes/jobs/ownership.js';
 
-async function processPublishJob(job: Job): Promise<void> {
+// WHY exported: tests/unit/publishWorker.test.ts calls this directly with a
+// mocked db/dbGetToken/publishToSocialPlatform, exercising the row-not-found /
+// already-non-pending / missing-platform early returns and the
+// failure-durably-recorded-not-rethrown contract the review flagged as untested.
+export async function processPublishJob(job: Job): Promise<void> {
   const data: unknown = job.data;
   const scheduledPostId = data && typeof data === 'object' && typeof (data as { scheduledPostId?: unknown }).scheduledPostId === 'string'
     ? (data as { scheduledPostId: string }).scheduledPostId

@@ -40,7 +40,15 @@ export function useJobData(jobId: string | undefined) {
     lastSSEEventAt.current = Date.now();
     setJobData((prev): JobData => {
       if (!prev) {
-        if (data.type === 'state') return data as unknown as ContentJob;
+        // WHY a minimal shape guard before the cast: this bootstraps the entire
+        // ContentJob shape off a same-origin SSE payload with only `type ===
+        // 'state'` checked previously — defense-in-depth so a malformed/partial
+        // 'state' event (e.g. missing jobId) doesn't silently become `jobData`
+        // with undefined required fields.
+        if (data.type === 'state' && typeof (data as { jobId?: unknown }).jobId === 'string') {
+          const state = data as unknown as ContentJob;
+          return { ...state, outputs: state.outputs || [], logs: state.logs || [] };
+        }
         return {
           id: jobId,
           userId: '',

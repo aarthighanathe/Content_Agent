@@ -347,10 +347,20 @@ Respond ONLY with the JSON. No markdown fences, no extra text.`;
   // downstream to formatter.ts/critic.ts.
   function buildFallbackResponse(): WriterResponse {
     if (job.platform === 'instagram_carousel') {
+      // WHY 8 slides, not 3: the slide-count guard below throws on fewer than 6
+      // slides to force a critic-loop retry on a genuinely truncated AI response.
+      // A fallback shorter than that threshold used to trip its own guard and
+      // turn a single malformed-JSON response into an immediate hard pipeline
+      // failure, bypassing the retry loop the guard exists to feed into.
       return [
         { slide_number: 1, type: 'cover',   headline: job.topic, body: 'Swipe to discover the key insights.', visual_hint: '🔥' },
-        { slide_number: 2, type: 'content', headline: 'The Core Challenge', body: result.slice(0, 120), visual_hint: '📌' },
-        { slide_number: 3, type: 'cta',     headline: 'Save this for later', body: 'Follow for more content like this.', visual_hint: '👇', cta: { action: 'Follow for more', handle: '@yourbrand' } },
+        { slide_number: 2, type: 'content', headline: 'The Core Challenge', body: result.slice(0, 120) || 'Understanding the core challenge is the first step forward.', visual_hint: '📌' },
+        { slide_number: 3, type: 'content', headline: 'A Better Approach', body: 'Rethinking the problem opens up new, more effective solutions.', visual_hint: '💡' },
+        { slide_number: 4, type: 'content', headline: 'What You Get', body: 'Practical, actionable value you can apply right away.', visual_hint: '✨' },
+        { slide_number: 5, type: 'stat', headline: 'The numbers matter', body: 'Data-backed approaches consistently outperform guesswork.', visual_hint: '📊' },
+        { slide_number: 6, type: 'quote', headline: 'Progress beats perfection', body: 'Small consistent steps compound into meaningful results.', visual_hint: '💬' },
+        { slide_number: 7, type: 'content', headline: 'How To Get Started', body: 'Begin with one small, concrete action today.', visual_hint: '🚀' },
+        { slide_number: 8, type: 'cta',     headline: 'Save this for later', body: 'Follow for more content like this.', visual_hint: '👇', cta: { action: 'Follow for more', handle: '' } },
       ];
     } else if (job.platform === 'twitter_thread') {
       return { tweets: [{ number: 1, text: `1/ ${result.slice(0, 270)}` }] };
@@ -399,9 +409,12 @@ Respond ONLY with the JSON. No markdown fences, no extra text.`;
     throw new Error(`Incomplete carousel: received ${parsed.length} slides, expected 8. Retrying.`);
   }
 
-  // Warn if placeholder text leaked through — logged for observability
+  // WHY throw, not just log: this used to only console.warn, so leftover
+  // template placeholders (e.g. "Feature name", "[specific subject]") could
+  // reach users unchanged — the pipeline's writer-retry catch (lib/pipeline.ts)
+  // now treats this the same as an incomplete carousel and requests a revision.
   if (job.platform === 'instagram_carousel' && Array.isArray(parsed) && containsPlaceholders(parsed)) {
-    console.warn(`[Writer] Placeholder text detected in carousel output for job ${job.id} — consider retry`);
+    throw new Error('Carousel output contains unfilled placeholder text. Retrying.');
   }
 
   return parsed;

@@ -14,6 +14,7 @@ import { feedMonitors } from '../db/schema.js';
 import { db } from '../db/index.js';
 import { parseBody, feedMonitorSchema, feedMonitorUpdateSchema } from '../schemas/index.js';
 import { checkFeedMonitor } from '../workers/feedMonitorWorker.js';
+import { contentRateLimit } from '../middleware/rateLimit.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
@@ -25,7 +26,7 @@ const router = Router();
 function requireUserId(req: AuthRequest, res: Response): string | null {
   const uid = req.dbUserId;
   if (!uid) {
-    res.status(401).json({ error: 'Not authenticated', code: 'UNAUTHORIZED' });
+    res.status(401).json({ error: 'Not authenticated', code: 'UNAUTHORIZED', retryable: false });
     return null;
   }
   return uid;
@@ -40,7 +41,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     return res.json({ monitors: rows });
   } catch (err) {
     logger.error('[FeedMonitors] Failed to list monitors', { error: err instanceof Error ? err.message : String(err) });
-    return res.status(500).json({ error: 'Failed to fetch feed monitors' });
+    return res.status(500).json({ error: 'Failed to fetch feed monitors', code: 'SERVER_ERROR', retryable: true });
   }
 });
 
@@ -63,7 +64,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     return res.status(201).json({ monitor: row });
   } catch (err) {
     logger.error('[FeedMonitors] Failed to create monitor', { error: err instanceof Error ? err.message : String(err) });
-    return res.status(500).json({ error: 'Failed to create feed monitor' });
+    return res.status(500).json({ error: 'Failed to create feed monitor', code: 'SERVER_ERROR', retryable: true });
   }
 });
 
@@ -87,7 +88,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   if (body.targetAudience !== undefined) update.targetAudience = body.targetAudience;
 
   if (Object.keys(update).length === 0) {
-    return res.status(400).json({ error: 'No updatable fields provided' });
+    return res.status(400).json({ error: 'No updatable fields provided', code: 'VALIDATION_ERROR', retryable: false });
   }
 
   try {
@@ -95,11 +96,11 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       .set(update)
       .where(and(eq(feedMonitors.id, id), eq(feedMonitors.userId, userId)))
       .returning();
-    if (!row) return res.status(404).json({ error: 'Monitor not found' });
+    if (!row) return res.status(404).json({ error: 'Monitor not found', code: 'NOT_FOUND', retryable: false });
     return res.json({ monitor: row });
   } catch (err) {
     logger.error('[FeedMonitors] Failed to update monitor', { error: err instanceof Error ? err.message : String(err) });
-    return res.status(500).json({ error: 'Failed to update feed monitor' });
+    return res.status(500).json({ error: 'Failed to update feed monitor', code: 'SERVER_ERROR', retryable: true });
   }
 });
 
@@ -112,11 +113,11 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const [row] = await db.delete(feedMonitors)
       .where(and(eq(feedMonitors.id, id), eq(feedMonitors.userId, userId)))
       .returning();
-    if (!row) return res.status(404).json({ error: 'Monitor not found' });
+    if (!row) return res.status(404).json({ error: 'Monitor not found', code: 'NOT_FOUND', retryable: false });
     return res.json({ success: true });
   } catch (err) {
     logger.error('[FeedMonitors] Failed to delete monitor', { error: err instanceof Error ? err.message : String(err) });
-    return res.status(500).json({ error: 'Failed to delete feed monitor' });
+    return res.status(500).json({ error: 'Failed to delete feed monitor', code: 'SERVER_ERROR', retryable: true });
   }
 });
 
@@ -125,7 +126,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 // action, not a state update — cleaner than overloading PATCH with a
 // hidden trigger flag, and lets the client confirm the check fired without
 // polling lastCheckedAt.
-router.post('/:id/check', async (req: AuthRequest, res: Response) => {
+// SECURITY: this fires the same Gemini-summarization + 5-agent pipeline as
+// /api/content/repurpose, so it needs the same contentRateLimit guard —
+// without it, a user could script repeated calls (or create many monitors
+// and check them all in a loop) to burn unbounded Gemini/Tavily quota,
+// bypassing every other route's rate limit.
+router.post('/:id/check', contentRateLimit, async (req: AuthRequest, res: Response) => {
   const userId = requireUserId(req, res);
   if (!userId || !db) return;
   const id = String(req.params['id'] ?? '');
@@ -134,7 +140,7 @@ router.post('/:id/check', async (req: AuthRequest, res: Response) => {
     const [row] = await db.select().from(feedMonitors)
       .where(and(eq(feedMonitors.id, id), eq(feedMonitors.userId, userId)))
       .limit(1);
-    if (!row) return res.status(404).json({ error: 'Monitor not found' });
+    if (!row) return res.status(404).json({ error: 'Monitor not found', code: 'NOT_FOUND', retryable: false });
 
     // WHY fire-and-forget with a 202: the feed fetch + AI extraction can take
     // 5–15 s (same latency as a single-URL repurpose) — returning 202
@@ -148,7 +154,7 @@ router.post('/:id/check', async (req: AuthRequest, res: Response) => {
     return res.status(202).json({ message: 'Check started' });
   } catch (err) {
     logger.error('[FeedMonitors] Failed to trigger manual check', { error: err instanceof Error ? err.message : String(err) });
-    return res.status(500).json({ error: 'Failed to trigger check' });
+    return res.status(500).json({ error: 'Failed to trigger check', code: 'SERVER_ERROR', retryable: true });
   }
 });
 

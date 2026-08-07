@@ -17,6 +17,12 @@ const router = Router({ mergeParams: true });
 router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const jobId = req.params.jobId as string;
+    // NOTE: unlike stream.ts's SSE route (which IS exempted from authMiddleware
+    // and genuinely needs this fallback chain), this route is NOT exempted —
+    // routes/jobs/index.ts's auth gate covers every path except the exact SSE
+    // stream path. auth.ts's fail-closed guarantee means req.dbUserId is always
+    // populated here, so `req.userId`/'demo' are unreachable dead branches, kept
+    // only for defensive-copy consistency with the pattern used elsewhere.
     const userId = req.dbUserId || req.userId || 'demo';
     const ownership = await requireJobOwnership(jobId, userId, res);
     if (!ownership) return;

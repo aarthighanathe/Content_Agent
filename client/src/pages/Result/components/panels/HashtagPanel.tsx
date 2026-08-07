@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Copy, X } from 'lucide-react';
 import { researchHashtags } from '../../../../api';
 import type { ContentJob, PlatformContent } from '../../../../types/job';
@@ -28,6 +28,12 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
   const [data, setData]       = useState<HashtagResearch | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  // WHY a ref, not a useEffect cleanup flag alone: fetchHashtags is also called
+  // directly from the Retry button's onClick (outside any effect), so the
+  // "am I still mounted" check needs to be readable from both call sites, not
+  // just the effect that fires the initial fetch.
+  const cancelledRef = useRef(false);
+  useEffect(() => () => { cancelledRef.current = true; }, []);
 
   function fetchHashtags() {
     if (!jobData) return;
@@ -38,9 +44,22 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
     // of exact shape (same rationale as the identical cast in useSocial.ts/PostPanel.tsx).
     const hashtagContent = content as unknown as PlatformContent | PlatformContent[] | undefined;
     researchHashtags({ topic: jobData.topic, platform: jobData.platform, content: hashtagContent })
-      .then(setData)
-      .catch(() => setError('Failed to research hashtags — please try again.'))
-      .finally(() => setLoading(false));
+      .then((result) => {
+        // WHY guarded: HashtagPanel unmounts immediately when the user switches
+        // ActionDrawer tabs — if this promise resolves after that (e.g. the user
+        // opens Hashtags then quickly switches tabs), setState on the unmounted
+        // component would otherwise fire.
+        if (cancelledRef.current) return;
+        setData(result);
+      })
+      .catch(() => {
+        if (cancelledRef.current) return;
+        setError('Failed to research hashtags — please try again.');
+      })
+      .finally(() => {
+        if (cancelledRef.current) return;
+        setLoading(false);
+      });
   }
 
   // WHY []: HashtagPanel is only ever rendered behind `activeTab === 'hashtags' &&`

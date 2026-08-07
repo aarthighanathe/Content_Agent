@@ -1,5 +1,3 @@
-export { formatDate } from '../../lib/utils';
-
 export const statusConfig: Record<string, { label: string; color: string }> = {
   pending:    { label: 'Pending',    color: '#F59E0B' },
   processing: { label: 'Processing', color: '#60A5FA' },

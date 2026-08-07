@@ -10,13 +10,6 @@ export function resolveAccentGradient(index: number, colors: ColorSystem): strin
   return `linear-gradient(${angle}deg, ${colors.BRAND_DARK} 0%, ${colors.BRAND_PRIMARY} 55%, ${colors.BRAND_LIGHT} 100%)`;
 }
 
-// Stable hash of a string → number (for topic-based variant selection)
-export function hashStr(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-
 // ── Type resolution ────────────────────────────────────────────────────────────
 
 export function resolveType(slide: SlideData, idx: number, total: number): string {

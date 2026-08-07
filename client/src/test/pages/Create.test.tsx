@@ -19,5 +19,8 @@ describe('Create Page', () => {
   // - Tone/audience selection
   // - Form submission
   // - Error handling
-  // - Batch creation mode
+  // Batch creation mode is now covered separately in BatchTopicList.test.tsx
+  // (the extracted Create/BatchTopicList.tsx component), which tests the
+  // MAX_BATCH_ROWS cap, removeRow's floor, and validation/submission logic
+  // directly rather than through this still-unmocked page-level placeholder.
 });

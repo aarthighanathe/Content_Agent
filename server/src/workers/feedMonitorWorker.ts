@@ -17,6 +17,7 @@ import { feedMonitors, type FeedMonitor } from '../db/schema.js';
 import { db } from '../db/index.js';
 import { getUserProfile } from '../routes/users.js';
 import { fetchAndExtractArticle, createJobsForPlatforms } from '../routes/content/repurpose.js';
+import { assertUrlIsPublic } from '../lib/ssrfGuard.js';
 import { logger } from '../lib/logger.js';
 
 const rssParser = new Parser({
@@ -24,11 +25,35 @@ const rssParser = new Parser({
   headers: { 'User-Agent': 'ContentAgent-FeedMonitor/1.0 (+https://contentAgent.ai)' },
 });
 
+// WHY a typeof guard, not a bare `as string` cast: rss-parser types every
+// custom/namespaced field (pubDate/guid/link) as `unknown` on
+// Parser.Output<Record<string, unknown>> — a malformed feed could send a
+// non-string value through, which a bare cast would silently trust and let
+// flow into `new Date()`/dedupe-key comparisons/an eventual fetch() URL.
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
 // WHY exported: POST /api/feed-monitors/:id/check calls this directly so a
 // user can trigger an on-demand check without waiting for the cron tick.
 export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Promise<void> {
   if (!db) return;
   const feedUrl = monitor.feedUrl;
+
+  // SECURITY: feedMonitorSchema only validates feedUrl as a well-formed URL —
+  // nothing stops a user from pointing a monitor at an internal/private address
+  // (e.g. a cloud metadata endpoint). This is the same DNS-rebinding-resistant
+  // guard Repurpose's article fetch already applies (lib/ssrfGuard.ts); the RSS
+  // fetch below runs every 30 min via the cron sweep AND on-demand via
+  // POST /:id/check, so it needs the identical protection, not just the
+  // downstream article-extraction step (which already goes through
+  // fetchAndExtractArticle's own call to the same guard).
+  const urlSafety = await assertUrlIsPublic(feedUrl);
+  if (!urlSafety.safe) {
+    logger.warn('[FeedMonitor] Feed URL failed SSRF check, skipping', { feedUrl, reason: urlSafety.reason });
+    await db.update(feedMonitors).set({ lastCheckedAt: new Date() }).where(eq(feedMonitors.id, monitor.id));
+    return;
+  }
 
   let feed: Parser.Output<Record<string, unknown>>;
   try {
@@ -51,15 +76,17 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   // lastItemGuid — so the first run after creating a monitor processes only
   // the very latest item (not the entire feed history).
   const sorted = [...items].sort((a, b) => {
-    const aDate = a.pubDate ? new Date(a.pubDate as string).getTime() : 0;
-    const bDate = b.pubDate ? new Date(b.pubDate as string).getTime() : 0;
+    const aPubDate = asOptionalString(a.pubDate);
+    const bPubDate = asOptionalString(b.pubDate);
+    const aDate = aPubDate ? new Date(aPubDate).getTime() : 0;
+    const bDate = bPubDate ? new Date(bPubDate).getTime() : 0;
     return bDate - aDate;
   });
 
   // Determine which items are new (not yet seen)
   const newItems: typeof sorted = [];
   for (const item of sorted) {
-    const guid = (item.guid as string | undefined) || (item.link as string | undefined) || '';
+    const guid = asOptionalString(item.guid) || asOptionalString(item.link) || '';
     if (guid && guid === monitor.lastItemGuid) break; // we've reached known items
     newItems.push(item);
   }
@@ -77,8 +104,8 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   }
 
   const item = toProcess[0];
-  const itemUrl = (item.link as string | undefined) || '';
-  const newGuid = (item.guid as string | undefined) || itemUrl;
+  const itemUrl = asOptionalString(item.link) || '';
+  const newGuid = asOptionalString(item.guid) || itemUrl;
 
   if (!itemUrl) {
     logger.warn('[FeedMonitor] Item has no link/url, skipping', { feedUrl });

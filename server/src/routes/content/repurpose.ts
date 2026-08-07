@@ -1,14 +1,13 @@
 import * as Sentry from '@sentry/node';
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { promises as dns } from 'dns';
-import { isIP } from 'net';
 import { AuthRequest } from '../../middleware/auth.js';
 import { jobsMemory, runPipelineDirect } from '../jobs/index.js';
 import { generateWithAI } from '../../lib/ai.js';
 import { getUserProfile } from '../users.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { stripScriptsAndEventHandlers } from '../../lib/carousel.js';
+import { assertUrlIsPublic } from '../../lib/ssrfGuard.js';
 import { parseBody, repurposeSchema, repurposeBatchSchema } from '../../schemas/index.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
 import { logger } from '../../lib/logger.js';
@@ -42,55 +41,13 @@ async function fetchAndExtractArticle(url: string): Promise<ExtractResult> {
     return { ok: false, status: 400, error: 'Invalid URL — must start with http:// or https://', code: 'VALIDATION_ERROR', retryable: false };
   }
 
-  // SSRF protection — block requests to private/loopback IP ranges.
-  // SECURITY: checking the literal hostname string alone is bypassable via DNS
-  // rebinding (a public hostname whose A/AAAA record points at a private/
-  // loopback/link-local address, e.g. a cloud metadata endpoint) — fetch()
-  // would still happily connect to whatever the resolver returns. Resolving
-  // here and validating every returned address closes that gap; a residual
-  // TOCTOU window between this lookup and fetch()'s own internal lookup is a
-  // standard, accepted risk tier for this mitigation (eliminating it fully
-  // would require pinning fetch to a specific resolved IP via a custom
-  // dispatcher, which isn't available without adding a new dependency).
-  const hostname = parsedUrl.hostname;
-  // WHY both a raw string pattern AND a normalized check: an IPv6 address has
-  // multiple textual forms for the same address (e.g. "::ffff:127.0.0.1" and
-  // "::ffff:7f00:1" both mean IPv4-mapped 127.0.0.1) — a single regex anchored
-  // to one form misses the others. isPrivateOrReservedIp normalizes via
-  // Node's own IPv4-mapped-IPv6 unwrapping before falling back to the regex,
-  // so DNS-resolved addresses are checked in whatever form the resolver
-  // returns them, not just the exact strings the regex enumerates.
-  const ssrfPattern = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1$|::$|0\.0\.0\.0|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:)/i;
-  function isPrivateOrReservedIp(address: string): boolean {
-    if (ssrfPattern.test(address)) return true;
-    // Unwrap IPv4-mapped/compatible IPv6 forms ("::ffff:a.b.c.d" or its
-    // hex-quad equivalent "::ffff:7f00:1") down to the plain IPv4 string and
-    // re-check — Node's `net.isIPv6` family alone won't do this unwrapping.
-    const mappedMatch = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-    if (mappedMatch) return ssrfPattern.test(mappedMatch[1]);
-    const hexMappedMatch = address.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
-    if (hexMappedMatch) {
-      const hi = parseInt(hexMappedMatch[1], 16);
-      const lo = parseInt(hexMappedMatch[2], 16);
-      const ipv4 = `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`;
-      return ssrfPattern.test(ipv4);
-    }
-    return false;
-  }
-  if (isPrivateOrReservedIp(hostname)) {
-    return { ok: false, status: 400, error: 'URL points to a private or reserved address', code: 'VALIDATION_ERROR', retryable: false };
-  }
-  try {
-    const addresses = isIP(hostname)
-      ? [{ address: hostname }]
-      : await dns.lookup(hostname, { all: true });
-    for (const { address } of addresses) {
-      if (isPrivateOrReservedIp(address)) {
-        return { ok: false, status: 400, error: 'URL points to a private or reserved address', code: 'VALIDATION_ERROR', retryable: false };
-      }
-    }
-  } catch {
-    return { ok: false, status: 422, error: 'Could not resolve that URL — check that it is publicly accessible', code: 'FETCH_FAILED', retryable: true };
+  // SSRF protection — block requests to private/loopback IP ranges (DNS-rebinding
+  // resistant; see lib/ssrfGuard.ts for the full rationale). Shared with feed
+  // monitors' RSS fetch (workers/feedMonitorWorker.ts) so both consumers of
+  // user-supplied URLs get the same hardening pass.
+  const urlSafety = await assertUrlIsPublic(parsedUrl.toString());
+  if (!urlSafety.safe) {
+    return { ok: false, status: 400, error: urlSafety.reason || 'URL points to a private or reserved address', code: 'VALIDATION_ERROR', retryable: false };
   }
 
   // Fetch and extract readable text from the URL

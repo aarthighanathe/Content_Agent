@@ -1,6 +1,7 @@
 import { searchTavily, type TavilySearchResult } from '../lib/ai.js';
 import { sseManager } from '../lib/sse.js';
 import { ContentJob } from '../db/schema.js';
+import { sanitizeSearchText } from '../lib/sanitizeSearchText.js';
 
 // WHY exported: writer.ts's WriterInput.researchReport reads this shape directly
 // (trendingAngles/keyFacts/suggestedHashtags/competitorHooks) — exporting it lets
@@ -49,22 +50,36 @@ export async function runResearcher(
   const competitorHooks: string[] = [];
   const sourceUrls: string[] = [];
 
+  // SECURITY: Tavily results are untrusted web text (anyone can publish content
+  // that ranks for a topic's search queries) — sanitize before it flows into
+  // trendingAngles/keyFacts/competitorHooks, which get JSON.stringify'd
+  // straight into writer.ts's prompt. Same neutralization competitor.ts and
+  // ideate.ts already apply to the same class of Tavily data; researcher.ts
+  // was the one Tavily consumer that skipped it.
+  // NOTE: the sentence-splitting/key-fact detection below is a cheap heuristic
+  // by design, not a bug to eventually fix — `split('. ')` and the keyword
+  // regex will miss real facts phrased without those trigger words and can
+  // split mid-abbreviation, but this only affects supplementary research
+  // color fed into the writer's prompt (never scored or user-facing directly),
+  // so an approximate signal here is an acceptable, deliberate tradeoff
+  // against the cost of real NLP sentence segmentation.
   allResults.forEach((result) => {
     if (result.url) sourceUrls.push(result.url);
     if (result.content) {
+      const content = sanitizeSearchText(result.content);
       // Extract potential hooks (first sentences)
-      const sentences = result.content.split('. ').slice(0, 2);
+      const sentences = content.split('. ').slice(0, 2);
       if (sentences.length > 0) {
         competitorHooks.push(sentences[0]);
       }
       // Extract key facts
-      const factSentences = result.content.split('. ').filter((s: string) =>
+      const factSentences = content.split('. ').filter((s: string) =>
         s.match(/\d+%|\d+ (million|billion|thousand)|study|research|survey|report/i)
       );
       keyFacts.push(...factSentences.slice(0, 2));
     }
     if (result.title) {
-      trendingAngles.push(result.title);
+      trendingAngles.push(sanitizeSearchText(result.title));
     }
   });
 

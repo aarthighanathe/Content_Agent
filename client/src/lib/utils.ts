@@ -44,10 +44,6 @@ export function timeAgo(date: string): string {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function getScoreColor(score: number): string {
-  return score >= 80 ? 'var(--color-success)' : score >= 60 ? '#F59E0B' : '#F87171';
-}
-
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }

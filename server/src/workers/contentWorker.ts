@@ -43,7 +43,12 @@ function asString(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
-async function processContentJob(job: Job) {
+// WHY exported: tests/unit/contentWorker.test.ts calls this directly against
+// a minimal { data } stand-in for BullMQ's Job, rather than spinning up a real
+// Worker/Redis connection — this is the actual unit of behavior (malformed
+// payload handling, emitProgress's read-through merge) the review flagged as
+// untested; exporting it costs nothing since nothing else needed it private.
+export async function processContentJob(job: Job) {
   const data: unknown = job.data;
   const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
   const jobId = asString(d.jobId) ?? '';

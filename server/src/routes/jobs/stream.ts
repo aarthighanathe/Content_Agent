@@ -68,7 +68,7 @@ router.get('/:jobId/stream', async (req: Request, res: Response) => {
   // clerkId → dbUserId re-resolution step needed here anymore.
   const dbUserId = await verifySSEToken(token);
   if (!dbUserId) {
-    res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING' });
+    res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
     return;
   }
 
@@ -95,7 +95,7 @@ router.post('/:jobId/stream-token', async (req: AuthRequest, res: Response) => {
 
     const client = getRedisClient();
     if (!client) {
-      res.status(503).json({ error: 'Redis unavailable', code: 'REDIS_UNAVAILABLE' });
+      res.status(503).json({ error: 'Redis unavailable', code: 'REDIS_UNAVAILABLE', retryable: true });
       return;
     }
 
@@ -118,7 +118,7 @@ router.post('/:jobId/stream-token', async (req: AuthRequest, res: Response) => {
     res.json({ token, expiresIn: 15 * 60 });
   } catch (err: unknown) {
     console.error('[SSE] Failed to create stream token:', err instanceof Error ? err.message : err);
-    res.status(500).json({ error: 'Failed to create stream token' });
+    res.status(500).json({ error: 'Failed to create stream token', code: 'SERVER_ERROR', retryable: true });
   }
 });
 

@@ -449,6 +449,8 @@ e:/AGContentAgent/
 │           │   ├── SectionLabel.tsx       ← Shared label row, replaces duplicated `stepLabelStyle` object
 │           │   ├── TopicSuggestions.tsx   ← Recent-topics dropdown with keyboard nav (arrows/Enter/Escape)
 │           │   ├── useDraft.ts            ← sessionStorage draft (topic/platform/tone/audience) surviving a trip to /brand and back; cleared on submit
+│           │   ├── useBatchCreate.ts      ← Batch-mode state (rows/tone/audience/loading/error) + handleBatchSubmit — extracted from Create.tsx to stay under the 400-line cap
+│           │   ├── useCarouselTemplateSelection.ts ← templateId/paletteId state + localStorage sync — extracted from Create.tsx alongside useBatchCreate.ts
 │           │   ├── errorMessages.ts       ← Maps server `{ error, code, retryable, retryAfterMs }` to actionable copy
 │           │   ├── BatchTopicList.tsx     ← Up to 7 topic+platform rows, submitted together via POST /jobs/batch
 │           │   └── TopicStep.tsx          ← Page body (platform summary/grid, topic, tone, brand-voice banner, audience, advanced, generate)
@@ -465,6 +467,8 @@ e:/AGContentAgent/
 │           ├── Calendar.tsx            ← Content calendar view
 │           ├── Ideate.tsx              ← AI topic brainstorming
 │           ├── Repurpose.tsx           ← URL → content (skips research phase)
+│           ├── Repurpose/
+│           │   └── FeedMonitorPanel.tsx   ← RSS/Atom feed subscription manager — React Query-backed CRUD + on-demand check, see §5's Feed Monitors row
 │           ├── Competitor.tsx          ← @handle competitor analysis
 │           └── Result.tsx              ← Main result viewer (thin orchestrator)
 │               └── Result/
@@ -543,11 +547,24 @@ e:/AGContentAgent/
         │   │   ├── versions.ts         ← GET /:id/versions, POST /:id/versions/:versionId/restore (Library version history)
         │   │   ├── manage.ts           ← GET /:id, DELETE, PATCH, regenerate (snapshots a version), multiply
         │   │   └── ownership.ts        ← requireJobOwnership(); jobsMemory Map
-        │   ├── content.ts              ← ideate, hashtags, repurpose, competitor
-        │   ├── users.ts                ← brand-voice, analyze-voice, /me
+        │   ├── content.ts              ← thin router mounting content/* below
+        │   ├── content/                ← Modular content-tool routes (split from a single content.ts file)
+        │   │   ├── ideate.ts           ← POST /ideate
+        │   │   ├── hashtags.ts         ← POST /hashtags
+        │   │   ├── repurpose.ts        ← POST /repurpose (+ shared fetchAndExtractArticle/createJobsForPlatforms, reused by feedMonitorWorker.ts)
+        │   │   ├── competitor.ts       ← POST /competitor
+        │   │   └── shared.ts           ← readOutputs/sanitizeContentDeep/parseAIJson — canonical copies imported by jobs/manage.ts too
+        │   ├── users.ts                ← thin router mounting users/* below
+        │   ├── users/                  ← Modular user-profile routes (split from a single users.ts file)
+        │   │   ├── brandVoice.ts       ← POST /brand-voice, POST /analyze-voice (Content DNA)
+        │   │   ├── me.ts               ← GET /me
+        │   │   ├── onboarding.ts       ← GET/POST /onboarding
+        │   │   ├── account.ts          ← DELETE /me (account deletion)
+        │   │   └── profileStore.ts     ← getUserProfile/saveUserProfile cache-aside helpers
         │   ├── social.ts               ← OAuth + post (LinkedIn, Twitter)
         │   ├── scheduledPosts.ts       ← GET/POST /api/scheduled-posts, DELETE /:jobId (Calendar server-sync)
         │   ├── collections.ts          ← GET/POST /api/collections, DELETE /:id, GET/POST/DELETE /:id/jobs[/:jobId] (Library folders)
+        │   ├── feedMonitors.ts         ← GET/POST /api/feed-monitors, PATCH/DELETE /:id, POST /:id/check (RSS auto-repurpose subscriptions — see §5)
         │   ├── demo.ts                 ← Public demo (no auth, rate-limited)
         │   └── imageGen.ts             ← Multi-provider image gen with fallback chain
         │
@@ -570,6 +587,8 @@ e:/AGContentAgent/
         │   ├── socialPublish.ts        ← Shared LinkedIn/Twitter posting logic — used by both routes/social.ts's POST /post and workers/publishWorker.ts
         │   ├── redisClient.ts          ← Shared Redis client
         │   ├── sse.ts                  ← SSEManager: broadcast events to connected clients
+        │   ├── ssrfGuard.ts            ← assertUrlIsPublic()/isPrivateOrReservedIp() — DNS-rebinding-resistant private-IP guard shared by repurpose.ts's article fetch and feedMonitorWorker.ts's RSS fetch
+        │   ├── sanitizeSearchText.ts   ← Prompt-injection neutralization for untrusted Tavily results — shared by researcher.ts, competitor.ts, ideate.ts
         │   └── tokenEncryption.ts      ← AES-256-GCM for social OAuth tokens
         │
         ├── middleware/
@@ -578,7 +597,7 @@ e:/AGContentAgent/
         │
         ├── db/
         │   ├── index.ts
-        │   └── schema.ts               ← 11 tables: users, contentJobs, contentOutputs, agentLogs, socialTokens, userOnboarding, scheduledPosts, competitorAnalyses, collections, collectionJobs, jobOutputVersions
+        │   └── schema.ts               ← 12 tables: users, contentJobs, contentOutputs, agentLogs, socialTokens, userOnboarding, scheduledPosts, competitorAnalyses, collections, collectionJobs, jobOutputVersions, feedMonitors
         │       (migrations tracked in server/drizzle/ via drizzle-kit — see `npm run db:generate` / `db:migrate`)
         │
         ├── lib/
@@ -586,7 +605,8 @@ e:/AGContentAgent/
         │
         ├── workers/
         │   ├── contentWorker.ts        ← BullMQ Worker; calls lib/pipeline.ts (same pipeline as the direct-mode fallback in create.ts)
-        │   └── publishWorker.ts        ← BullMQ Worker for the 'scheduled-publish' queue; posts to LinkedIn/Twitter at a scheduled_posts row's publish time
+        │   ├── publishWorker.ts        ← BullMQ Worker for the 'scheduled-publish' queue; posts to LinkedIn/Twitter at a scheduled_posts row's publish time
+        │   └── feedMonitorWorker.ts    ← node-cron worker (every 30 min) polling active feed_monitors rows; checkFeedMonitor() also called on-demand by POST /api/feed-monitors/:id/check
         │
         └── scripts/
             ├── demo_flow.ts            ← Dev script
@@ -618,6 +638,7 @@ e:/AGContentAgent/
 | Content multiplication | `routes/jobs/manage.ts` | Reuses existing research report |
 | Social OAuth | `routes/social.ts`, `lib/tokenEncryption.ts` | Tokens AES-256-GCM encrypted at rest |
 | Public demo | `routes/demo.ts` | No auth; 3/hour per IP; truncated output |
+| Feed monitors (RSS auto-repurpose) | `routes/feedMonitors.ts`, `workers/feedMonitorWorker.ts`, `client/src/pages/Repurpose/FeedMonitorPanel.tsx` | Subscribe an RSS/Atom feed URL; a node-cron worker polls it every 30 min (or on-demand via "Check now") and auto-creates a Repurpose job for the newest unseen item, reusing `repurpose.ts`'s article-extraction + SSRF-guarded fetch. Gated by `contentRateLimit` on the `/check` route since it triggers the same 5-agent pipeline as Repurpose. |
 
 ---
 
@@ -1013,5 +1034,16 @@ meaningful signal colors or a deliberately separate design system, not brand dec
 properties per `[data-theme]`, `ThemeSwitcher.tsx`, flash-prevention script, and a
 color-token migration across ~75 `.tsx`/`.ts` files app-wide, leaving semantic/platform/
 carousel colors fixed. See `CHANGELOG.md` for the full dated entry.)*
+
+*Updated 2026-08-07: fixed every finding from `CODE_REVIEW_FULL_CODEBASE.md`'s 10-angle
+review (correctness, security, architecture, type safety, React, backend, performance,
+test coverage, readability, simplification) — see `CHANGELOG.md` for the full dated entry.
+Doc-drift corrections applied in this pass: §4's folder tree now shows `routes/content/`
+and `routes/users/` as the already-split subdirectories they actually are (was showing
+both as flat files), added the previously-undocumented `feedMonitors` feature (§5's Key
+Features table, `routes/feedMonitors.ts`, `workers/feedMonitorWorker.ts`,
+`Repurpose/FeedMonitorPanel.tsx`) and its 12th `schema.ts` table (was listed as 11), and
+added `lib/ssrfGuard.ts`/`lib/sanitizeSearchText.ts` (both extracted from
+previously-duplicated inline copies during this pass) to §4.*
 
 *Previously updated: 2026-07-28 (all 21 Section 1 findings from `REVIEW_FINDINGS.md` fixed in this session — folder structure updated for the `Create`/`Brand`/`Landing` component splits, the `postEmbeddings` table removal, and the two dead-file deletions; `docs/`/`ROADMAP.md` cross-references removed repo-wide instead of stubbed; `IGSlide.tsx` flagged as the next oversized-file candidate. Later the same day: every fixable finding from `FUNCTIONAL_AUDIT_2026-07.md` was implemented — `users.content_dna` and `content_jobs.source_job_id`/`source_platform` added via migration `0002_cute_rogue.sql`, `GET /jobs` gained real server-side search/filter/sort, `VALID_TONES` extended to match the UI, the dead "Batch" nav entry removed, and `Section 9` above updated with the resulting known limitations. See `CHANGELOG.md` for the full dated entry. Later still: production deployment target confirmed as Vercel (client) + Render (server) + Neon + Upstash, all free tier; added `render.yaml`, `client/vercel.json`, split `client/.env.example` + `server/.env.example` out of the old root `.env.example`, relabeled `docker-compose.yml`/both Dockerfiles as local-dev-only, removed the `server/Dockerfile` line that baked `.env.example` into the image, and added this §12. See `CHANGELOG.md` for the full entry.)*

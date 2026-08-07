@@ -11,6 +11,257 @@
 
 ---
 
+## 2026-08-07 — Full-codebase 10-angle review fixes (CODE_REVIEW_FULL_CODEBASE.md)
+
+**Status:** Complete. Fixed every finding from the 10-angle review (correctness, security,
+architecture, type safety, React, backend, performance, test coverage, readability,
+simplification). Both `tsc --noEmit`/`tsc -b` and the full test suites (367 server tests,
+109 client tests) pass after all changes.
+
+**Critical/Major correctness:**
+- `agents/writer.ts`'s carousel fallback (`buildFallbackResponse()`) only produced 3 slides,
+  fewer than the `>=6`-slide guard it was immediately checked against — a single malformed
+  Gemini/Groq response for an `instagram_carousel` job threw past `pipeline.ts`'s critic-retry
+  loop entirely and hard-failed the whole job on the first bad response. Padded the fallback to
+  8 slides (never trips its own guard) and, in `lib/pipeline.ts`, wrapped the `runWriter` call in
+  a try/catch that now treats a thrown "incomplete carousel"/"placeholder detected" error as a
+  rejected draft — consuming one of the 3 retry attempts instead of crashing the pipeline.
+- `writer.ts`'s `containsPlaceholders()` was documented as retry-triggering but only
+  `console.warn`'d — leftover template text (e.g. "Feature name") could reach users unchanged.
+  Now throws, caught by the same new pipeline retry handling above.
+- `routes/jobs/list.ts`: page 1 always fetched a full `limit` (10) DB rows, then unconditionally
+  prepended in-flight memory jobs on top — page 1 could exceed the page size and desync
+  `totalPages`' fixed-page-size math. Now computes `dbLimit = limit - page1MemJobCount` up front
+  so the combined list never exceeds `limit`.
+- `lib/carouselSsr.ts`: a per-slide render failure inside `renderCarouselSlidesSsr`'s
+  `Promise.allSettled` never carried an `index` property, so `render.ts`'s "which slide failed"
+  extraction always fell back to `-1` — the "Some slides failed" export warning was always
+  "slide -1" regardless of which one broke. Now catches and rethrows with `{ index }` attached.
+- `agents/formatter.ts`'s `formatInstagramCaption` discarded the writer's actual emoji picks
+  whenever there were fewer than 3, replacing the whole array with the same hardcoded 5-emoji
+  set. Now pads the existing selection up to 3 instead of overwriting it.
+- `middleware/auth.ts`: two concurrent first-sign-in requests from a brand-new user could both
+  miss the auth cache and both attempt `db.insert(users)`, and the loser threw on the `clerkId`
+  unique constraint (500 for that request). Now uses `onConflictDoNothing` + a re-select on
+  conflict so both requests resolve to the same `dbUserId`.
+- `routes/jobs/versions.ts`'s restore route silently no-op'd the in-memory cache-aside update
+  when the in-memory job had no `'final'` output yet (DB was updated correctly, but a client
+  still polling the in-memory copy saw stale content until the 10-min eviction). Now pushes a
+  new `'final'` output into memory when none exists, mirroring the DB's own insert-if-missing
+  branch.
+
+**Security:**
+- `POST /api/feed-monitors/:id/check` had no rate limiter despite triggering the same
+  Gemini-summarization + 5-agent pipeline as `/api/content/repurpose` — added `contentRateLimit`.
+- `workers/feedMonitorWorker.ts`'s `checkFeedMonitor()` fetched the RSS feed URL with no SSRF
+  guard (a monitor could point at a cloud metadata endpoint or internal service). Extracted
+  `repurpose.ts`'s existing DNS-rebinding-resistant private-IP guard into a shared
+  `lib/ssrfGuard.ts` (`assertUrlIsPublic()`) and applied it in both places.
+- `agents/critic.ts` interpolated user-controlled `brandVoice` into the scoring prompt without
+  XML delimiters, unlike every other agent — now wrapped in `<brand_voice>` tags.
+- `agents/researcher.ts` was the one Tavily consumer that never neutralized prompt-injection
+  patterns in search results before they flowed into the writer prompt. Extracted the
+  previously-duplicated `sanitizeSearchText()` (from `competitor.ts`/`ideate.ts`) into a shared
+  `lib/sanitizeSearchText.ts` and applied it in `researcher.ts` too.
+- `routes/social.ts`'s OAuth callback used `env.LINKEDIN_CLIENT_ID!`/`TWITTER_CLIENT_ID!`
+  non-null-asserted with no guard (unlike `/connect/:platform`, which checks first) — added the
+  same missing-config guard, redirecting with a clear `social_error` instead of silently sending
+  `client_id=undefined`.
+- `/api/social/callback/:platform` was gated behind `authMiddleware` at the router mount even
+  though it's a top-level cross-origin OAuth redirect that resolves identity entirely via its own
+  signed `state` param — exempted the exact path (never by substring match, same discipline as
+  `jobs/index.ts`'s SSE exemption) so a possible silent 401 short-circuit can't break social
+  linking in production.
+
+**Architecture / consistency:**
+- Converted `Repurpose/FeedMonitorPanel.tsx` from raw `useState`+manual fetches to React Query
+  (`useQuery`/`useMutation` + `invalidateQueries`), matching every other server-state surface in
+  the app. Also fixed its untracked `setTimeout(loadMonitors, 2000)` (no cleanup — could
+  `setState` after unmount) with the same tracked-`Set`-cleared-on-unmount pattern already used
+  by `useMultiplier.ts`/`useSocial.ts`/`ExportModal.tsx`.
+- Swept the `{ error, code, retryable }` error-shape contract across 9 files that were
+  inconsistent with it: `routes/feedMonitors.ts` (10/10 responses), `routes/social.ts` (3
+  remaining gaps), `routes/jobs/stream.ts`, `routes/content/hashtags.ts`, `routes/demo.ts`,
+  `routes/jobs/manage.ts` (4 outer catches), `routes/jobs/versions.ts`, `routes/users/onboarding.ts`,
+  `routes/users/brandVoice.ts`.
+
+**Type safety:**
+- `routes/jobs/manage.ts`'s `updateJobWithCacheAside` had a `db: any` parameter — every call
+  site's inline DB callback was invisible to the type checker. Typed as `NonNullable<typeof db>`.
+- `routes/users/brandVoice.ts`'s `let contentDna;` (implicit any across a try/catch boundary) is
+  now explicitly `ContentDna`.
+- `routes/demo.ts`'s `platformPrompts` was `Record<string, string>` — now
+  `Record<z.infer<typeof platformEnum>, string>` so a future platform addition is caught by the
+  compiler instead of silently missing a demo prompt.
+
+**React:**
+- `Result/components/panels/HashtagPanel.tsx`'s `fetchHashtags` had no unmount guard — switching
+  ActionDrawer tabs mid-fetch could `setState` on the unmounted panel. Added a `cancelledRef`.
+- `Result/hooks/useSocial.ts`'s `handlePostNow` had the same gap for its direct setState calls
+  (the timer cleanup already existed) — added the same guard.
+- `igslide/templates/VibrantPopTemplate.tsx`'s 3-dot indicator used `key={i}` — changed to
+  `key={\`dot-${i}\`}` for consistency (no functional bug; static fixed-length array).
+- `Create.tsx` was 436 lines, over the 400-line cap. Extracted batch-mode state/handler into
+  `Create/useBatchCreate.ts` and carousel template/palette state into
+  `Create/useCarouselTemplateSelection.ts` (mirroring the `useDraft.ts` precedent) — now 359 lines.
+
+**Backend:**
+- `routes/imageGen.ts`'s `POST /generate` had no outer try/catch (relied on every one of 5
+  provider blocks self-catching forever) and its final 500 fallback omitted `code`/`retryable`.
+  Wrapped the whole handler in try/catch calling `next(error)` and added the missing fields.
+
+**Performance:**
+- Removed the unused `html2canvas` dependency (never imported after the old
+  `exportSlidesPNG()`/html2canvas fallback path was removed) from `client/package.json` and its
+  `vite.config.ts` manualChunks entry. Ran `npm install` to regenerate the lockfile.
+
+**Dead code deleted** (per this repo's own "delete superseded code" precedent):
+- `server/src/routes/content/outputs.ts` (5 fully-unreachable endpoints — no client call site
+  matches its URL shape; every responsibility has a newer real implementation elsewhere) and its
+  mount in `routes/content.ts`, `jobIdFromOutputId` (`routes/content/shared.ts`), `editSlideSchema`/
+  `regenerateContentSchema` (`schemas/content.ts`), and the now-pointless
+  `tests/security/content-routes-idor.test.ts` that only exercised the removed route.
+- `renderSlidesSchema` (`schemas/jobs.ts`) — leftover from the already-removed `/render-slides`
+  route.
+- `client/package.json`'s unused `"server": "file:../server"` dependency.
+- `Result/constants.ts`'s `CarouselTheme` interface + `CAROUSEL_THEMES` const — the legacy theme
+  picker UI that read them was already removed; no remaining reader.
+- `lib/templateSystem.ts`'s `getTemplatesByCategory()` — no caller.
+- `lib/utils.ts`'s `getScoreColor()` — no caller outside its own test (removed that too).
+- `Library/libraryHelpers.ts`'s dead `formatDate` re-export.
+- `igslide/slideResolvers.ts`'s `hashStr()` — no caller (superseded by `useCarouselDesignSeed.ts`'s
+  own `topicHash()`).
+
+**Readability:**
+- `routes/jobs/render.ts`'s `req.dbUserId || req.userId || 'demo'` fallback is dead code here
+  (this route isn't exempted from `authMiddleware`, unlike `stream.ts`'s SSE route which is) —
+  added a comment explaining why, so a future editor doesn't assume it's load-bearing.
+- `lib/ai.ts`: added WHY comments for the previously-unexplained `maxRetries = 3`/backoff array
+  and the `geminiFailCount >= 5` circuit-breaker threshold; switched `searchTavily`'s three
+  `console.warn` calls to `logger.warn` for intra-file consistency.
+- `igslide/templates/SocialMediaTemplate.tsx`: added a comment explaining why its points list
+  doesn't need the flex/overflow guard other templates use (short single-line content, not the
+  multi-line label+desc pairs that guard protects against).
+- `agents/researcher.ts`: added a NOTE flagging the sentence-splitting/key-fact heuristics as
+  deliberately approximate, not a latent bug.
+
+**Test coverage:**
+- Deleted `tests/unit/critic.test.ts` — a shadow test that reimplemented critic parsing inline
+  and asserted a malformed-JSON fallback of `totalScore: 72, approved: true`, the *opposite* of
+  the real `FALLBACK_CRITIC_RESPONSE` (`totalScore: 50, approved: false`, deliberately
+  non-approving). A regression that reverted the real fallback to auto-approve would have shipped
+  silently while this test kept passing. Added 3 real tests to `critic-score-clamp.test.ts` that
+  import and call the actual `runCritic()` against non-JSON, empty-string, and
+  schema-valid-but-fieldless AI responses, asserting the real conservative fallback contract.
+- Updated `tests/unit/formatter.test.ts`'s two emoji tests, which asserted the old (buggy)
+  "always replace with a hardcoded 5" behavior — now assert the corrected padding behavior.
+
+**Documentation:** updated CLAUDE.md §4/§5 for the previously-undocumented `feedMonitors`
+feature/table and the already-split `routes/content/`+`routes/users/` folder structure — see
+that file's own dated update note for details.
+
+**Follow-up pass (same day) — findings missed in the first sweep:**
+- `routes/jobs/list.ts`'s outer `catch` block returned 500 with no logging at all — a real
+  failure here (as opposed to the inner DB-fallback try/catch, which does log) was invisible in
+  production logs. Added a `console.error` matching sibling routes' pattern.
+- `workers/feedMonitorWorker.ts` cast `item.pubDate`/`item.guid`/`item.link` (all typed `unknown`
+  by rss-parser) straight `as string`/`as string | undefined` with no runtime check — a malformed
+  feed's non-string field would have passed through uncaught. Added an `asOptionalString()`
+  typeof guard used at all three cast sites.
+- `Result/hooks/useJobData.ts`'s SSE 'state' bootstrap cast `data as unknown as ContentJob` with
+  only `type === 'state'` checked. Added a minimal shape guard (confirms `jobId` is a string,
+  defaults `outputs`/`logs` to `[]`) before trusting the cast.
+- `pages/Landing/LiveDemo.tsx` cast the demo API response as `DemoResult` after only confirming
+  `'preview' in data` — added an `isDemoResult()` type guard (checking `platform`/`topic` are
+  strings and `preview` is array-or-object) matching the `isCriticResult`/`isFormatterResponse`
+  guard pattern used elsewhere in this codebase.
+- `lib/queue.ts` and `lib/publishQueue.ts`'s "remove existing job before re-adding" blocks
+  silently swallowed every error from `queue.getJob()`, including transient Redis connectivity
+  issues unrelated to "job doesn't exist yet" — both now `logger.warn` the real error instead of
+  discarding it.
+
+---
+
+## 2026-08-07 — Test Coverage angle: remaining 9 findings closed
+
+**Status:** Complete. The review's Test Coverage angle raised 10 findings; the first pass only
+fixed the critic.ts shadow-test. This pass closes the remaining 9, each with tests that import
+and exercise the real module (never a reimplementation), matching the standard the review itself
+asked for. Server suite grew from 367 → 412 tests (client 109 → 123); both `tsc` checks and the
+full production client build still pass.
+
+- **`lib/sse.ts`** — rewrote `tests/unit/sse-manager.test.ts` (previously an inlined copy of
+  `SSEManager`) to import the real `sseManager` singleton and drive it against a mock Express
+  `Response`. New coverage: header-flush-before-write ordering, the 15s keepAlive interval firing
+  and being cleared on `close`, `close`-triggered client removal, multi-client `sendEvent`
+  fan-out, and a broken-pipe write being caught and auto-removing the client.
+- **`workers/contentWorker.ts` / `publishWorker.ts`** — both were fully excluded from the vitest
+  coverage config with zero referencing tests. Exported `processContentJob`/`processPublishJob`
+  (previously module-private) and added `tests/unit/contentWorker.test.ts` (malformed/null
+  `job.data` handling, the `emitProgress` read-through-store merge that was itself a fix for a
+  prior "status:done with no outputs forever" bug, and pipeline-failure swallowing) and
+  `tests/unit/publishWorker.test.ts` (row-not-found, already-non-pending, missing-platform,
+  missing-accessToken, successful publish, publish-API failure recorded as `'failed'` not
+  rethrown, and missing-final-output early returns). Removed `src/workers/**` from
+  `vitest.config.ts`'s coverage exclusion now that real tests exist.
+- **`middleware/rateLimit.ts`** — added `tests/unit/rateLimit-enforcement.test.ts` with a minimal
+  in-memory fake Redis client that implements rate-limit-redis's actual `SCRIPT LOAD` + `EVALSHA`
+  protocol (not a stub that always returns a fixed count), so the real increment/threshold logic
+  runs end-to-end. Covers: the (max+1)th request getting a real 429 with the documented
+  `{ code: 'RATE_LIMITED', retryable: false }` shape, per-key isolation, `failClosedMiddleware`'s
+  503 `RATE_LIMITER_UNAVAILABLE` when Redis is down, and the `skip: GET` bypass never reaching the
+  counting logic at all.
+- **SSR bundle vs. live preview parity** — added `tests/unit/template-id-sync.test.ts`'s second
+  test, which checks every current template id (extracted from `templateSystem.ts`'s `TemplateId`
+  union) appears as a literal string in the prebuilt `server/src/generated/slideRenderer.js`
+  bundle — the same class of bug CLAUDE.md §11a documents as having already shipped once
+  (2026-08-06, a stale bundle after a template change silently fell back for the PNG export while
+  the live preview looked correct).
+- **Cross-system `TemplateId` sync** — the same new file's first test cross-checks
+  `templateSystem.ts`'s `TemplateId` union, `schemas/jobs.ts`'s `VALID_TEMPLATE_IDS` (imported for
+  real), and `registry.ts`'s `TEMPLATE_COMPONENTS` keys for exact three-way set equality, failing
+  with a clear diff naming which id is missing from which list.
+- **`Create/BatchTopicList.tsx`** — had zero test coverage; `Create.test.tsx` (the only file that
+  mentioned it) was a literal `expect(true).toBe(true)` placeholder. Added
+  `client/src/test/pages/BatchTopicList.test.tsx` (14 tests) covering the `MAX_BATCH_ROWS` cap
+  disabling "Add topic", `removeRow`'s `rows.length <= 1` floor, per-row topic editing,
+  too-short-topic inline validation blocking the whole submission (not silently dropping the bad
+  row), and the loading/disabled submit-button states.
+- **`POST /jobs/batch`'s real schema** — `jobs-validation.test.ts`'s `validateBatchJobs()` was a
+  hand-copied reimplementation of an older, differently-shaped validation rule that never called
+  the real route. Added `tests/integration/jobs-batch-route.test.ts`, mounting the actual router
+  via supertest: exactly 7 items accepted, 8 rejected (the real `.max(7)`), empty-array rejected,
+  a sub-3-char topic rejected, an invalid platform rejected, and independent per-item job creation
+  verified. Also deleted `schemas/jobs.ts`'s `batchJobSchema` — confirmed dead (zero importers,
+  and a different/stale shape — a `jobs` array of full `createJobSchema` objects — from the real
+  route's inline `items` schema).
+- **`pipeline.ts`'s `isSoftDeleted()` mid-loop race** — added
+  `tests/integration/pipeline-soft-delete-race.test.ts`, which flips a job's `deleted` flag in the
+  real `jobsMemory` Map from inside a mocked `runCritic` implementation (reproducing an actual
+  DELETE-mid-run race, not a synthetic stand-in) and asserts the retry loop stops before
+  exhausting all 3 attempts, and that `runAndPersistPipeline` evicts rather than persists a "done"
+  result for the deleted job.
+- **`critic.ts`'s `buildContentSummary`** — exported the previously-private function and added
+  `tests/unit/critic-buildContentSummary.test.ts` (9 tests) covering all 5 platform branches
+  (carousel array-truncation-and-labeling, twitter thread with a malformed non-array `tweets`
+  fallback, instagram_caption's hashtag cap, video_script's JSON-stringified hook, and the
+  linkedin/default hook-body-cta shape), plus null-content and unrecognized-platform fallback
+  behavior.
+- **`ownership.ts`'s `assembleJobFromDB` happy path** — previously only exercised via
+  ownership-mismatch/not-found cases that never reach it with real relational data. Added
+  `tests/unit/ownership-assembleJobFromDB.test.ts` (7 tests) asserting the full mapped shape from
+  a representative DB row, with explicit coverage of `sourceCompetitorAnalysisId`/`sourceUrl` —
+  the exact fields CLAUDE.md documents as having been silently dropped once already when a new DB
+  column was added to `persistJob.ts` but missed here.
+
+**Deliberately still not covered** (the one remaining test-coverage item the original review
+itself flagged as "reasonably deferred," not overlooked): `lib/carousel.ts`'s `spawnBrowser()`
+Render-specific Chromium executable-path detection — the review's own text notes this would
+require exporting the path-detection logic for direct testing, a refactor rather than a test-only
+change, and self-documents the gap in the test file's trailing comment already.
+
+---
+
 ## 2026-08-07 — Performance audit fixes (frontend re-renders, polling payloads, backend query costs)
 
 **Status:** Complete. Ran the `prompts/performance-audit.md` checklist across client + server,

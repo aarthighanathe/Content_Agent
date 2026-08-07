@@ -55,8 +55,14 @@ export async function addJobToQueue(jobId: string, data: Record<string, unknown>
         await existingJob.remove();
         logger.info('[Queue] Removed old job before re-adding', { jobId });
       }
-    } catch {
-      // Ignore — job may not exist
+    } catch (err) {
+      // WHY logged, not silently swallowed: this catch is meant for "job
+      // doesn't exist," but a transient Redis timeout mid-call would land
+      // here too and previously vanished with zero visibility — masking a
+      // real connectivity issue as an expected not-found case.
+      logger.warn('[Queue] getJob/remove failed before re-add (may be transient, not necessarily "job not found")', {
+        jobId, error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     await queue.add('generate', { jobId, ...data }, { jobId });

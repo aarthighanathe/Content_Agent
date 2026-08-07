@@ -110,13 +110,30 @@ router.post('/:jobId/versions/:versionId/restore', async (req: AuthRequest, res:
     // the pre-restore content until the 10-minute eviction TTL passes.
     const memJob = jobsMemory.get(jobId) || getJobFromStore(jobId);
     if (memJob) {
-      const finalOutput = readOutputs(memJob).find((o) => o.outputType === 'final');
-      if (finalOutput) { finalOutput.content = sanitizedContent; jobsMemory.set(jobId, memJob); setJobInStore(jobId, memJob); }
+      const memOutputs = readOutputs(memJob);
+      const finalOutput = memOutputs.find((o) => o.outputType === 'final');
+      if (finalOutput) {
+        finalOutput.content = sanitizedContent;
+      } else {
+        // WHY push rather than skip: mirrors the DB's insert-if-missing branch
+        // above. Without this, a job whose in-memory copy has no 'final' output
+        // yet (e.g. transiently between pipeline stages) silently kept its stale
+        // (or absent) content until the 10-minute eviction TTL passed, even
+        // though the DB row was already correctly updated. Cast through unknown
+        // like readOutputs() itself does — MemoryJob's union doesn't narrow
+        // `outputs` cleanly through its `[key: string]: unknown` index signature.
+        (memJob as unknown as { outputs: unknown[] }).outputs = [
+          ...memOutputs,
+          { agentName: 'writer', outputType: 'final', content: sanitizedContent },
+        ];
+      }
+      jobsMemory.set(jobId, memJob);
+      setJobInStore(jobId, memJob);
     }
 
     return res.json({ success: true });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to restore version' });
+    return res.status(500).json({ error: 'Failed to restore version', code: 'SERVER_ERROR', retryable: true });
   }
 });
 

@@ -44,6 +44,20 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // Calendar opts out to drop 4 redundant aggregate queries per page load (perf audit).
     const includePlatformCounts = req.query.counts !== '0';
 
+    // WHY computed up front: page 1's DB query needs to leave room for any
+    // in-flight (memory-only) jobs that get prepended below, or the combined
+    // list exceeds `limit` and desyncs totalPages' fixed-page-size math (a job
+    // could then appear twice: once via the memory prepend, once again from the
+    // DB once persisted and the offset shifts). Only page 1 with no active
+    // search/filter ever prepends memory jobs — see that block below.
+    let page1MemJobCount = 0;
+    if (page === 1 && !search && !platformFilter) {
+      page1MemJobCount = Array.from(jobsMemory.values()).filter(
+        (j) => j.userId === userId && j.deleted !== 1 && j.status !== 'done' && j.status !== 'failed',
+      ).length;
+    }
+    const dbLimit = Math.max(limit - page1MemJobCount, 0);
+
     if (db && isValidUUID(userId)) {
       try {
         const whereClauses = [eq(contentJobs.userId, userId), eq(contentJobs.deleted, 0)];
@@ -113,7 +127,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             // before the critic ran) sort below scored jobs, not above them.
             .orderBy(sql`${scoreSubq.score} DESC NULLS LAST`, desc(contentJobs.createdAt))
             .offset((page - 1) * limit)
-            .limit(limit);
+            .limit(dbLimit);
 
           const orderedIds = scoredRows.map((r) => r.id);
           if (orderedIds.length > 0) {
@@ -137,7 +151,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             where: whereClause,
             orderBy: sort === 'platform' ? [asc(contentJobs.platform), desc(contentJobs.createdAt)] : [desc(contentJobs.createdAt)],
             offset: (page - 1) * limit,
-            limit,
+            limit: dbLimit,
             with: { outputs: { columns: { agentName: true, outputType: true, qualityScore: true, partial: true } } },
           });
           assembledDbJobs = dbJobs.map(assembleJobFromDB);
@@ -204,6 +218,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const jobs = allJobs.slice((page - 1) * limit, page * limit);
     return res.json({ jobs, total, page, totalPages: Math.ceil(total / limit), platformCounts: memPlatformCounts });
   } catch (error) {
+    console.error('[GET /jobs] Unhandled error:', error instanceof Error ? error.message : error);
     return res.status(500).json({ error: 'Failed to fetch jobs', code: 'SERVER_ERROR', retryable: true });
   }
 });

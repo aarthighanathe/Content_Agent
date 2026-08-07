@@ -205,7 +205,7 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
     if (platform === 'linkedin') {
       const clientId = env.LINKEDIN_CLIENT_ID;
       if (!clientId) {
-        res.status(501).json({ error: 'LinkedIn OAuth not configured. Set LINKEDIN_CLIENT_ID in .env', code: 'NOT_CONFIGURED' });
+        res.status(501).json({ error: 'LinkedIn OAuth not configured. Set LINKEDIN_CLIENT_ID in .env', code: 'NOT_CONFIGURED', retryable: false });
         return;
       }
       const scopes = ['r_liteprofile', 'r_emailaddress', 'w_member_social'].join('%20');
@@ -218,7 +218,7 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
     if (platform === 'twitter') {
       const clientId = env.TWITTER_CLIENT_ID;
       if (!clientId) {
-        res.status(501).json({ error: 'Twitter OAuth not configured. Set TWITTER_CLIENT_ID in .env', code: 'NOT_CONFIGURED' });
+        res.status(501).json({ error: 'Twitter OAuth not configured. Set TWITTER_CLIENT_ID in .env', code: 'NOT_CONFIGURED', retryable: false });
         return;
       }
       const scopes = ['tweet.read', 'tweet.write', 'users.read', 'offline.access'].join('%20');
@@ -233,7 +233,7 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
       return;
     }
 
-    res.status(400).json({ error: `Unsupported platform: ${platform}` });
+    res.status(400).json({ error: `Unsupported platform: ${platform}`, code: 'VALIDATION_ERROR', retryable: false });
   } catch (error) {
     next(error);
   }
@@ -268,8 +268,12 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
     const callbackUrl = `${env.APP_URL}/api/social/callback/${platform}`;
 
     if (platform === 'linkedin') {
-      const clientId = env.LINKEDIN_CLIENT_ID!;
-      const clientSecret = env.LINKEDIN_CLIENT_SECRET!;
+      const clientId = env.LINKEDIN_CLIENT_ID;
+      const clientSecret = env.LINKEDIN_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('LinkedIn OAuth is not configured')}`);
+        return;
+      }
       const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -293,7 +297,11 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
     }
 
     if (platform === 'twitter') {
-      const clientId = env.TWITTER_CLIENT_ID!;
+      const clientId = env.TWITTER_CLIENT_ID;
+      if (!clientId) {
+        res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Twitter OAuth is not configured')}`);
+        return;
+      }
       const clientSecret = env.TWITTER_CLIENT_SECRET || '';
       const tokenRes = await fetch('https://api.twitter.com/2/oauth2/token', {
         method: 'POST',
@@ -353,7 +361,7 @@ router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response, ne
     const conn = await dbGetToken(userId, platform);
 
     if (!conn?.accessToken) {
-      res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED' });
+      res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED', retryable: false });
       return;
     }
 
@@ -407,12 +415,12 @@ router.post('/schedule', async (req: AuthRequest, res: Response, next: NextFunct
 
     const scheduledDate = new Date(scheduledAt);
     if (scheduledDate <= new Date()) {
-      return res.status(400).json({ error: 'scheduledAt must be a future date', code: 'VALIDATION_ERROR' });
+      return res.status(400).json({ error: 'scheduledAt must be a future date', code: 'VALIDATION_ERROR', retryable: false });
     }
 
     const conn = await dbGetToken(userId, platform);
     if (!conn?.accessToken) {
-      return res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED' });
+      return res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED', retryable: false });
     }
 
     const scheduleId = `${userId}:${platform}:${Date.now()}`;

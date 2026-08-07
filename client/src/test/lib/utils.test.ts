@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { timeAgo, getScoreColor, formatDate, isSafeHttpUrl, navigateToCreate } from '../../lib/utils';
+import { timeAgo, formatDate, isSafeHttpUrl, navigateToCreate } from '../../lib/utils';
 
 describe('timeAgo', () => {
   it('returns "just now" for less than a minute', () => {
@@ -26,23 +26,6 @@ describe('timeAgo', () => {
     // relative-time window (which always falls through to formatDate).
     const oldDate = '2023-01-15T12:00:00.000Z';
     expect(timeAgo(oldDate)).toMatch(/Jan 15/);
-  });
-});
-
-describe('getScoreColor', () => {
-  it('returns success color for score >= 80', () => {
-    expect(getScoreColor(80)).toBe('var(--color-success)');
-    expect(getScoreColor(90)).toBe('var(--color-success)');
-  });
-
-  it('returns warning color for score >= 60', () => {
-    expect(getScoreColor(60)).toBe('#F59E0B');
-    expect(getScoreColor(75)).toBe('#F59E0B');
-  });
-
-  it('returns error color for score < 60', () => {
-    expect(getScoreColor(59)).toBe('#F87171');
-    expect(getScoreColor(0)).toBe('#F87171');
   });
 });
 

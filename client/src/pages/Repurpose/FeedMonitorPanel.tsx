@@ -1,11 +1,12 @@
 // FeedMonitorPanel.tsx — RSS/Atom feed subscription manager in the Repurpose sidebar.
 // Lets users subscribe a public feed URL; the server polls it every 30 min and
 // auto-creates a repurpose job when a new item is found.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Rss, PlusCircle, Trash2, Play, Pause, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   getFeedMonitors, createFeedMonitor, toggleFeedMonitor,
-  deleteFeedMonitor, checkFeedMonitorNow, type FeedMonitor,
+  deleteFeedMonitor, checkFeedMonitorNow,
 } from '../../api';
 
 const PLATFORMS = [
@@ -32,70 +33,87 @@ const DEFAULT_FORM: AddFormState = {
 };
 
 export function FeedMonitorPanel() {
-  const [monitors, setMonitors] = useState<FeedMonitor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const monitorsQuery = useQuery({
+    queryKey: ['feedMonitors'],
+    queryFn: getFeedMonitors,
+  });
+  const monitors = monitorsQuery.data?.monitors || [];
+  const loading = monitorsQuery.isLoading;
+
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<AddFormState>(DEFAULT_FORM);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  const loadMonitors = useCallback(async () => {
-    try {
-      const { monitors: rows } = await getFeedMonitors();
-      setMonitors(rows);
-    } catch {
-      // Silently ignore on load; user still sees the empty state or previous list
-    } finally {
-      setLoading(false);
-    }
+  // WHY a tracked Set, not a bare setTimeout: handleCheck's refresh-after-delay
+  // timer used to be fired-and-forgotten with no cleanup — if the panel
+  // unmounted (navigating away from Repurpose) within the 2s window, the timer
+  // still fired and called setState on an unmounted component. Same
+  // tracked-timeout-cleared-on-unmount pattern already used by
+  // useMultiplier.ts/useSocial.ts/ExportModal.tsx in this codebase.
+  const pendingTimeouts = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timeouts = pendingTimeouts.current;
+    return () => {
+      timeouts.forEach((t) => clearTimeout(t));
+      timeouts.clear();
+    };
   }, []);
 
-  useEffect(() => { loadMonitors(); }, [loadMonitors]);
+  const createMutation = useMutation({
+    mutationFn: createFeedMonitor,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['feedMonitors'] });
+      setForm(DEFAULT_FORM);
+      setShowAdd(false);
+      setError('');
+    },
+    onError: () => setError('Failed to subscribe — check the URL and try again.'),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) => toggleFeedMonitor(id, active),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['feedMonitors'] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteFeedMonitor(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['feedMonitors'] }),
+  });
 
   async function handleAdd() {
     if (!form.feedUrl.trim()) { setError('Feed URL is required'); return; }
     try { new URL(form.feedUrl); } catch { setError('Enter a valid https:// URL'); return; }
-    setSaving(true);
     setError('');
-    try {
-      const { monitor } = await createFeedMonitor({
-        feedUrl: form.feedUrl.trim(),
-        platform: form.platform,
-        tone: form.tone,
-        targetAudience: form.targetAudience.trim() || 'general audience',
-      });
-      setMonitors((prev) => [monitor, ...prev]);
-      setForm(DEFAULT_FORM);
-      setShowAdd(false);
-    } catch {
-      setError('Failed to subscribe — check the URL and try again.');
-    } finally {
-      setSaving(false);
-    }
+    createMutation.mutate({
+      feedUrl: form.feedUrl.trim(),
+      platform: form.platform,
+      tone: form.tone,
+      targetAudience: form.targetAudience.trim() || 'general audience',
+    });
   }
 
-  async function handleToggle(id: string, current: boolean) {
-    try {
-      const { monitor } = await toggleFeedMonitor(id, !current);
-      setMonitors((prev) => prev.map((m) => (m.id === id ? monitor : m)));
-    } catch { /* silently ignore */ }
+  function handleToggle(id: string, current: boolean) {
+    toggleMutation.mutate({ id, active: !current });
   }
 
-  async function handleDelete(id: string) {
-    try {
-      await deleteFeedMonitor(id);
-      setMonitors((prev) => prev.filter((m) => m.id !== id));
-    } catch { /* silently ignore */ }
+  function handleDelete(id: string) {
+    deleteMutation.mutate(id);
   }
 
   async function handleCheck(id: string) {
     setCheckingId(id);
     try {
       await checkFeedMonitorNow(id);
-      // Refresh after a brief pause so lastCheckedAt updates
-      setTimeout(loadMonitors, 2000);
+      // Refresh after a brief pause so lastCheckedAt updates — tracked so the
+      // timeout is cleared if the panel unmounts before it fires.
+      const timeoutId = setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['feedMonitors'] });
+        pendingTimeouts.current.delete(timeoutId);
+      }, 2000);
+      pendingTimeouts.current.add(timeoutId);
     } catch { /* silently ignore */ } finally {
       setCheckingId(null);
     }
@@ -280,11 +298,11 @@ export function FeedMonitorPanel() {
                 {error && <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-error)' }}>{error}</p>}
                 <button
                   onClick={handleAdd}
-                  disabled={saving}
+                  disabled={createMutation.isPending}
                   className="btn-primary"
                   style={{ width: '100%', justifyContent: 'center', fontSize: 12.5, padding: '8px 14px' }}
                 >
-                  {saving ? 'Subscribing…' : 'Subscribe to feed'}
+                  {createMutation.isPending ? 'Subscribing…' : 'Subscribe to feed'}
                 </button>
               </div>
             </div>

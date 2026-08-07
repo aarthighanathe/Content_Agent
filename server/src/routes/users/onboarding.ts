@@ -27,7 +27,7 @@ router.get('/onboarding', async (req: AuthRequest, res: Response) => {
 // POST /api/users/onboarding — mark onboarding complete + optionally save brand name/tone
 router.post('/onboarding', async (req: AuthRequest, res: Response) => {
   const userId = req.dbUserId || req.userId || '';
-  if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  if (!userId) { res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false }); return; }
 
   const body = parseBody(onboardingSchema, req.body, res);
   if (!body) return;

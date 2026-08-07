@@ -54,6 +54,24 @@ interface DemoResult {
   truncated: boolean;
 }
 
+// WHY a lightweight guard, not full nested validation: this only confirms the
+// top-level shape (platform/topic are strings, preview is present as an array
+// or object) — server/src/routes/demo.ts's own comment already notes the demo
+// route never validates the LLM's JSON shape server-side either, and every
+// downstream read of preview.hook/tweets/segments is already optional-chained,
+// so a mismatched nested shape degrades gracefully rather than crashing.
+// Mirrors the isCriticResult/isFormatterResponse guard pattern used elsewhere
+// in this codebase for the same class of "trust but verify the outer shape" check.
+function isDemoResult(value: unknown): value is DemoResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.platform === 'string' &&
+    typeof v.topic === 'string' &&
+    (Array.isArray(v.preview) || (typeof v.preview === 'object' && v.preview !== null))
+  );
+}
+
 export function LiveDemo() {
   const [demoTopic, setDemoTopic] = useState('');
   const [demoPlatform, setDemoPlatform] = useState('instagram_carousel');
@@ -90,10 +108,10 @@ export function LiveDemo() {
           : 'Failed';
         throw new Error(message);
       }
-      if (typeof data !== 'object' || data === null || !('preview' in data)) {
+      if (!isDemoResult(data)) {
         throw new Error('Malformed demo response');
       }
-      setDemoResult(data as DemoResult);
+      setDemoResult(data);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Something went wrong. Try again.';
       setDemoError(message);

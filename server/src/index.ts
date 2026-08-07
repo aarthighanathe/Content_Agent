@@ -165,7 +165,23 @@ app.get('/api/ready', async (_req, res) => {
 app.use('/api/jobs', sanitizeGenerationInput, jobRoutes);
 app.use('/api/content', authMiddleware, sanitizeGenerationInput, contentRateLimit, contentRoutes);
 app.use('/api/users', authMiddleware, sanitizeGenerationInput, userRoutes);
-app.use('/api/social', authMiddleware, socialRoutes);
+// WHY /callback/:platform is exempted (exact-path match, never substring —
+// same discipline as jobs/index.ts's SSE_STREAM_PATH): this route is a
+// top-level browser redirect from LinkedIn/Twitter back to the API's own
+// domain, a different origin than the Vercel-hosted frontend where the Clerk
+// session cookie is set — it's unlikely to ever carry a valid Clerk session.
+// The handler itself only resolves identity via the signed OAuth `state`
+// param (never req.dbUserId/req.userId), so it doesn't need authMiddleware to
+// have run; gating it anyway risked a silent 401 short-circuit that would
+// break social OAuth linking in production while never exercising the
+// timing-safe state-HMAC verification the route relies on instead.
+const SOCIAL_CALLBACK_PATH = /^\/callback\/[^/]+$/;
+app.use('/api/social', (req, res, next) => {
+  if (SOCIAL_CALLBACK_PATH.test(req.path)) {
+    return next();
+  }
+  return authMiddleware(req, res, next);
+}, socialRoutes);
 app.use('/api/scheduled-posts', authMiddleware, scheduledPostsRoutes);
 app.use('/api/collections', authMiddleware, collectionsRoutes);
 app.use('/api/feed-monitors', authMiddleware, feedMonitorsRoutes);

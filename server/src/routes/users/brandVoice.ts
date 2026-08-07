@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
 import { generateWithAI } from '../../lib/ai.js';
 import { parseBody, brandVoiceSchema, analyzeVoiceSchema, contentDnaSchema } from '../../schemas/index.js';
+import type { ContentDna } from '../../schemas/agentResponses.js';
 import { getUserProfile, saveUserProfile } from './profileStore.js';
 import { contentRateLimit } from '../../middleware/rateLimit.js';
 
@@ -68,13 +69,13 @@ Extract the writing style and return ONLY this JSON (no markdown, no extra text)
 
     const result = await generateWithAI(prompt, 'You are a writing style analyst. Always respond with valid JSON only.');
 
-    let contentDna;
+    let contentDna: ContentDna;
     try {
       const jsonMatch = result.match(/\{[\s\S]*\}/);
       const raw: unknown = JSON.parse(jsonMatch ? jsonMatch[0] : result);
       contentDna = contentDnaSchema.parse(raw);
     } catch {
-      res.status(500).json({ error: 'Failed to parse style analysis' });
+      res.status(500).json({ error: 'Failed to parse style analysis', code: 'AI_PARSE_ERROR', retryable: true });
       return;
     }
 
@@ -97,7 +98,7 @@ Extract the writing style and return ONLY this JSON (no markdown, no extra text)
     return;
   } catch (error: unknown) {
     console.error('Failed to analyze voice:', error);
-    res.status(500).json({ error: 'Failed to analyze writing style' });
+    res.status(500).json({ error: 'Failed to analyze writing style', code: 'SERVER_ERROR', retryable: true });
     return;
   }
 });

@@ -45,12 +45,11 @@ export default function ResultPage() {
 
   // NOTE: the theme picker that called the setter lived in the removed AI-render UI.
   // The stored value still selects the palette for the preview and the PNG export.
-  // WHY clamped to 0-8: THEME_KEYS (ExportModal.tsx) and CAROUSEL_THEMES
-  // (Result/constants.ts) both only define 9 valid theme indices — an
-  // out-of-range or NaN stored value (e.g. left over from a future version
-  // with more themes, or manual localStorage tampering) would otherwise
-  // silently resolve to a theme the user never selected with no error
-  // surfaced, causing the exported PNG to diverge from the live preview.
+  // WHY clamped to 0-8: THEME_KEYS (ExportModal.tsx) defines 9 valid theme
+  // indices — an out-of-range or NaN stored value (e.g. left over from a
+  // future version with more themes, or manual localStorage tampering) would
+  // otherwise silently resolve to a theme the user never selected with no
+  // error surfaced, causing the exported PNG to diverge from the live preview.
   const [colorTheme]                            = useState<number>(() => {
     try {
       const parsed = parseInt(localStorage.getItem('ca_carousel_theme') || '4', 10);

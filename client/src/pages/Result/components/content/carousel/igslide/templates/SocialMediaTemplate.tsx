@@ -138,7 +138,12 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </p>
         )}
 
-        {/* Points with hashtag style */}
+        {/* Points with hashtag style — unlike ModernMinimalTemplate's points
+            block, this list has no flex:1/minHeight:0/overflow:hidden guard:
+            each row is a single short hashtag-style line (icon + one-word
+            label), never the multi-line label+desc pairs other templates
+            render, so there's no realistic content length here that would
+            overflow TemplateLayout's fixed height. */}
         {slide.points && slide.points.length > 0 && (
           <div
             style={{

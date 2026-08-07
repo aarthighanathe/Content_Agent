@@ -26,9 +26,11 @@ const router = Router({ mergeParams: true });
 // PATCH /:jobId/content). Extracting it here enforces the ordering via function
 // signature instead of duplicated comments, preventing future edits from
 // accidentally reordering writes and reintroducing the Neon cold-start-stall bug.
+type Database = NonNullable<typeof db>;
+
 async function updateJobWithCacheAside(
   jobId: string,
-  dbUpdate: (db: any) => Promise<void>,
+  dbUpdate: (database: Database) => Promise<void>,
   memoryUpdate: (job: PipelineJob) => void
 ): Promise<void> {
   if (db) {
@@ -254,7 +256,7 @@ router.post('/:jobId/regenerate', async (req: AuthRequest, res: Response) => {
     }
     return res.json({ success: true });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to regenerate' });
+    return res.status(500).json({ error: 'Failed to regenerate', code: 'SERVER_ERROR', retryable: true });
   }
 });
 
@@ -277,7 +279,7 @@ router.post('/:jobId/multiply', async (req: AuthRequest, res: Response) => {
       ?.content as OrchestratorResult | undefined;
 
     if (!cachedResearch) {
-      return res.status(400).json({ error: 'No cached research found on source job' });
+      return res.status(400).json({ error: 'No cached research found on source job', code: 'VALIDATION_ERROR', retryable: false });
     }
 
     const newJobId = uuidv4();
@@ -334,7 +336,7 @@ router.post('/:jobId/multiply', async (req: AuthRequest, res: Response) => {
   } catch (error: unknown) {
     console.error('Failed to multiply job:', error);
     Sentry.captureException(error, { tags: { route: 'POST /:jobId/multiply' } });
-    return res.status(500).json({ error: 'Failed to multiply content' });
+    return res.status(500).json({ error: 'Failed to multiply content', code: 'SERVER_ERROR', retryable: true });
   }
 });
 
@@ -464,7 +466,7 @@ router.patch('/:jobId/content', async (req: AuthRequest, res: Response) => {
 
     return res.json({ success: true });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to update content' });
+    return res.status(500).json({ error: 'Failed to update content', code: 'SERVER_ERROR', retryable: true });
   }
 });
 

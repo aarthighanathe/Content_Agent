@@ -220,19 +220,26 @@ describe('runFormatter — instagram_caption', () => {
     expect(result.hashtags).toEqual(['#fitness', '#yoga', '#health']);
   });
 
-  it('missing emojis default to a 5-item array', async () => {
+  it('missing emojis default to a fallback array of at least 3', async () => {
     const { runFormatter } = await import('../../src/agents/formatter.js');
     const caption = { caption: 'Test' };
     const result = await runFormatter(makeJob('instagram_caption'), caption) as any;
     expect(Array.isArray(result.emojis)).toBe(true);
-    expect(result.emojis.length).toBe(5);
+    expect(result.emojis.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('fewer than 3 emojis replaced with defaults', async () => {
+  it('fewer than 3 emojis are padded up to 3, not replaced outright', async () => {
+    // WHY padded, not replaced: overwriting the whole array on <3 emojis used
+    // to discard whatever the writer had already chosen for tone/topic — the
+    // fix pads the existing selection with fallback emojis instead, so a
+    // caption's own 2 emojis survive alongside 1 padding emoji, not get
+    // thrown away for a generic hardcoded 5-emoji set.
     const { runFormatter } = await import('../../src/agents/formatter.js');
     const caption = { emojis: ['😀', '😂'] };
     const result = await runFormatter(makeJob('instagram_caption'), caption) as any;
-    expect(result.emojis.length).toBe(5);
+    expect(result.emojis.length).toBe(3);
+    expect(result.emojis).toContain('😀');
+    expect(result.emojis).toContain('😂');
   });
 
   it('3 or more emojis are kept as-is', async () => {

@@ -120,3 +120,66 @@ describe('runCritic — score clamping', () => {
     expect(result.totalScore).toBe(60);
   });
 });
+
+// WHY this suite exists: the deleted tests/unit/critic.test.ts asserted a
+// malformed-AI-JSON fallback of totalScore 72/approved:true against its own
+// hand-copied reimplementation of the parsing logic — the OPPOSITE of the
+// real FALLBACK_CRITIC_RESPONSE in src/agents/critic.ts (totalScore 50,
+// approved:false, chosen deliberately so a failed critic evaluation triggers
+// a revision instead of a free pass). That shadow test could never catch a
+// real regression to an auto-approving fallback because it never imported or
+// called runCritic() — this suite does, against the real module, so a future
+// edit that reverts the conservative fallback actually fails a test.
+describe('runCritic — malformed AI response fallback (real module)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('non-JSON AI response falls back to the conservative (non-approving) default', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('not json at all %%%');
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.totalScore).toBe(50);
+    expect(result.approved).toBe(false);
+    expect(result.scores).toEqual({
+      hookStrength: 10,
+      platformCompliance: 10,
+      brandVoiceMatch: 10,
+      valueDelivery: 10,
+      ctaClarity: 10,
+    });
+  });
+
+  it('empty AI response string falls back to the conservative (non-approving) default', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce('');
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.totalScore).toBe(50);
+    expect(result.approved).toBe(false);
+  });
+
+  it('AI response with no scored dimensions at all (every field optional, all absent) scores 0 rather than hitting the parse-failure fallback', async () => {
+    // WHY this is NOT the FALLBACK_CRITIC_RESPONSE path: criticResponseSchema
+    // makes every dimension `.optional()` (see schemas/agentResponses.ts's own
+    // WHY — a missing/invalid single field shouldn't invalidate the whole
+    // response), so `{ unrelated: true }` parses as valid JSON *and* passes
+    // schema validation with every field undefined — clampScore's `Number(n)
+    // || 0` then produces an honest 0 per dimension, distinct from the
+    // conservative-but-nonzero 10-per-dimension fallback the two tests above
+    // exercise for a genuinely unparseable/invalid-shape response.
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({ unrelated: true }));
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.totalScore).toBe(0);
+    expect(result.approved).toBe(false);
+  });
+});

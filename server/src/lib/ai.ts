@@ -93,6 +93,10 @@ function recordGeminiSuccess() {
   geminiFailCount = 0;
 }
 
+// WHY 5 consecutive failures: low enough to react quickly to a genuine Gemini
+// outage (not dozens of failed user requests before failing over), high enough
+// to tolerate a few transient blips (rate limits, brief network errors) without
+// flipping the whole app over to Groq on noise.
 function recordGeminiFailure() {
   geminiFailCount++;
   if (geminiFailCount >= 5) {
@@ -115,6 +119,11 @@ export async function generateWithAI(
   options: GenerateOptions = {}
 ): Promise<string> {
   const { temperature = 0.9, timeoutMs = 90_000 } = options;
+  // WHY 3 retries with a 1s/2s/4s exponential backoff: enough attempts to ride
+  // out a transient Gemini hiccup (rate limit, brief 5xx) without the request
+  // hanging so long the caller's own timeout budget gets eaten — three tries
+  // at these intervals adds at most ~7s before giving up and falling through
+  // to the Groq fallback below.
   const maxRetries = 3;
   const backoffs   = [1000, 2000, 4000];
 
@@ -257,7 +266,7 @@ async function generateWithGroq(
 export async function searchTavily(query: string): Promise<TavilySearchResponse> {
   const apiKey = env.TAVILY_API_KEY;
   if (!apiKey) {
-    console.warn('TAVILY_API_KEY not set, skipping search');
+    logger.warn('TAVILY_API_KEY not set, skipping search');
     return { results: [] };
   }
 
@@ -274,7 +283,7 @@ export async function searchTavily(query: string): Promise<TavilySearchResponse>
     });
 
     if (!response.ok) {
-      console.warn('Tavily search failed:', response.status);
+      logger.warn('Tavily search failed', { status: response.status });
       return { results: [] };
     }
 
@@ -290,7 +299,7 @@ export async function searchTavily(query: string): Promise<TavilySearchResponse>
     }
     return { results: [] };
   } catch (error) {
-    console.warn('Tavily search error:', error);
+    logger.warn('Tavily search error', { error: error instanceof Error ? error.message : String(error) });
     return { results: [] };
   }
 }

@@ -241,16 +241,40 @@ export async function runContentPipeline(
 
     emitProgress('writing', attemptBase + 2, 'writer', retryCount > 0 ? `Revising draft (attempt ${retryCount + 1})…` : 'Drafting content…');
     const wStart = Date.now();
-    const writerResult = await runWriter(asContentJob(job), {
-      researchReport: researchResult,
-      taskPlan: orchestratorResult.taskPlan,
-      platformRules: orchestratorResult.platformRules,
-      brandVoice: job.brandVoice,
-      phrasesUse: job.phrasesUse,
-      phrasesAvoid: job.phrasesAvoid,
-      contentDna: job.contentDna,
-      criticFeedback,
-    });
+    // WHY caught here, not left to propagate: runWriter throws when a carousel
+    // response comes back truncated (<6 slides) even after schema validation —
+    // that's exactly the transient LLM hiccup the critic-feedback retry loop
+    // exists to absorb, not a reason to hard-fail the whole job. Before this fix,
+    // the throw skipped the loop entirely and landed in runAndPersistPipeline's
+    // outer catch, marking the job 'failed' on the very first bad response.
+    let writerResult;
+    try {
+      writerResult = await runWriter(asContentJob(job), {
+        researchReport: researchResult,
+        taskPlan: orchestratorResult.taskPlan,
+        platformRules: orchestratorResult.platformRules,
+        brandVoice: job.brandVoice,
+        phrasesUse: job.phrasesUse,
+        phrasesAvoid: job.phrasesAvoid,
+        contentDna: job.contentDna,
+        criticFeedback,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Writer produced an invalid draft';
+      const wMs = Date.now() - wStart;
+      logs.push({
+        agentName: 'writer',
+        action: `Draft REJECTED (${message})`,
+        inputSummary: criticFeedback ? `Revising with feedback: ${criticFeedback.slice(0, 100)}` : 'Creating initial draft',
+        outputSummary: 'Writer output failed validation — requesting revision',
+        durationMs: wMs,
+      });
+      criticFeedback = `Your previous response was invalid: ${message}. Follow the required JSON structure exactly and provide complete, non-placeholder content for every field.`;
+      retryCount++;
+      job.retryCount = retryCount;
+      emitProgress('writing', attemptBase + 5, 'writer', 'Draft invalid — requesting revision…', wMs);
+      continue;
+    }
     const wMs = Date.now() - wStart;
     logs.push({
       agentName: 'writer',

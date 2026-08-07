@@ -116,17 +116,6 @@ export const competitorHistoryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).default(20),
 });
 
-export const editSlideSchema = z.object({
-  headline: z.string().max(200).optional(),
-  body: z.string().max(2000).optional(),
-});
-
-// WHY 600-char cap: matches the limit sanitizeGenerationInput (middleware/rateLimit.ts
-// LIMITS.custom_feedback) already enforces on this same field — keep both in sync.
-export const regenerateContentSchema = z.object({
-  custom_feedback: z.string().max(600).trim().optional(),
-});
-
 export const demoSchema = z.object({
   topic: z.string().trim().min(1, 'topic is required').transform(v => v.slice(0, 200)),
   platform: platformEnum,

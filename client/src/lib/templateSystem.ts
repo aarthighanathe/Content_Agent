@@ -707,11 +707,6 @@ export function getAllTemplates(): CarouselTemplate[] {
   return Object.values(TEMPLATES);
 }
 
-// Helper function to get templates by category
-export function getTemplatesByCategory(category: TemplateCategory): CarouselTemplate[] {
-  return Object.values(TEMPLATES).filter(t => t.category === category);
-}
-
 // Helper function to get a color palette from a template
 export function getPalette(templateId: TemplateId, paletteId: string): ColorPalette | undefined {
   const template = getTemplate(templateId);

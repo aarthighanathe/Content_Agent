@@ -83,21 +83,12 @@ export const createJobSchema = z.object({
   paletteId: z.string().max(50).optional(),
 });
 
-export const batchJobSchema = z.object({
-  jobs: z.array(createJobSchema).min(1).max(7, 'Maximum 7 jobs per batch'),
-});
-
 export const regenerateJobSchema = z.object({
   feedback: z.string().max(1000).optional(),
 });
 
 export const multiplyJobSchema = z.object({
   targetPlatform: platformEnum,
-});
-
-export const renderSlidesSchema = z.object({
-  theme: z.string().min(1, 'theme is required'),
-  slides: z.array(z.record(z.string(), z.unknown())).min(1, 'slides[] must have at least 1 item').max(20),
 });
 
 // ── Server-side carousel rendering (PNG export) ──────────────────────────────

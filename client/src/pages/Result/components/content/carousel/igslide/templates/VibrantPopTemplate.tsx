@@ -185,7 +185,7 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           >
             {[1, 2, 3].map((i) => (
               <div
-                key={i}
+                key={`dot-${i}`}
                 style={{
                   width: 8,
                   height: 8,

@@ -67,9 +67,33 @@ export async function authMiddleware(
         const existingUser = await db.query.users.findFirst({
           where: eq(users.clerkId, clerkUserId),
         });
-        const dbId = existingUser
-          ? existingUser.id
-          : (await db.insert(users).values({ clerkId: clerkUserId, email: '' }).returning())[0].id;
+        let dbId: string;
+        if (existingUser) {
+          dbId = existingUser.id;
+        } else {
+          // WHY onConflictDoNothing + re-select: two concurrent requests from a
+          // brand-new user (e.g. two tabs firing in the same few hundred ms) can
+          // both miss the findFirst above and both reach this insert. A plain
+          // insert would let the second one throw on the clerkId unique
+          // constraint, surfacing as a 500 for that request even though it
+          // represents the same legitimate user as its sibling. Racing to insert
+          // and falling back to a re-select on conflict means whichever request
+          // loses the race still resolves to the same dbUserId as the winner.
+          const inserted = await db
+            .insert(users)
+            .values({ clerkId: clerkUserId, email: '' })
+            .onConflictDoNothing({ target: users.clerkId })
+            .returning();
+          if (inserted[0]) {
+            dbId = inserted[0].id;
+          } else {
+            const raceWinner = await db.query.users.findFirst({
+              where: eq(users.clerkId, clerkUserId),
+            });
+            if (!raceWinner) throw new Error('User row missing after insert conflict');
+            dbId = raceWinner.id;
+          }
+        }
         req.dbUserId = dbId;
         setAuthCacheEntry(clerkUserId, dbId);
       } catch {

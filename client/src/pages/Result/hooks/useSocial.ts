@@ -29,6 +29,13 @@ export function useSocial(
   // clearing them all on unmount prevents a setState call landing after the
   // component (or drawer) has unmounted.
   const pendingTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // WHY a separate ref, not reused from pendingTimers: handlePostNow is invoked
+  // from PostPanel, which (like HashtagPanel) unmounts when ActionDrawer's tab
+  // changes or the drawer closes. If postToSocial()'s request is still in
+  // flight at that point, the setState calls right after the await would
+  // otherwise fire against an unmounted component.
+  const cancelledRef = useRef(false);
+  useEffect(() => () => { cancelledRef.current = true; }, []);
 
   // WHY React Query instead of the previous raw fetch in a mount effect: the old
   // version hit GET /social/connections uncached on every Result mount, while
@@ -63,11 +70,14 @@ export function useSocial(
       // already confirmed it's defined, so this is a type-system technicality, not an
       // unchecked cast.
       const res = await postToSocial(platform, content as unknown as PlatformContent | PlatformContent[] | string, jobId);
+      if (cancelledRef.current) return;
       setPostResult((p) => ({ ...p, [platform]: 'ok' }));
       if (res.postUrl) setPostLinks((p) => ({ ...p, [platform]: res.postUrl! }));
     } catch {
+      if (cancelledRef.current) return;
       setPostResult((p) => ({ ...p, [platform]: 'error' }));
     }
+    if (cancelledRef.current) return;
     setPostingTo(null);
     const timer = setTimeout(() => {
       pendingTimers.current.delete(timer);

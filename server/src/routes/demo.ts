@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
+import type { z } from 'zod';
 import { generateWithAI } from '../lib/ai.js';
 import { parseBody, demoSchema } from '../schemas/index.js';
+import type { platformEnum } from '../schemas/jobs.js';
 
 const router = Router();
 
@@ -11,7 +13,11 @@ router.post('/generate', async (req: Request, res: Response) => {
     if (!body) return;
     const { topic: topicTrimmed, platform } = body;
 
-    const platformPrompts: Record<string, string> = {
+    // WHY typed against the enum, not Record<string, string>: this only has
+    // meaningful entries for the current 5 platforms today, but nothing would
+    // catch drift if VALID_PLATFORMS grows — typing the key set against the
+    // enum makes TypeScript itself enforce every platform has a demo prompt.
+    const platformPrompts: Record<z.infer<typeof platformEnum>, string> = {
       instagram_carousel: `Generate the FIRST 3 slides only of an Instagram carousel about <topic>${topicTrimmed}</topic> in JSON format:
 [{ "slideNumber": 1, "headline": "...", "body": "..." }, { "slideNumber": 2, "headline": "...", "body": "..." }, { "slideNumber": 3, "headline": "...", "body": "..." }]
 Slide 1 is a compelling hook. Body max 60 words per slide. Return ONLY the JSON array.`,
@@ -49,7 +55,7 @@ Hook: 1-2 punchy sentences. Segment: 50 words max. Return ONLY the JSON.`,
       const jsonMatch = result.match(/[[{][\s\S]*[\]}]/);
       parsed = JSON.parse(jsonMatch ? jsonMatch[0] : result);
     } catch {
-      res.status(500).json({ error: 'Failed to generate demo content' });
+      res.status(500).json({ error: 'Failed to generate demo content', code: 'AI_PARSE_ERROR', retryable: true });
       return;
     }
 
@@ -112,7 +118,7 @@ Hook: 1-2 punchy sentences. Segment: 50 words max. Return ONLY the JSON.`,
     return;
   } catch (error: unknown) {
     console.error('Demo generation failed:', error instanceof Error ? error.message : String(error));
-    res.status(500).json({ error: 'Demo generation failed. Please try again.' });
+    res.status(500).json({ error: 'Demo generation failed. Please try again.', code: 'SERVER_ERROR', retryable: true });
     return;
   }
 });

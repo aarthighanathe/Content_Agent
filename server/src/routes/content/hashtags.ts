@@ -42,7 +42,7 @@ Return ONLY this JSON (no markdown):
 
     const parsed = parseAIJson(hashtagsResponseSchema, result);
     if (!parsed) {
-      res.status(500).json({ error: 'Failed to parse hashtags' });
+      res.status(500).json({ error: 'Failed to parse hashtags', code: 'AI_PARSE_ERROR', retryable: true });
       return;
     }
 
@@ -50,7 +50,7 @@ Return ONLY this JSON (no markdown):
   } catch (error: unknown) {
     console.error('Hashtag research failed:', error);
     Sentry.captureException(error, { tags: { route: 'POST /hashtags' } });
-    res.status(500).json({ error: 'Failed to research hashtags' });
+    res.status(500).json({ error: 'Failed to research hashtags', code: 'SERVER_ERROR', retryable: true });
   }
 });
 

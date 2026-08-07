@@ -172,9 +172,14 @@ function formatInstagramCaption(caption: WriterInstagramCaptionResponse): Format
     );
   }
 
-  // Ensure 3-5 emojis
+  // WHY pad, not replace: overwriting the whole array on <3 emojis discarded
+  // any the writer had already chosen for tone/topic, leaving every under-3
+  // caption with the same generic 5-emoji set regardless of content.
+  const FALLBACK_EMOJIS = ['✨', '💫', '🔥', '💡', '🎯'];
   if (!formatted.emojis || formatted.emojis.length < 3) {
-    formatted.emojis = ['✨', '💫', '🔥', '💡', '🎯'];
+    const existing = formatted.emojis || [];
+    const padding = FALLBACK_EMOJIS.filter((e) => !existing.includes(e));
+    formatted.emojis = [...existing, ...padding].slice(0, Math.max(existing.length, 3));
   }
 
   return formatted;

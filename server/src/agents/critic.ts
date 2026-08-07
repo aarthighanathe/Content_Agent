@@ -26,7 +26,13 @@ export interface CriticResult {
 // claim a concrete shape for a value whose producer doesn't guarantee one yet.
 // Narrowing happens per-branch below via runtime checks instead of a type
 // assertion, so this stays truthful about what's actually known at this boundary.
-function buildContentSummary(content: unknown, platform: string): string {
+// WHY exported: tests/unit/critic-buildContentSummary.test.ts calls this
+// directly to exercise each of the 5 platform-specific formatting branches —
+// a regression in any one of them would silently degrade what the critic LLM
+// actually sees for that platform, lowering real quality scores in a way
+// that's very hard to notice since it fails "softly" (no error, just a worse
+// prompt).
+export function buildContentSummary(content: unknown, platform: string): string {
   if (Array.isArray(content)) {
     return content.slice(0, 8).map((s: unknown, i: number) => {
       const slide = (s && typeof s === 'object' ? s : {}) as Record<string, unknown>;
@@ -79,17 +85,24 @@ export async function runCritic(
 
   const contentSummary = buildContentSummary(content, job.platform);
 
+  // WHY wrapped in <brand_voice> tags: every other agent (writer.ts,
+  // orchestrator.ts) wraps this exact user-controlled field in XML delimiters
+  // per CLAUDE.md's prompt-injection rule; this prompt used to splice it in
+  // bare, which was a direct (if low-blast-radius — a user can only affect
+  // their own content's score) gap against that invariant.
+  const safeBrandVoice = brandVoice || 'professional';
+
   const prompt = `Score this <platform>${job.platform.replace(/_/g, ' ')}</platform> content for <audience>${job.targetAudience}</audience> with tone "<tone>${job.tone}</tone>".
 
 Content:
 ${contentSummary}
 
-Brand voice: ${brandVoice || 'professional'}
+Brand voice: <brand_voice>${safeBrandVoice}</brand_voice>
 
 Score each dimension 0-20. Be strict — average content scores 10-13, excellent content scores 17-19. Scores of 19-20 require genuinely outstanding work:
 1. Hook strength (0-20): Does the opening stop the scroll and earn the next swipe/read?
 2. Platform compliance (0-20): Does it follow ${job.platform.replace(/_/g, ' ')} best practices (format, length, structure)?
-3. Brand voice match (0-20): Does tone match "${job.tone}" and "${brandVoice || 'professional'}"?
+3. Brand voice match (0-20): Does tone match "${job.tone}" and the <brand_voice> tag above?
 4. Value delivery (0-20): Does it teach or reveal something concrete and specific?
 5. CTA clarity (0-20): Is there a specific, compelling call-to-action?
 

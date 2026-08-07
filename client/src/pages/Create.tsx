@@ -5,17 +5,16 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, CalendarRange, ArrowLeft } from 'lucide-react';
-import { createJob, createBatchJobs, getProfile, getAudienceDefaults } from '../api';
+import { createJob, getProfile, getAudienceDefaults } from '../api';
 import { posthog } from '../main';
 import { TopicStep } from './Create/TopicStep';
-import { BatchTopicList, type BatchRow } from './Create/BatchTopicList';
+import { BatchTopicList } from './Create/BatchTopicList';
 import { useDraft } from './Create/useDraft';
+import { useBatchCreate } from './Create/useBatchCreate';
+import { useCarouselTemplateSelection } from './Create/useCarouselTemplateSelection';
 import { getSubmitError } from './Create/errorMessages';
 import { useAppStore } from '../store';
 import type { CreateHandoff } from '../lib/utils';
-import type { NewTemplateId } from './Result/constants';
-import { getTemplate, getPalette, isTemplateId } from '../lib/templateSystem';
-import { CAROUSEL_TEMPLATE_KEY, CAROUSEL_PALETTE_KEY } from '../lib/carouselStorageKeys';
 
 const RECENT_TOPICS_KEY  = 'ca_recent_topics';
 // WHY still localStorage-backed: these two keys now only seed the DEFAULT
@@ -92,62 +91,6 @@ export default function CreatePage() {
   const [errorMsg,     setErrorMsg]     = useState('');
   const [retryAfterMs, setRetryAfterMs] = useState<number | null>(null);
 
-  // WHY a separate mode, not folded into the single-topic form: batch submits
-  // up to 7 topic+platform pairs in one request (POST /jobs/batch, already
-  // built server-side — see server/src/routes/jobs/create.ts) — a genuinely
-  // different shape of input than the single TopicStep flow, not a variant of
-  // it. Kept off by default so the common single-topic path is unchanged.
-  const [batchMode, setBatchMode] = useState(false);
-  const [batchRows, setBatchRows] = useState<BatchRow[]>(() => [
-    { id: crypto.randomUUID(), topic: '', platform: 'instagram_carousel' },
-  ]);
-  const [batchTone, setBatchTone] = useState('');
-  const [batchAudience, setBatchAudience] = useState('');
-  const [batchLoading, setBatchLoading] = useState(false);
-  const [batchError, setBatchError] = useState('');
-  // Carousel template system — selection lives here (not just localStorage) so
-  // it can be sent explicitly with the job-creation request. localStorage still
-  // seeds the initial value for a nicer returning-user default.
-  const [templateId, setTemplateId] = useState<NewTemplateId>(() => {
-    try {
-      const stored = localStorage.getItem(CAROUSEL_TEMPLATE_KEY);
-      // WHY isTemplateId, not a bare `as NewTemplateId` cast: a stale value from a
-      // legacy key, manual localStorage tampering, or a future template removal
-      // would otherwise flow straight into createJob() as an unvalidated id.
-      return stored && isTemplateId(stored) ? stored : 'modern-minimal';
-    } catch { return 'modern-minimal'; }
-  });
-  const [paletteId, setPaletteId] = useState<string>(() => {
-    // WHY validated against the resolved template, not trusted as-is: a stored
-    // palette id may belong to a *different* template than the one just resolved
-    // above (e.g. the user previously picked a palette on template A, then
-    // template B became the default) — getPalette() returns undefined for a
-    // mismatch, so falling through to the template's own default keeps the two
-    // always in sync rather than sending a palette id the template doesn't own.
-    const template = getTemplate(templateId);
-    try {
-      const stored = localStorage.getItem(CAROUSEL_PALETTE_KEY);
-      if (stored && getPalette(templateId, stored)) return stored;
-    } catch { /* ignore */ }
-    return template?.colorPalettes[template.defaultPaletteIndex]?.id || '';
-  });
-
-  function handleTemplateChange(id: NewTemplateId): void {
-    setTemplateId(id);
-    try { localStorage.setItem(CAROUSEL_TEMPLATE_KEY, id); } catch { /* ignore */ }
-    const template = getTemplate(id);
-    const defaultPaletteId = template?.colorPalettes[template.defaultPaletteIndex]?.id;
-    if (defaultPaletteId) {
-      setPaletteId(defaultPaletteId);
-      try { localStorage.setItem(CAROUSEL_PALETTE_KEY, defaultPaletteId); } catch { /* ignore */ }
-    }
-  }
-
-  function handlePaletteChange(id: string): void {
-    setPaletteId(id);
-    try { localStorage.setItem(CAROUSEL_PALETTE_KEY, id); } catch { /* ignore */ }
-  }
-
   // Recent topics autocomplete
   const [recentTopics,    setRecentTopics]    = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(RECENT_TOPICS_KEY) || '[]'); } catch { return []; }
@@ -184,6 +127,13 @@ export default function CreatePage() {
     retry: false,
   });
   const learnedAudienceDefaults = audienceDefaultsQuery.data?.audienceDefaults || {};
+
+  const {
+    batchMode, setBatchMode, batchRows, setBatchRows, batchTone, setBatchTone,
+    batchAudience, setBatchAudience, batchLoading, batchError, handleBatchSubmit,
+  } = useBatchCreate(learnedAudienceDefaults, resolveAudience);
+
+  const { templateId, paletteId, handleTemplateChange, handlePaletteChange } = useCarouselTemplateSelection();
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -283,33 +233,6 @@ export default function CreatePage() {
       setErrorMsg(message);
       setRetryAfterMs(retryAfterMs ?? null);
       setLoading(false);
-    }
-  }
-
-  async function handleBatchSubmit() {
-    if (batchLoading) return;
-    const validRows = batchRows.filter((r) => r.topic.trim().length >= 3);
-    if (validRows.length === 0) return;
-    setBatchLoading(true);
-    setBatchError('');
-    try {
-      const { jobs } = await createBatchJobs(
-        validRows.map((r) => ({
-          topic: r.topic.trim(), platform: r.platform,
-          tone: batchTone.trim() || 'professional',
-          targetAudience: resolveAudience(batchAudience, r.platform, learnedAudienceDefaults),
-        })),
-      );
-      posthog.capture('batch_content_generated', { count: jobs.length });
-      // WHY router state, not URL params: BatchResult.tsx reads its job list
-      // from location.state (same CreateHandoff-style pattern already used
-      // elsewhere in this app) instead of encoding it into the URL — simpler,
-      // and avoids re-deriving topic/platform from a compact URL format.
-      navigate('/batch-result', { state: { jobs } });
-    } catch (err: unknown) {
-      const { message } = getSubmitError(err);
-      setBatchError(message);
-      setBatchLoading(false);
     }
   }
 

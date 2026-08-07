@@ -11,7 +11,7 @@ export default defineConfig({
         manualChunks(id: string) {
           if (id.includes('@clerk/clerk-react'))          return 'clerk';
           if (id.includes('posthog-js'))                  return 'analytics';
-          if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('jszip')) return 'export';
+          if (id.includes('jspdf') || id.includes('jszip')) return 'export';
           if (id.includes('@tanstack/react-query') || id.includes('zustand') || id.includes('axios')) return 'query';
           if (id.includes('react-router-dom'))            return 'react';
           if (id.includes('/node_modules/react/') || id.includes('/node_modules/react-dom/')) return 'react';

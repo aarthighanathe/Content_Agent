@@ -81,17 +81,26 @@ export async function renderCarouselSlidesSsr(
 ): Promise<PromiseSettledResult<{ index: number; dataUrl: string }>[]> {
   return Promise.allSettled(
     slides.map(async (slide, index) => {
-      const html = buildSlideHtml(slide, index, slides.length, ctx);
-      const dataUrl = await renderSlideWithCache(
-        html,
-        jobId,
-        index,
-        theme,
-        SSR_VIEWPORT,
-        ctx.templateId,
-        ctx.paletteId,
-      );
-      return { index, dataUrl };
+      try {
+        const html = buildSlideHtml(slide, index, slides.length, ctx);
+        const dataUrl = await renderSlideWithCache(
+          html,
+          jobId,
+          index,
+          theme,
+          SSR_VIEWPORT,
+          ctx.templateId,
+          ctx.paletteId,
+        );
+        return { index, dataUrl };
+      } catch (err) {
+        // WHY re-thrown with `index` attached: render.ts's failure reporting reads
+        // `reason.index` off each rejected settled result to tell the user which
+        // slide(s) failed. A plain rethrow here carried no such property, so every
+        // failure was reported as "slide -1" regardless of which one actually broke.
+        const cause = err instanceof Error ? err : new Error(String(err));
+        throw Object.assign(cause, { index });
+      }
     }),
   );
 }

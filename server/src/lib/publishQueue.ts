@@ -47,8 +47,14 @@ export async function queuePublishJob(scheduledPostId: string, delayMs: number):
     try {
       const existing = await queue.getJob(scheduledPostId);
       if (existing) await existing.remove();
-    } catch {
-      // Ignore — job may not exist yet
+    } catch (err) {
+      // WHY logged, not silently swallowed: same reasoning as queue.ts's
+      // identical remove-before-add block — a transient Redis error here
+      // would otherwise be indistinguishable from the expected "job doesn't
+      // exist yet" case, masking a real connectivity issue.
+      logger.warn('[PublishQueue] getJob/remove failed before re-add (may be transient, not necessarily "job not found")', {
+        scheduledPostId, error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     await queue.add('publish', { scheduledPostId }, { jobId: scheduledPostId, delay: Math.max(delayMs, 0) });

@@ -21,9 +21,7 @@ export function readOutputs(job: MemoryJob | AssembledJob | undefined): Pipeline
 // (inline slide-edit save, PATCH /:jobId/content) needs the same
 // stripScriptsAndEventHandlers() defense-in-depth content.ts already applies to
 // LLM/scraped HTML — content shapes differ per platform, so walk the structure
-// recursively rather than only handling the top-level-string case. Canonical
-// copy shared by routes/jobs/manage.ts and routes/content/outputs.ts so both
-// user-editable-content write paths get the same sanitization guarantee.
+// recursively rather than only handling the top-level-string case.
 export function sanitizeContentDeep<T>(value: T): T {
   if (typeof value === 'string') {
     return stripScriptsAndEventHandlers(value) as unknown as T;
@@ -57,8 +55,3 @@ export function parseAIJson<T>(schema: { parse: (v: unknown) => T }, raw: string
   }
 }
 
-// WHY: outputId is `${jobId}-${index}` — jobId is always the UUID prefix
-// before the last '-<index>' segment, so split on the last hyphen only.
-export function jobIdFromOutputId(outputId: string): string {
-  return outputId.slice(0, outputId.lastIndexOf('-'));
-}

@@ -17,17 +17,9 @@ import {
   competitorResponseSchema,
 } from '../../schemas/index.js';
 import { parseAIJson } from './shared.js';
+import { sanitizeSearchText } from '../../lib/sanitizeSearchText.js';
 
 const router = Router();
-
-// SECURITY: same prompt-injection neutralization used elsewhere on untrusted
-// web text before it reaches a Gemini prompt (competitor.ts's
-// sanitizeSearchText, researcher.ts's overall pattern).
-function sanitizeSearchText(value: string): string {
-  return value
-    .replace(/ignore\s+(?:previous|all|prior)\s+instructions?/gi, '[content removed]')
-    .replace(/system\s*(?:prompt|instructions?)/gi, '[content removed]');
-}
 
 // I2: ground ideation in real Tavily search results instead of pure LLM
 // guessing — same tolerant Promise.allSettled pattern as researcher.ts/

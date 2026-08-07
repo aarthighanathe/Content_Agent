@@ -14,17 +14,9 @@ import {
   competitorHistoryQuerySchema,
 } from '../../schemas/index.js';
 import { parseAIJson } from './shared.js';
+import { sanitizeSearchText } from '../../lib/sanitizeSearchText.js';
 
 const router = Router();
-
-// SECURITY: same prompt-injection neutralization the old scraped-HTML path
-// applied — Tavily results are also untrusted web text, so this still runs
-// on them before they reach the Gemini prompt.
-function sanitizeSearchText(value: string): string {
-  return value
-    .replace(/ignore\s+(?:previous|all|prior)\s+instructions?/gi, '[content removed]')
-    .replace(/system\s*(?:prompt|instructions?)/gi, '[content removed]');
-}
 
 // WHY Tavily search over unauthenticated profile-page fetch(): the previous
 // implementation fetched raw LinkedIn/Twitter/X profile HTML directly, which
