@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getSocialConnections, postToSocial } from '../../../api';
+import { useIsMountedRef, useTrackedTimeout } from '../../../hooks/useTrackedTimeout';
 import type { PlatformContent, VideoScriptContentData } from '../../../types/job';
 import type { SocialConnection } from '../../../types/api';
 import type { SlideData } from '../components/content/carousel/IGSlide';
@@ -23,19 +24,16 @@ export function useSocial(
   // successfully-posted link vanish while the user is still looking at the panel
   // (FUNCTIONAL_AUDIT_2026-07.md finding #10).
   const [postLinks, setPostLinks] = useState<Record<string, string>>({});
-  // WHY a ref-tracked Set, not a bare setTimeout: handlePostNow fires from a
-  // click handler, not an effect, so there's no natural cleanup point for its
-  // 4s "clear the ok/error badge" timer. Tracking every live timer here and
-  // clearing them all on unmount prevents a setState call landing after the
-  // component (or drawer) has unmounted.
-  const pendingTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-  // WHY a separate ref, not reused from pendingTimers: handlePostNow is invoked
-  // from PostPanel, which (like HashtagPanel) unmounts when ActionDrawer's tab
-  // changes or the drawer closes. If postToSocial()'s request is still in
-  // flight at that point, the setState calls right after the await would
-  // otherwise fire against an unmounted component.
-  const cancelledRef = useRef(false);
-  useEffect(() => () => { cancelledRef.current = true; }, []);
+  // WHY handlePostNow fires from a click handler, not an effect: there's no
+  // natural cleanup point for its 4s "clear the ok/error badge" timer, so it's
+  // tracked and cleared on unmount via the shared hook below.
+  const pendingTimers = useTrackedTimeout();
+  // WHY: handlePostNow is invoked from PostPanel, which (like HashtagPanel)
+  // unmounts when ActionDrawer's tab changes or the drawer closes. If
+  // postToSocial()'s request is still in flight at that point, the setState
+  // calls right after the await would otherwise fire against an unmounted
+  // component.
+  const isMountedRef = useIsMountedRef();
 
   // WHY React Query instead of the previous raw fetch in a mount effect: the old
   // version hit GET /social/connections uncached on every Result mount, while
@@ -55,11 +53,6 @@ export function useSocial(
   // read it identically to before.
   const socialConnections = (connectionsData?.connections || []).filter((c) => c.connected);
 
-  useEffect(() => () => {
-    pendingTimers.current.forEach(clearTimeout);
-    pendingTimers.current.clear();
-  }, []);
-
   async function handlePostNow(platform: string) {
     if (!content || postingTo) return;
     setPostingTo(platform);
@@ -70,20 +63,18 @@ export function useSocial(
       // already confirmed it's defined, so this is a type-system technicality, not an
       // unchecked cast.
       const res = await postToSocial(platform, content as unknown as PlatformContent | PlatformContent[] | string, jobId);
-      if (cancelledRef.current) return;
+      if (!isMountedRef.current) return;
       setPostResult((p) => ({ ...p, [platform]: 'ok' }));
       if (res.postUrl) setPostLinks((p) => ({ ...p, [platform]: res.postUrl! }));
     } catch {
-      if (cancelledRef.current) return;
+      if (!isMountedRef.current) return;
       setPostResult((p) => ({ ...p, [platform]: 'error' }));
     }
-    if (cancelledRef.current) return;
+    if (!isMountedRef.current) return;
     setPostingTo(null);
-    const timer = setTimeout(() => {
-      pendingTimers.current.delete(timer);
+    pendingTimers.set(() => {
       setPostResult((p) => { const n = { ...p }; delete n[platform]; return n; });
     }, 4000);
-    pendingTimers.current.add(timer);
   }
 
   return { socialConnections, postingTo, postResult, postLinks, handlePostNow };

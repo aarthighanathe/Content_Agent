@@ -130,22 +130,24 @@ async function dbUpsertToken(
     return;
   }
   try {
-    // Check if record exists
-    const [existing] = await db.select().from(socialTokens)
-      .where(and(eq(socialTokens.userId, userId), eq(socialTokens.platform, platform)));
-
     const encryptedData = {
       ...data,
       accessToken: encryptTokenOptional(data.accessToken) ?? data.accessToken,
       refreshToken: encryptTokenOptional(data.refreshToken),
     };
-    if (existing) {
-      await db.update(socialTokens)
-        .set({ ...encryptedData, updatedAt: new Date() })
-        .where(and(eq(socialTokens.userId, userId), eq(socialTokens.platform, platform)));
-    } else {
-      await db.insert(socialTokens).values({ userId, platform, ...encryptedData });
-    }
+    // WHY a single onConflictDoUpdate instead of select-then-insert/update:
+    // the previous select-then-branch shape raced two concurrent upserts for
+    // the same (userId, platform) — e.g. a double-clicked "Connect LinkedIn",
+    // or an OAuth callback retry — both could see no existing row and both
+    // INSERT, creating silent duplicate token rows (idx_social_tokens_user_platform
+    // is now a unique index specifically so Postgres can detect and resolve
+    // this conflict atomically instead).
+    await db.insert(socialTokens)
+      .values({ userId, platform, ...encryptedData })
+      .onConflictDoUpdate({
+        target: [socialTokens.userId, socialTokens.platform],
+        set: { ...encryptedData, updatedAt: new Date() },
+      });
   } catch (err) {
     console.error('[social] DB upsert failed, writing to memory fallback:', err);
     fbGet(userId)[platform] = data;

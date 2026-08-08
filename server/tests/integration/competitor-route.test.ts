@@ -27,6 +27,20 @@ vi.mock('../../src/db/schema.js', () => ({
   competitorAnalyses: { userId: 'userId', deleted: 'deleted', createdAt: 'createdAt', id: 'id' },
 }));
 
+// WHY mock drizzle-orm's eq/and: the schema mock above reduces each column to
+// its plain FakeRow property name (e.g. competitorAnalyses.userId === 'userId'),
+// so eq(column, value) just needs to produce a { column, value } pair the fake
+// db.update(...).where() below can interpret directly against FakeRow objects,
+// rather than reproducing Drizzle's real internal SQL AST shape.
+vi.mock('drizzle-orm', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('drizzle-orm')>();
+  return {
+    ...actual,
+    eq: (column: string, value: unknown) => ({ column, value }),
+    and: (...conditions: Array<{ column: string; value: unknown }>) => conditions,
+  };
+});
+
 interface FakeRow {
   id: string;
   userId: string;
@@ -47,6 +61,16 @@ function resetFakeDb() {
 
 let currentUserFilter = '';
 
+// WHY UUID-shaped, not `row-N`: the DELETE route rejects non-UUID
+// analysisIds with a 400 before it ever reaches the ownership WHERE clause —
+// fake row ids must look like real UUIDs for the IDOR tests below to
+// actually exercise the ownership check rather than short-circuiting on
+// the format guard.
+function makeFakeId(): string {
+  const n = (++idCounter).toString(16).padStart(12, '0');
+  return `00000000-0000-4000-8000-${n}`;
+}
+
 const fakeDb = {
   query: {
     competitorAnalyses: {
@@ -59,9 +83,18 @@ const fakeDb = {
   insert: (_table: unknown) => ({
     values: (val: { userId: string; handle: string; industry: string | null; analysis: unknown }) => ({
       returning: async (_cols?: unknown) => {
-        const row: FakeRow = { id: `row-${++idCounter}`, deleted: 0, createdAt: new Date(), ...val };
+        const row: FakeRow = { id: makeFakeId(), deleted: 0, createdAt: new Date(), ...val };
         rows.push(row);
         return [{ id: row.id }];
+      },
+    }),
+  }),
+  update: (_table: unknown) => ({
+    set: (patch: Partial<FakeRow>) => ({
+      where: async (conditions: Array<{ column: keyof FakeRow; value: unknown }>) => {
+        const matches = rows.filter((row) => conditions.every((c) => row[c.column] === c.value));
+        for (const row of matches) Object.assign(row, patch);
+        return { rowCount: matches.length };
       },
     }),
   }),
@@ -234,5 +267,59 @@ describe('GET /api/content/competitor/history', () => {
     const res = await supertest(app).get('/api/content/competitor/history');
     expect(res.status).toBe(200);
     expect(res.body.analyses).toEqual([]);
+  });
+});
+
+// WHY this suite exists: DELETE /:id is a resource-scoped, param-based route
+// (IDOR-shaped by construction) that previously had zero test coverage —
+// the route's WHERE clause is correctly scoped to (id AND userId) today, but
+// nothing guarded that from regressing (e.g. a future Drizzle query rewrite
+// dropping the userId filter would ship undetected with the suite green).
+describe('DELETE /api/content/competitor/:id', () => {
+  it('soft-deletes the requesting user\'s own analysis', async () => {
+    const aiModule = await import('../../src/lib/ai.js');
+    vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
+
+    const ownerApp = await buildApp(OWNER);
+    const createRes = await supertest(ownerApp).post('/api/content/competitor').send({ handle: 'to-delete' });
+    const analysisId = createRes.body.analysisId as string;
+
+    const delRes = await supertest(ownerApp).delete(`/api/content/competitor/${analysisId}`);
+    expect(delRes.status).toBe(200);
+    expect(delRes.body.success).toBe(true);
+    expect(rows.find((r) => r.id === analysisId)?.deleted).toBe(1);
+
+    const historyRes = await supertest(ownerApp).get('/api/content/competitor/history');
+    expect(historyRes.body.analyses).toHaveLength(0);
+  });
+
+  it('returns 404 (not 200/403) when another user attempts to delete it — prevents IDOR', async () => {
+    const aiModule = await import('../../src/lib/ai.js');
+    vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
+
+    const ownerApp = await buildApp(OWNER);
+    const createRes = await supertest(ownerApp).post('/api/content/competitor').send({ handle: 'owner-only' });
+    const analysisId = createRes.body.analysisId as string;
+
+    const otherApp = await buildApp(OTHER);
+    const delRes = await supertest(otherApp).delete(`/api/content/competitor/${analysisId}`);
+
+    expect(delRes.status).toBe(404);
+    // WHY still present, not deleted: proves the other user's request never
+    // touched the row at all, rather than deleting it and merely returning
+    // the wrong status code.
+    expect(rows.find((r) => r.id === analysisId)?.deleted).toBe(0);
+  });
+
+  it('returns 400 for a non-UUID analysis id', async () => {
+    const app = await buildApp(OWNER);
+    const res = await supertest(app).delete('/api/content/competitor/not-a-uuid');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 for a well-formed but nonexistent analysis id', async () => {
+    const app = await buildApp(OWNER);
+    const res = await supertest(app).delete('/api/content/competitor/00000000-0000-4000-8000-000000000000');
+    expect(res.status).toBe(404);
   });
 });

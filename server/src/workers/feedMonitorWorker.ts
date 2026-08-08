@@ -51,7 +51,13 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   const urlSafety = await assertUrlIsPublic(feedUrl);
   if (!urlSafety.safe) {
     logger.warn('[FeedMonitor] Feed URL failed SSRF check, skipping', { feedUrl, reason: urlSafety.reason });
-    await db.update(feedMonitors).set({ lastCheckedAt: new Date() }).where(eq(feedMonitors.id, monitor.id));
+    // WHY lastError, not just lastCheckedAt: without this, a monitor whose feed
+    // URL starts resolving to a private address (DNS rebinding, or the domain
+    // simply changing owners) fails silently forever — `active` stays true and
+    // the UI showed it as healthy with no way to discover it had stopped working.
+    await db.update(feedMonitors)
+      .set({ lastCheckedAt: new Date(), lastError: `Feed URL is not publicly reachable: ${urlSafety.reason || 'blocked'}` })
+      .where(eq(feedMonitors.id, monitor.id));
     return;
   }
 
@@ -59,15 +65,18 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   try {
     feed = await rssParser.parseURL(feedUrl);
   } catch (err) {
-    logger.warn('[FeedMonitor] Failed to fetch/parse feed', { feedUrl, error: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn('[FeedMonitor] Failed to fetch/parse feed', { feedUrl, error: message });
     // Update lastCheckedAt even on failure so we don't hammer a broken feed
-    await db.update(feedMonitors).set({ lastCheckedAt: new Date() }).where(eq(feedMonitors.id, monitor.id));
+    await db.update(feedMonitors)
+      .set({ lastCheckedAt: new Date(), lastError: `Failed to fetch/parse feed: ${message}` })
+      .where(eq(feedMonitors.id, monitor.id));
     return;
   }
 
   const items = feed.items ?? [];
   if (items.length === 0) {
-    await db.update(feedMonitors).set({ lastCheckedAt: new Date() }).where(eq(feedMonitors.id, monitor.id));
+    await db.update(feedMonitors).set({ lastCheckedAt: new Date(), lastError: null }).where(eq(feedMonitors.id, monitor.id));
     return;
   }
 
@@ -75,11 +84,20 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   // always the most-recent, and we stop processing once we hit the known
   // lastItemGuid — so the first run after creating a monitor processes only
   // the very latest item (not the entire feed history).
+  // WHY parseDate: a pubDate string can be present but unparseable (malformed
+  // RSS date), which makes `new Date(x).getTime()` return NaN — NaN propagating
+  // into the `bDate - aDate` subtraction breaks the sort's total order (an item
+  // can land at an arbitrary position instead of sorting as oldest), silently
+  // violating the "sorted[0] is always most-recent" invariant this comment relies
+  // on. A malformed date is treated the same as a missing one: fall back to 0.
+  const parseDate = (value: string | undefined): number => {
+    if (!value) return 0;
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? 0 : time;
+  };
   const sorted = [...items].sort((a, b) => {
-    const aPubDate = asOptionalString(a.pubDate);
-    const bPubDate = asOptionalString(b.pubDate);
-    const aDate = aPubDate ? new Date(aPubDate).getTime() : 0;
-    const bDate = bPubDate ? new Date(bPubDate).getTime() : 0;
+    const aDate = parseDate(asOptionalString(a.pubDate));
+    const bDate = parseDate(asOptionalString(b.pubDate));
     return bDate - aDate;
   });
 
@@ -99,7 +117,7 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   // Power users can always manually trigger another check to advance the cursor.
   const toProcess = newItems.slice(0, 1);
   if (toProcess.length === 0) {
-    await db.update(feedMonitors).set({ lastCheckedAt: new Date() }).where(eq(feedMonitors.id, monitor.id));
+    await db.update(feedMonitors).set({ lastCheckedAt: new Date(), lastError: null }).where(eq(feedMonitors.id, monitor.id));
     return;
   }
 
@@ -109,7 +127,7 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
 
   if (!itemUrl) {
     logger.warn('[FeedMonitor] Item has no link/url, skipping', { feedUrl });
-    await db.update(feedMonitors).set({ lastCheckedAt: new Date(), lastItemGuid: newGuid || null }).where(eq(feedMonitors.id, monitor.id));
+    await db.update(feedMonitors).set({ lastCheckedAt: new Date(), lastItemGuid: newGuid || null, lastError: null }).where(eq(feedMonitors.id, monitor.id));
     return;
   }
 
@@ -134,9 +152,12 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
     Sentry.captureException(err, { tags: { action: 'feed-monitor' }, extra: { feedUrl, itemUrl } });
   }
 
-  // Always advance the cursor so we don't reprocess this item on the next tick
+  // Always advance the cursor so we don't reprocess this item on the next tick.
+  // WHY lastError: null here too: an article-extraction failure above is
+  // logged but non-fatal to the monitor itself (the feed fetch succeeded), so
+  // clear any stale error from a previous tick now that the feed is reachable again.
   await db.update(feedMonitors)
-    .set({ lastCheckedAt: new Date(), lastItemGuid: newGuid || null })
+    .set({ lastCheckedAt: new Date(), lastItemGuid: newGuid || null, lastError: null })
     .where(eq(feedMonitors.id, monitor.id));
 }
 

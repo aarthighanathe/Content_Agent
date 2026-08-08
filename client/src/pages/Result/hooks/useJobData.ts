@@ -49,6 +49,11 @@ export function useJobData(jobId: string | undefined) {
           const state = data as unknown as ContentJob;
           return { ...state, outputs: state.outputs || [], logs: state.logs || [] };
         }
+        // WHY still use data.outputs/data.logs here (not always []): a 'state'
+        // event with a missing/malformed jobId fails the guard above, but the
+        // event can still carry valid outputs/logs — discarding them unconditionally
+        // threw away real data the server already sent and left the UI on an
+        // empty skeleton it never needed to show.
         return {
           id: jobId,
           userId: '',
@@ -65,8 +70,8 @@ export function useJobData(jobId: string | undefined) {
           deleted: 0,
           createdAt: '',
           updatedAt: '',
-          outputs: [],
-          logs: [],
+          outputs: (data.type === 'state' && data.outputs) || [],
+          logs: (data.type === 'state' && data.logs) || [],
           criticResult: null,
           agentLogs: data.agent ? [{ agentName: data.agent, action: data.message || data.stage || '', durationMs: data.durationMs }] : [],
         };

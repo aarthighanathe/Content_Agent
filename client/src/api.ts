@@ -432,6 +432,7 @@ export interface FeedMonitor {
   active: boolean;
   lastCheckedAt: string | null;
   lastItemGuid: string | null;
+  lastError: string | null;
   createdAt: string;
 }
 

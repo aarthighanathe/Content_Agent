@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Copy, X } from 'lucide-react';
 import { researchHashtags } from '../../../../api';
+import { useIsMountedRef } from '../../../../hooks/useTrackedTimeout';
 import type { ContentJob, PlatformContent } from '../../../../types/job';
 import type { ResultContent } from '../ContentColumn';
 
@@ -32,8 +33,7 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
   // directly from the Retry button's onClick (outside any effect), so the
   // "am I still mounted" check needs to be readable from both call sites, not
   // just the effect that fires the initial fetch.
-  const cancelledRef = useRef(false);
-  useEffect(() => () => { cancelledRef.current = true; }, []);
+  const isMountedRef = useIsMountedRef();
 
   function fetchHashtags() {
     if (!jobData) return;
@@ -49,15 +49,15 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
         // ActionDrawer tabs — if this promise resolves after that (e.g. the user
         // opens Hashtags then quickly switches tabs), setState on the unmounted
         // component would otherwise fire.
-        if (cancelledRef.current) return;
+        if (!isMountedRef.current) return;
         setData(result);
       })
       .catch(() => {
-        if (cancelledRef.current) return;
+        if (!isMountedRef.current) return;
         setError('Failed to research hashtags — please try again.');
       })
       .finally(() => {
-        if (cancelledRef.current) return;
+        if (!isMountedRef.current) return;
         setLoading(false);
       });
   }

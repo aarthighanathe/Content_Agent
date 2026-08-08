@@ -1,0 +1,1 @@
+ALTER TABLE "feed_monitors" ADD COLUMN "last_error" text;

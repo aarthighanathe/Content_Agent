@@ -179,7 +179,10 @@ function formatInstagramCaption(caption: WriterInstagramCaptionResponse): Format
   if (!formatted.emojis || formatted.emojis.length < 3) {
     const existing = formatted.emojis || [];
     const padding = FALLBACK_EMOJIS.filter((e) => !existing.includes(e));
-    formatted.emojis = [...existing, ...padding].slice(0, Math.max(existing.length, 3));
+    // WHY a plain slice(0, 3): this branch only runs when existing.length < 3
+    // (the enclosing if-condition above), so existing.length is always 0, 1,
+    // or 2 here — Math.max(existing.length, 3) always evaluated to 3 anyway.
+    formatted.emojis = [...existing, ...padding].slice(0, 3);
   }
 
   return formatted;

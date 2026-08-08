@@ -181,7 +181,14 @@ export const socialTokens = pgTable('social_tokens', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
-  userPlatformIdx: index('idx_social_tokens_user_platform').on(table.userId, table.platform),
+  // WHY unique (was a plain index): dbUpsertToken in routes/social.ts does a
+  // select-then-insert/update on (userId, platform); without a unique
+  // constraint backing that pair, two concurrent upserts (e.g. a double-click
+  // on "Connect LinkedIn", or an OAuth callback retry) can both miss the
+  // existing row and both INSERT, silently creating duplicate token rows with
+  // no error. The unique index lets dbUpsertToken use a real onConflict
+  // upsert instead, making the operation atomic.
+  userPlatformIdx: uniqueIndex('idx_social_tokens_user_platform').on(table.userId, table.platform),
 }));
 
 // AUDIT FIX #10 — track onboarding completion per user
@@ -327,6 +334,13 @@ export const feedMonitors = pgTable('feed_monitors', {
   // null = "no item processed yet" (first run will process the latest item
   // without back-filling the entire feed history).
   lastItemGuid: text('last_item_guid'),
+  // WHY: checkFeedMonitor previously only logged a warning and bumped
+  // lastCheckedAt on an SSRF-check failure or a fetch/parse failure — the
+  // `active` flag stayed true and the UI kept showing the monitor as healthy
+  // even when it had been silently failing on every tick (e.g. the feed's DNS
+  // started resolving to a private address). This surfaces the last failure
+  // reason so FeedMonitorPanel.tsx can show it; cleared on the next successful check.
+  lastError: text('last_error'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   userActiveIdx: index('idx_feed_monitors_user_active').on(table.userId, table.active),

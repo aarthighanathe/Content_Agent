@@ -22,7 +22,15 @@ vi.mock('../../src/workers/contentWorker.js', () => ({ getJobFromStore: () => un
 
 const { assembleJobFromDB } = await import('../../src/routes/jobs/ownership.js');
 
-function makeDbJob(overrides: Record<string, unknown> = {}) {
+// WHY derived via Parameters<>, not a hand-declared interface or `as any`:
+// assembleJobFromDB's real parameter type (DBJobWithRelations) isn't exported
+// from ownership.ts, but its shape can still be captured exactly — without a
+// cast — by pulling it straight off the real function's signature. Any drift
+// between this test's fake row shape and the real DB row shape now surfaces
+// as a compile error here instead of an unchecked `any`.
+type DbJobRow = Parameters<typeof assembleJobFromDB>[0];
+
+function makeDbJob(overrides: Partial<DbJobRow> = {}): DbJobRow {
   return {
     id: 'job-1',
     userId: 'user-1',
@@ -56,7 +64,7 @@ function makeDbJob(overrides: Record<string, unknown> = {}) {
 describe('assembleJobFromDB (real module) — happy path', () => {
   it('maps every scalar field from the DB row onto the AssembledJob shape, including lineage fields', () => {
     const dbJob = makeDbJob();
-    const assembled = assembleJobFromDB(dbJob as any);
+    const assembled = assembleJobFromDB(dbJob);
 
     expect(assembled).toMatchObject({
       id: 'job-1',
@@ -82,7 +90,7 @@ describe('assembleJobFromDB (real module) — happy path', () => {
   });
 
   it('maps outputs, converting the DB\'s partial (0|1) column to a real boolean', () => {
-    const assembled = assembleJobFromDB(makeDbJob() as any);
+    const assembled = assembleJobFromDB(makeDbJob());
 
     expect(assembled.outputs).toHaveLength(2);
     const finalOutput = assembled.outputs.find((o) => o.outputType === 'final');
@@ -93,7 +101,7 @@ describe('assembleJobFromDB (real module) — happy path', () => {
   });
 
   it('finds the critique output and surfaces its content as criticResult', () => {
-    const assembled = assembleJobFromDB(makeDbJob() as any);
+    const assembled = assembleJobFromDB(makeDbJob());
     expect(assembled.criticResult).toMatchObject({ totalScore: 82, approved: true });
   });
 
@@ -101,7 +109,7 @@ describe('assembleJobFromDB (real module) — happy path', () => {
     const dbJob = makeDbJob({
       logs: [{ agentName: 'critic', action: 'Content APPROVED', inputSummary: null, outputSummary: null, durationMs: null }],
     });
-    const assembled = assembleJobFromDB(dbJob as any);
+    const assembled = assembleJobFromDB(dbJob);
 
     expect(assembled.logs).toEqual([
       { agentName: 'critic', action: 'Content APPROVED', inputSummary: '', outputSummary: '', durationMs: 0 },
@@ -110,7 +118,7 @@ describe('assembleJobFromDB (real module) — happy path', () => {
 
   it('a job with no outputs/logs relations at all assembles with empty arrays and null criticResult, not a throw', () => {
     const dbJob = makeDbJob({ outputs: [], logs: [] });
-    const assembled = assembleJobFromDB(dbJob as any);
+    const assembled = assembleJobFromDB(dbJob);
 
     expect(assembled.outputs).toEqual([]);
     expect(assembled.logs).toEqual([]);
@@ -121,7 +129,7 @@ describe('assembleJobFromDB (real module) — happy path', () => {
     const dbJob = makeDbJob({
       outputs: [{ agentName: 'writer', outputType: 'final', qualityScore: 70, partial: 0 }],
     });
-    const assembled = assembleJobFromDB(dbJob as any);
+    const assembled = assembleJobFromDB(dbJob);
 
     expect(assembled.outputs[0].content).toBeUndefined();
     expect(assembled.outputs[0].qualityScore).toBe(70);
@@ -132,7 +140,7 @@ describe('assembleJobFromDB (real module) — happy path', () => {
       sourceJobId: null, sourcePlatform: null, sourceCompetitorAnalysisId: null,
       sourceUrl: null, templateId: null, paletteId: null, tag: null,
     });
-    const assembled = assembleJobFromDB(dbJob as any);
+    const assembled = assembleJobFromDB(dbJob);
 
     expect(assembled.sourceJobId).toBeNull();
     expect(assembled.sourceCompetitorAnalysisId).toBeNull();

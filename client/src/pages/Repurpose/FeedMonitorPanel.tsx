@@ -1,13 +1,14 @@
 // FeedMonitorPanel.tsx — RSS/Atom feed subscription manager in the Repurpose sidebar.
 // Lets users subscribe a public feed URL; the server polls it every 30 min and
 // auto-creates a repurpose job when a new item is found.
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Rss, PlusCircle, Trash2, Play, Pause, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   getFeedMonitors, createFeedMonitor, toggleFeedMonitor,
   deleteFeedMonitor, checkFeedMonitorNow,
 } from '../../api';
+import { useTrackedTimeout } from '../../hooks/useTrackedTimeout';
 
 const PLATFORMS = [
   { id: 'linkedin_post', label: 'LinkedIn Post' },
@@ -44,23 +45,14 @@ export function FeedMonitorPanel() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<AddFormState>(DEFAULT_FORM);
   const [error, setError] = useState('');
-  const [checkingId, setCheckingId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  // WHY a tracked Set, not a bare setTimeout: handleCheck's refresh-after-delay
-  // timer used to be fired-and-forgotten with no cleanup — if the panel
-  // unmounted (navigating away from Repurpose) within the 2s window, the timer
-  // still fired and called setState on an unmounted component. Same
-  // tracked-timeout-cleared-on-unmount pattern already used by
-  // useMultiplier.ts/useSocial.ts/ExportModal.tsx in this codebase.
-  const pendingTimeouts = useRef(new Set<ReturnType<typeof setTimeout>>());
-  useEffect(() => {
-    const timeouts = pendingTimeouts.current;
-    return () => {
-      timeouts.forEach((t) => clearTimeout(t));
-      timeouts.clear();
-    };
-  }, []);
+  // WHY tracked, not a bare setTimeout: handleCheck's refresh-after-delay timer
+  // used to be fired-and-forgotten with no cleanup — if the panel unmounted
+  // (navigating away from Repurpose) within the 2s window, the timer still
+  // fired and called setState on an unmounted component. Shared implementation
+  // (hooks/useTrackedTimeout.ts) of the same pattern used by useSocial.ts.
+  const pendingTimeouts = useTrackedTimeout();
 
   const createMutation = useMutation({
     mutationFn: createFeedMonitor,
@@ -83,6 +75,23 @@ export function FeedMonitorPanel() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['feedMonitors'] }),
   });
 
+  // WHY useMutation (not a raw awaited call): checkFeedMonitorNow is a genuine
+  // server-mutating POST call exactly like create/toggle/delete above — all
+  // three of which already go through useMutation. This previously bypassed
+  // React Query entirely, getting none of the isPending/isError/cache handling
+  // its siblings get.
+  const checkMutation = useMutation({
+    mutationFn: (id: string) => checkFeedMonitorNow(id),
+    onSuccess: () => {
+      // Refresh after a brief pause so lastCheckedAt updates — tracked so the
+      // timeout is cleared if the panel unmounts before it fires.
+      pendingTimeouts.set(() => {
+        queryClient.invalidateQueries({ queryKey: ['feedMonitors'] });
+      }, 2000);
+    },
+  });
+  const checkingId = checkMutation.isPending ? checkMutation.variables : null;
+
   async function handleAdd() {
     if (!form.feedUrl.trim()) { setError('Feed URL is required'); return; }
     try { new URL(form.feedUrl); } catch { setError('Enter a valid https:// URL'); return; }
@@ -101,22 +110,6 @@ export function FeedMonitorPanel() {
 
   function handleDelete(id: string) {
     deleteMutation.mutate(id);
-  }
-
-  async function handleCheck(id: string) {
-    setCheckingId(id);
-    try {
-      await checkFeedMonitorNow(id);
-      // Refresh after a brief pause so lastCheckedAt updates — tracked so the
-      // timeout is cleared if the panel unmounts before it fires.
-      const timeoutId = setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['feedMonitors'] });
-        pendingTimeouts.current.delete(timeoutId);
-      }, 2000);
-      pendingTimeouts.current.add(timeoutId);
-    } catch { /* silently ignore */ } finally {
-      setCheckingId(null);
-    }
   }
 
   function fmtDate(iso: string | null): string {
@@ -195,12 +188,17 @@ export function FeedMonitorPanel() {
                     <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>
                       Last check: {fmtDate(m.lastCheckedAt)}
                     </div>
+                    {m.lastError && (
+                      <div style={{ fontSize: 10.5, color: 'var(--color-error)', marginTop: 2 }}>
+                        {m.lastError}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                     {/* Check now */}
                     <button
-                      onClick={() => handleCheck(m.id)}
+                      onClick={() => checkMutation.mutate(m.id)}
                       disabled={checkingId === m.id}
                       title="Check now"
                       style={{

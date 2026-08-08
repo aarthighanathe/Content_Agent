@@ -269,7 +269,13 @@ export async function runContentPipeline(
         outputSummary: 'Writer output failed validation — requesting revision',
         durationMs: wMs,
       });
-      criticFeedback = `Your previous response was invalid: ${message}. Follow the required JSON structure exactly and provide complete, non-placeholder content for every field.`;
+      // WHY appended, not replaced: overwriting criticFeedback here discarded
+      // any substantive critic feedback from a prior iteration (e.g. "CTA is
+      // vague") the moment a later attempt merely failed validation — the next
+      // writer call would then only see the generic validation error and lose
+      // the qualitative guidance entirely.
+      const validationNote = `Your previous response was invalid: ${message}. Follow the required JSON structure exactly and provide complete, non-placeholder content for every field.`;
+      criticFeedback = criticFeedback ? `${criticFeedback}\n\n${validationNote}` : validationNote;
       retryCount++;
       job.retryCount = retryCount;
       emitProgress('writing', attemptBase + 5, 'writer', 'Draft invalid — requesting revision…', wMs);
@@ -330,6 +336,18 @@ export async function runContentPipeline(
 
   if (!approved && bestDraft) {
     outputs.push({ agentName: 'writer', outputType: 'final', content: bestDraft, qualityScore: bestScore, partial: true });
+  }
+
+  // WHY throw here instead of falling through: if every retry attempt threw
+  // (runWriter kept producing invalid drafts) the critic never ran once, so
+  // bestDraft is still null — without this check the function would return
+  // status 'done' with zero 'final' outputs, and runAndPersistPipeline would
+  // persist that as a successful job. The client's isTerminal check requires
+  // a 'final' output that would never arrive, leaving the user on an infinite
+  // loading spinner. Throwing routes this into runAndPersistPipeline's
+  // existing catch block, which correctly persists status:'failed'.
+  if (!approved && !bestDraft && !isSoftDeleted(job.id)) {
+    throw new Error('Writer failed to produce a valid draft after 3 attempts');
   }
 
   // Stage 4: Performance prediction (non-fatal — a predictor failure must not fail the job)

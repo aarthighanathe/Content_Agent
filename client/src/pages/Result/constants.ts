@@ -3,20 +3,6 @@ import { Instagram, Linkedin, XTwitter } from '../../components/BrandIcons';
 import type { ComponentType, CSSProperties } from 'react';
 import type { TemplateId as TemplateSystemId } from '../../lib/templateSystem';
 
-// WHY: TemplateId used to live in SlideCanvas.tsx (deleted — dead code, see
-// REVIEW_FINDINGS.md 1.18). Rendering now happens via IGSlide.tsx/IGCarouselPreview.tsx,
-// but the theme-key union is still needed here and by SlideVisual.tsx/IGSlide.tsx.
-export type TemplateId =
-  | 'aurora'
-  | 'magazine'
-  | 'split'
-  | 'bold'
-  | 'minimal'
-  | 'neon'
-  | 'violet'
-  | 'crimson'
-  | 'rose';
-
 // New template system id — re-exported from templateSystem.ts (the single
 // source of truth for the 10 template ids) rather than independently
 // redeclared here. Was a second hand-copied literal union that had already

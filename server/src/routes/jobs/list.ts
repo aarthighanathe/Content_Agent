@@ -44,19 +44,22 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // Calendar opts out to drop 4 redundant aggregate queries per page load (perf audit).
     const includePlatformCounts = req.query.counts !== '0';
 
-    // WHY computed up front: page 1's DB query needs to leave room for any
-    // in-flight (memory-only) jobs that get prepended below, or the combined
-    // list exceeds `limit` and desyncs totalPages' fixed-page-size math (a job
-    // could then appear twice: once via the memory prepend, once again from the
-    // DB once persisted and the offset shifts). Only page 1 with no active
-    // search/filter ever prepends memory jobs — see that block below.
-    let page1MemJobCount = 0;
-    if (page === 1 && !search && !platformFilter) {
-      page1MemJobCount = Array.from(jobsMemory.values()).filter(
-        (j) => j.userId === userId && j.deleted !== 1 && j.status !== 'done' && j.status !== 'failed',
-      ).length;
-    }
-    const dbLimit = Math.max(limit - page1MemJobCount, 0);
+    // WHY the DB fetch always uses the fixed page `limit`, not a shrunk one:
+    // an earlier version reserved room on page 1 for prepended in-flight
+    // memory jobs by fetching fewer DB rows there (dbLimit = limit - count).
+    // But every page's offset is still `(page - 1) * limit` — only page 1's
+    // fetch size changed — so the DB rows in the gap between the shrunk
+    // fetch and the next page's offset were permanently skipped, and
+    // totalPages (computed from totalCount + memory jobs) disagreed between
+    // page 1 and later pages. Fetching the full `limit` on every page and
+    // trimming the combined list down to `limit` after prepending (below)
+    // keeps offsets simple and consistent across all pages.
+    const runningMemJobs: MemoryJob[] =
+      page === 1 && !search && !platformFilter
+        ? Array.from(jobsMemory.values()).filter(
+            (j) => j.userId === userId && j.deleted !== 1 && j.status !== 'done' && j.status !== 'failed',
+          )
+        : [];
 
     if (db && isValidUUID(userId)) {
       try {
@@ -127,7 +130,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             // before the critic ran) sort below scored jobs, not above them.
             .orderBy(sql`${scoreSubq.score} DESC NULLS LAST`, desc(contentJobs.createdAt))
             .offset((page - 1) * limit)
-            .limit(dbLimit);
+            .limit(limit);
 
           const orderedIds = scoredRows.map((r) => r.id);
           if (orderedIds.length > 0) {
@@ -151,7 +154,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             where: whereClause,
             orderBy: sort === 'platform' ? [asc(contentJobs.platform), desc(contentJobs.createdAt)] : [desc(contentJobs.createdAt)],
             offset: (page - 1) * limit,
-            limit: dbLimit,
+            limit,
             with: { outputs: { columns: { agentName: true, outputType: true, qualityScore: true, partial: true } } },
           });
           assembledDbJobs = dbJobs.map(assembleJobFromDB);
@@ -166,15 +169,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         // They still show up in the default (no search/filter) page-1 view, same
         // as before this fix.
         if (page === 1 && !search && !platformFilter) {
-          const runningMemJobs = Array.from(jobsMemory.values()).filter(
-            (j) =>
-              j.userId === userId && j.deleted !== 1 &&
-              j.status !== 'done' && j.status !== 'failed' &&
-              !assembledDbJobs.find((d) => d.id === j.id),
-          );
-          if (runningMemJobs.length > 0) {
-            finalJobs = [...runningMemJobs, ...assembledDbJobs];
-            finalTotal += runningMemJobs.length;
+          // WHY filter out overlaps here instead of re-scanning jobsMemory: this
+          // reuses the single scan already taken above (runningMemJobs) rather
+          // than iterating the whole cross-user Map a second time with a nearly
+          // identical predicate.
+          const dedupedMemJobs = runningMemJobs.filter((j) => !assembledDbJobs.find((d) => d.id === j.id));
+          if (dedupedMemJobs.length > 0) {
+            // WHY slice to `limit`: the DB fetch above always pulls a full page
+            // (see the dbLimit removal note), so prepending memory jobs on top
+            // can push the combined list past `limit` — trim here rather than
+            // shrinking the DB fetch, which desynced offsets on later pages.
+            finalJobs = [...dedupedMemJobs, ...assembledDbJobs].slice(0, limit);
+            finalTotal += dedupedMemJobs.length;
           }
         }
 
