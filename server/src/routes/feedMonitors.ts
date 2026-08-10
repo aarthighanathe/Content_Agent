@@ -16,28 +16,16 @@ import { parseBody, feedMonitorSchema, feedMonitorUpdateSchema } from '../schema
 import { checkFeedMonitor } from '../workers/feedMonitorWorker.js';
 import { contentRateLimit } from '../middleware/rateLimit.js';
 import { logger } from '../lib/logger.js';
+import { requireDbUser, isValidUUID } from './jobs/ownership.js';
 
 const router = Router();
 
-// WHY userId is derived from req.dbUserId (the DB uuid row), not req.userId
-// (the Clerk ID): feedMonitors.userId stores the DB uuid (same convention as
-// contentJobs.userId, collections.userId, etc.) so joins and worker lookups
-// use one consistent key.
-function requireUserId(req: AuthRequest, res: Response): string | null {
-  const uid = req.dbUserId;
-  if (!uid) {
-    res.status(401).json({ error: 'Not authenticated', code: 'UNAUTHORIZED', retryable: false });
-    return null;
-  }
-  return uid;
-}
-
 // GET /api/feed-monitors
 router.get('/', async (req: AuthRequest, res: Response) => {
-  const userId = requireUserId(req, res);
-  if (!userId || !db) return;
+  const userId = requireDbUser(req, res, 'Feed monitors');
+  if (!userId) return;
   try {
-    const rows = await db.select().from(feedMonitors).where(eq(feedMonitors.userId, userId));
+    const rows = await db!.select().from(feedMonitors).where(eq(feedMonitors.userId, userId));
     return res.json({ monitors: rows });
   } catch (err) {
     logger.error('[FeedMonitors] Failed to list monitors', { error: err instanceof Error ? err.message : String(err) });
@@ -47,13 +35,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 // POST /api/feed-monitors
 router.post('/', async (req: AuthRequest, res: Response) => {
-  const userId = requireUserId(req, res);
-  if (!userId || !db) return;
+  const userId = requireDbUser(req, res, 'Feed monitors');
+  if (!userId) return;
   const body = parseBody(feedMonitorSchema, req.body, res);
   if (!body) return;
 
   try {
-    const [row] = await db.insert(feedMonitors).values({
+    const [row] = await db!.insert(feedMonitors).values({
       userId,
       feedUrl: body.feedUrl,
       platform: body.platform,
@@ -70,9 +58,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
 // PATCH /api/feed-monitors/:id — partial update: active toggle + any editable fields
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
-  const userId = requireUserId(req, res);
-  if (!userId || !db) return;
+  const userId = requireDbUser(req, res, 'Feed monitors');
+  if (!userId) return;
   const id = String(req.params['id'] ?? '');
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ error: 'Invalid monitor id', code: 'VALIDATION_ERROR', retryable: false });
+  }
 
   // WHY zod validation: prevents mass-assignment and ensures platform/tone are
   // validated against VALID_PLATFORMS/VALID_TONES enums, and targetAudience
@@ -92,7 +83,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    const [row] = await db.update(feedMonitors)
+    const [row] = await db!.update(feedMonitors)
       .set(update)
       .where(and(eq(feedMonitors.id, id), eq(feedMonitors.userId, userId)))
       .returning();
@@ -106,11 +97,14 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 
 // DELETE /api/feed-monitors/:id
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
-  const userId = requireUserId(req, res);
-  if (!userId || !db) return;
+  const userId = requireDbUser(req, res, 'Feed monitors');
+  if (!userId) return;
   const id = String(req.params['id'] ?? '');
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ error: 'Invalid monitor id', code: 'VALIDATION_ERROR', retryable: false });
+  }
   try {
-    const [row] = await db.delete(feedMonitors)
+    const [row] = await db!.delete(feedMonitors)
       .where(and(eq(feedMonitors.id, id), eq(feedMonitors.userId, userId)))
       .returning();
     if (!row) return res.status(404).json({ error: 'Monitor not found', code: 'NOT_FOUND', retryable: false });
@@ -132,12 +126,15 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 // and check them all in a loop) to burn unbounded Gemini/Tavily quota,
 // bypassing every other route's rate limit.
 router.post('/:id/check', contentRateLimit, async (req: AuthRequest, res: Response) => {
-  const userId = requireUserId(req, res);
-  if (!userId || !db) return;
+  const userId = requireDbUser(req, res, 'Feed monitors');
+  if (!userId) return;
   const id = String(req.params['id'] ?? '');
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ error: 'Invalid monitor id', code: 'VALIDATION_ERROR', retryable: false });
+  }
 
   try {
-    const [row] = await db.select().from(feedMonitors)
+    const [row] = await db!.select().from(feedMonitors)
       .where(and(eq(feedMonitors.id, id), eq(feedMonitors.userId, userId)))
       .limit(1);
     if (!row) return res.status(404).json({ error: 'Monitor not found', code: 'NOT_FOUND', retryable: false });

@@ -142,13 +142,20 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
             </p>
           )}
 
-          {/* Points with bold styling */}
+          {/* Points with bold styling — own flex:1/minHeight:0/overflow:hidden
+              so a long list clips gracefully within the already-bounded header
+              block above, instead of only being caught by that block's outer
+              clip (which would cut off mid-point rather than the whole list
+              shrinking to fit). */}
           {slide.points && slide.points.length > 0 && (
             <div
               style={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: spacing.gap,
+                flex: 1,
+                minHeight: 0,
+                overflow: 'hidden',
               }}
             >
               {slide.points.map((point, i) => (

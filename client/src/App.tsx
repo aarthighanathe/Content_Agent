@@ -27,6 +27,15 @@ const RouteSpinner = () => (
   </div>
 );
 
+// WHY warn instead of silently falling back: the fallback key belongs to a shared dev
+// Clerk instance — any deploy that forgets to set VITE_CLERK_PUBLISHABLE_KEY would
+// otherwise authenticate real users against it with no signal in the console at all.
+if (!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY) {
+  console.warn(
+    'VITE_CLERK_PUBLISHABLE_KEY is not set — falling back to the shared dev Clerk instance. ' +
+    'Set this env var before deploying to production.',
+  );
+}
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || 'pk_test_YWRhcHRlZC1wdW1hLTY3LmNsZXJrLmFjY291bnRzLmRldiQ';
 
 const queryClient = new QueryClient({

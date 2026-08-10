@@ -57,6 +57,7 @@ export function IdeateControls({
         }}>
           <Search size={14} color="var(--text-muted)" style={{ flexShrink: 0 }} />
           <input
+            className="raw-input-focus-visible"
             type="text"
             value={focusTopic}
             onChange={(e) => onFocusTopicChange(e.target.value)}

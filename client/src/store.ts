@@ -22,14 +22,6 @@ interface CurrentJob {
   agentLogs: AgentLog[];
 }
 
-interface UserProfile {
-  brandName: string;
-  brandVoice: string;
-  phrasesUse: string;
-  phrasesAvoid: string;
-  industry?: string;
-}
-
 // WHY prediction/sourceUrl are optional, not added to isIdeatedIdea's
 // required-field checks below: existing localStorage data from before this
 // change (I3/I4) has neither field — making them required would silently
@@ -177,7 +169,6 @@ function writeStoredSavedIdeas(ideas: SavedIdea[]): void {
 interface AppState {
   currentJob: CurrentJob | null;
   sseConnection: EventSource | null;
-  userProfile: UserProfile;
   ideatedIdeas: IdeatedIdea[];
   ideasGeneratedAt: string | null;
   savedIdeas: SavedIdea[];
@@ -187,7 +178,6 @@ interface AppState {
   updateFromSSE: (data: SSEEvent) => void;
   connectToStream: (jobId: string, token?: string, onEvent?: (data: SSEEvent) => void, onError?: () => void) => void;
   disconnectStream: () => void;
-  setUserProfile: (profile: Partial<UserProfile>) => void;
   setIdeatedIdeas: (ideas: IdeatedIdea[]) => void;
   saveIdea: (idea: IdeatedIdea) => void;
   unsaveIdea: (title: string) => void;
@@ -199,20 +189,6 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 export const useAppStore = create<AppState>((set, get) => ({
   currentJob: null,
   sseConnection: null,
-  // WHY brandVoice starts empty, not 'professional': Create.tsx's "brand voice
-  // configured" banner checks `brandName || brandVoice` truthiness — a default of
-  // 'professional' made that check always true, so the banner claimed a brand
-  // voice was active for every brand-new user who'd never touched Brand Settings
-  // (FUNCTIONAL_AUDIT_2026-07.md finding #8). The server's own fallback to
-  // 'professional' during generation (writer.ts) is separate and unaffected —
-  // this only changes what the UI displays, not what tone actually gets sent.
-  userProfile: {
-    brandName: '',
-    brandVoice: '',
-    phrasesUse: '',
-    phrasesAvoid: '',
-    industry: '',
-  },
   ideatedIdeas: readStoredIdeas(),
   ideasGeneratedAt: readStoredGeneratedAt(),
   savedIdeas: readStoredSavedIdeas(),
@@ -324,12 +300,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       connection.close();
     }
     set({ sseConnection: null });
-  },
-
-  setUserProfile: (profile) => {
-    set((state) => ({
-      userProfile: { ...state.userProfile, ...profile },
-    }));
   },
 
   setIdeatedIdeas: (ideas) => {

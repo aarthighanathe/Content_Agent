@@ -8,6 +8,7 @@ import { getUserProfile } from '../users.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { stripScriptsAndEventHandlers } from '../../lib/carousel.js';
 import { assertUrlIsPublic } from '../../lib/ssrfGuard.js';
+import { sanitizeSearchText } from '../../lib/sanitizeSearchText.js';
 import { parseBody, repurposeSchema, repurposeBatchSchema } from '../../schemas/index.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
 import { logger } from '../../lib/logger.js';
@@ -63,6 +64,15 @@ async function fetchAndExtractArticle(url: string): Promise<ExtractResult> {
     if (!fetchRes.ok) {
       return { ok: false, status: 422, error: `URL returned HTTP ${fetchRes.status} — make sure it is publicly accessible`, code: 'FETCH_FAILED', retryable: true };
     }
+    // WHY: without this, a URL pointing at a PDF/image/binary would still be read as
+    // text below — the HTML-tag-stripping regex passes binary noise straight through
+    // to sanitizeSearchText/the Writer agent as "extracted article text" instead of
+    // failing with a clear error. Only text/* and the common HTML-ish XML content
+    // types are accepted; everything else (including a missing header) is rejected.
+    const contentType = fetchRes.headers.get('content-type') || '';
+    if (!/^(text\/|application\/xhtml\+xml)/i.test(contentType)) {
+      return { ok: false, status: 422, error: 'That URL does not point to a readable web page (unexpected content type)', code: 'FETCH_FAILED', retryable: false };
+    }
     rawHtml = await fetchRes.text();
   } catch {
     return { ok: false, status: 422, error: 'Could not fetch that URL — check that it is publicly accessible', code: 'FETCH_FAILED', retryable: true };
@@ -72,14 +82,21 @@ async function fetchAndExtractArticle(url: string): Promise<ExtractResult> {
   // function Puppeteer rendering relies on — see lib/carousel.ts) before the
   // remaining plain-text extraction below, instead of a locally reimplemented
   // script-stripping regex that could drift from it.
-  const text = stripScriptsAndEventHandlers(rawHtml)
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 4000);
+  // SECURITY: sanitizeSearchText() strips prompt-injection patterns ("ignore
+  // previous instructions", etc.) the same way every other untrusted-content
+  // source in the pipeline (Tavily results in researcher.ts/competitor.ts/
+  // ideate.ts) already does — this fetched webpage text is equally untrusted
+  // and was previously the one exception to that rule.
+  const text = sanitizeSearchText(
+    stripScriptsAndEventHandlers(rawHtml)
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 4000),
+  );
 
   if (text.length < 120) {
     return { ok: false, status: 422, error: 'Not enough readable text found at that URL', code: 'INSUFFICIENT_CONTENT', retryable: false };

@@ -6,6 +6,7 @@ export interface CtaFooterProps {
 }
 
 export function CtaFooter({ isSignedIn }: CtaFooterProps) {
+  const currentYear = new Date().getFullYear();
   return (
     <>
       {/* ══════════ CTA BANNER ══════════ */}
@@ -51,7 +52,7 @@ export function CtaFooter({ isSignedIn }: CtaFooterProps) {
           </span>
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'color-mix(in srgb, var(--text-primary) 16%, transparent)', letterSpacing: 0.8 }}>
-          © 2025 ContentAgent. All rights reserved.
+          © {currentYear} ContentAgent. All rights reserved.
         </div>
       </footer>
     </>

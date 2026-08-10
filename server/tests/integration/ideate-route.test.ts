@@ -10,6 +10,43 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import supertest from 'supertest';
 
+// WHY mocked: ideate.ts imports parseAIJson from content/shared.ts, which
+// imports stripScriptsAndEventHandlers from lib/carousel.js, which
+// transitively imports lib/browserPool.ts, which (as of the 2026-08-10 fix
+// routing its raw process.env reads through config.ts) imports config.ts at
+// module scope — config.ts's parseEnv() runs for real on import and throws
+// if required vars are unset, which they are here.
+vi.mock('../../src/config.js', () => ({
+  env: {
+    DATABASE_URL: 'postgres://test',
+    CLERK_SECRET_KEY: 'test_secret',
+    CLERK_PUBLISHABLE_KEY: 'test_publishable',
+    GEMINI_API_KEY: 'test_key',
+    NODE_ENV: 'test',
+    PORT: '3001',
+    FRONTEND_URL: 'http://localhost:5173',
+    APP_URL: 'http://localhost:3001',
+    RATE_LIMIT_MAX_JOBS: '10',
+    OAUTH_STATE_SECRET: 'test-oauth-secret-that-is-long-enough-32',
+    OPENAI_API_KEY: undefined,
+    TOGETHER_API_KEY: undefined,
+    GROQ_API_KEY: undefined,
+    TAVILY_API_KEY: undefined,
+    LINKEDIN_CLIENT_ID: undefined,
+    LINKEDIN_CLIENT_SECRET: undefined,
+    TWITTER_CLIENT_ID: undefined,
+    TWITTER_CLIENT_SECRET: undefined,
+    UPSTASH_REDIS_URL: undefined,
+    UPSTASH_REDIS_TOKEN: undefined,
+    REDIS_URL: undefined,
+    TOKEN_ENCRYPTION_KEY: '0'.repeat(64),
+    SENTRY_DSN: undefined,
+    CORS_ORIGINS: undefined,
+    PUPPETEER_EXECUTABLE_PATH: undefined,
+    RENDER: undefined,
+  },
+}));
+
 vi.mock('../../src/lib/ai.js', () => ({
   generateWithAI: vi.fn(),
   searchTavily: vi.fn().mockResolvedValue({ results: [] }),

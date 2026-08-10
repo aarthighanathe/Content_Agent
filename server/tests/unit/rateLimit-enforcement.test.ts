@@ -76,6 +76,13 @@ describe('rate limiter — real 429 enforcement', () => {
     expect(lastStatus).toBe(429);
     expect(lastBody).toMatchObject({ code: 'RATE_LIMITED', retryable: false });
     expect(typeof lastBody.error).toBe('string');
+    // Regression coverage for AUDIT_FINDINGS_2026-08-10.md #19 (TESTING_PROMPT,
+    // High): the client's countdown UI (Create/errorMessages.ts) was already
+    // built to consume this field but the server never sent it — the 429
+    // handler now reads req.rateLimit.resetTime (populated by express-rate-limit
+    // itself before the handler runs) to compute it.
+    expect(typeof lastBody.retryAfterMs).toBe('number');
+    expect(lastBody.retryAfterMs as number).toBeGreaterThanOrEqual(0);
   });
 
   it('requests from a different key are not affected by another key exhausting its limit', async () => {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowRight, Bookmark, Check, Copy, ExternalLink, Loader2, RefreshCw, Smartphone, TrendingDown, TrendingUp, Minus, X } from 'lucide-react';
 import { platformMeta } from '../../lib/platformMeta';
 import { isSafeHttpUrl } from '../../lib/utils';
+import { useTrackedTimeout } from '../../hooks/useTrackedTimeout';
 import type { IdeatedIdea } from '../../store';
 
 interface IdeaCardProps {
@@ -30,13 +31,18 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
   const [copied, setCopied] = useState(false);
   const tierMeta = idea.prediction ? TIER_META[idea.prediction.tier] : null;
   const safeSourceUrl = idea.sourceUrl && isSafeHttpUrl(idea.sourceUrl) ? idea.sourceUrl : null;
+  // WHY: handleCopy fires from a click handler, not an effect — there's no
+  // natural cleanup point for its 1.5s "revert to Copy icon" timer, so it's
+  // tracked and cleared on unmount via the shared hook (same pattern as
+  // useSocial.ts, ExportModal.tsx, FeedMonitorPanel.tsx).
+  const pendingTimers = useTrackedTimeout();
 
   async function handleCopy(e: React.MouseEvent): Promise<void> {
     e.stopPropagation();
     try {
       await navigator.clipboard.writeText(`${idea.title}\n\n${idea.angle}`);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      pendingTimers.set(() => setCopied(false), 1500);
     } catch {
       // WHY no user-facing error: clipboard access can be denied by browser
       // permissions/insecure context — the button staying non-"copied" is
@@ -47,10 +53,7 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
 
   return (
     <div
-      role="button"
-      tabIndex={0}
       className="idea-card"
-      aria-label={`Create content for ${idea.title}`}
       style={{
         background: 'var(--bg-raised)',
         border: '1px solid var(--rule)',
@@ -58,7 +61,6 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         padding: '16px 18px',
         display: 'flex', alignItems: 'flex-start', gap: 14,
         transition: 'border-color .2s, background .2s',
-        cursor: 'pointer',
         position: 'relative',
       }}
       onMouseEnter={(e) => {
@@ -69,8 +71,6 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--rule)';
         (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-raised)';
       }}
-      onClick={() => onUse(idea)}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onUse(idea); } }}
     >
       {/* Number badge */}
       <div style={{
@@ -199,7 +199,26 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         >
           <X size={14} />
         </button>
-        <ArrowRight size={14} color="var(--text-muted)" style={{ marginTop: 2 }} />
+        {/* WHY a dedicated button, not the whole card being role="button": real
+            <button> elements (Save/Copy/Regenerate/Dismiss above) nested inside a
+            parent with an interactive role is invalid ARIA/HTML — nested
+            interactive controls confuse both keyboard nav and screen readers
+            about what a single Tab stop/click actually activates. The card
+            itself is now a plain, non-interactive div; only this button
+            triggers onUse. */}
+        <button
+          type="button"
+          className="idea-card-action-btn"
+          aria-label={`Create content for ${idea.title}`}
+          title="Create content from this idea"
+          onClick={() => onUse(idea)}
+          style={{
+            background: 'transparent', border: 'none', borderRadius: 6, padding: 4, cursor: 'pointer',
+            color: 'var(--text-muted)', display: 'flex', marginTop: 2,
+          }}
+        >
+          <ArrowRight size={14} />
+        </button>
       </div>
       {/* WHY a local keyframe, not reusing Ideate.tsx's @keyframes spin: that
           one only exists in the DOM while the page-level `loading` state is

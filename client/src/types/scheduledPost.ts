@@ -49,6 +49,14 @@ export interface CreateScheduledPostInput {
   jobId: string;
   scheduledDate: string;
   publishPlatform?: PublishPlatform;
+  // WHY sent alongside scheduledDate: scheduledDate is built from the
+  // browser's LOCAL calendar day (calendarHelpers.ts), but the server used to
+  // interpret it as a UTC calendar day when computing the auto-publish time —
+  // "publish at 9am" could fire up to ~16 hours off from the user's actual
+  // 9am. JS Date.getTimezoneOffset() convention (minutes to ADD to local time
+  // to reach UTC) — see server/src/routes/scheduledPosts.ts's publishDelayMs
+  // WHY comment for how this is used.
+  timezoneOffsetMinutes?: number;
 }
 
 export interface CreateScheduledPostResponse {

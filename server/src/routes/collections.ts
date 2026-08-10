@@ -9,33 +9,16 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/index.js';
 import { collections, collectionJobs, contentJobs } from '../db/schema.js';
-import { requireJobOwnership } from './jobs/ownership.js';
+import { requireJobOwnership, requireDbUser } from './jobs/ownership.js';
 import { parseBody, createCollectionSchema, addJobToCollectionSchema } from '../schemas/index.js';
 import { isValidUUID } from '../lib/uuid.js';
 
 const router = Router();
 
-// WHY a shared guard, not inline checks per route: mirrors scheduledPosts.ts's
-// requireDbUser — every route below needs both a reachable DB and a real UUID
-// dbUserId (Clerk-only/demo users with no DB row can't own a foreign-key row
-// in `collections`).
-function requireDbUser(req: AuthRequest, res: Response): string | null {
-  const userId = req.dbUserId;
-  if (!db || !userId || !isValidUUID(userId)) {
-    res.status(503).json({
-      error: 'Collections require a database connection',
-      code: 'DB_UNAVAILABLE',
-      retryable: true,
-    });
-    return null;
-  }
-  return userId;
-}
-
 // GET /api/collections — list this user's collections with a job count each.
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Collections');
     if (!userId) return;
 
     const rows = await db!
@@ -61,7 +44,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 // POST /api/collections — create a new named collection.
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Collections');
     if (!userId) return;
 
     const body = parseBody(createCollectionSchema, req.body, res);
@@ -84,7 +67,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 // by guessing/observing its id.
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Collections');
     if (!userId) return;
 
     const collectionId = req.params.id as string;
@@ -122,7 +105,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
 // lineage), so the client can render them with the existing Library row UI.
 router.get('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Collections');
     if (!userId) return;
 
     const collectionId = req.params.id as string;
@@ -168,7 +151,7 @@ router.get('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFuncti
 // POST /api/collections/:id/jobs — add a job to a collection.
 router.post('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Collections');
     if (!userId) return;
 
     const collectionId = req.params.id as string;
@@ -213,7 +196,7 @@ router.post('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFunct
 // DELETE /api/collections/:id/jobs/:jobId — remove a job from a collection.
 router.delete('/:id/jobs/:jobId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Collections');
     if (!userId) return;
 
     const collectionId = req.params.id as string;

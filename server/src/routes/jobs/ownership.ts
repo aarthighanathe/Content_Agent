@@ -3,9 +3,35 @@ import { db } from '../../db/index.js';
 import { getJobFromStore } from '../../workers/contentWorker.js';
 import type { PipelineJob, PersistedJobResult, PipelineOutput, PipelineLog } from '../../lib/pipeline.js';
 import type { ContentJob, ContentOutput, AgentLog } from '../../db/schema.js';
+import type { AuthRequest } from '../../middleware/auth.js';
 import { isValidUUID } from '../../lib/uuid.js';
 
 export { isValidUUID };
+
+/**
+ * Shared guard for any route that needs both a reachable DB and a real UUID
+ * dbUserId (Clerk-only/demo users with no DB row can't own a foreign-key row
+ * in a user-scoped table). Originally duplicated nearly identically across
+ * scheduledPosts.ts, collections.ts, and (missing entirely, causing routes to
+ * hang with zero response on DB outage) feedMonitors.ts — consolidated here
+ * so the three copies can't diverge again.
+ *
+ * Returns the resolved userId on success, or writes a 503
+ * `{ error, code: 'DB_UNAVAILABLE', retryable: true }` response and returns
+ * null — callers check for null and return immediately.
+ */
+export function requireDbUser(req: AuthRequest, res: Response, featureLabel: string): string | null {
+  const userId = req.dbUserId;
+  if (!db || !userId || !isValidUUID(userId)) {
+    res.status(503).json({
+      error: `${featureLabel} requires a database connection`,
+      code: 'DB_UNAVAILABLE',
+      retryable: true,
+    });
+    return null;
+  }
+  return userId;
+}
 
 // WHY a union, not one interface: a job in jobsMemory/jobStore is either still
 // running (PipelineJob — mutated in place with stage/progress/status as the

@@ -30,7 +30,7 @@ import { and, eq, gte, lt } from 'drizzle-orm';
 import { AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/index.js';
 import { scheduledPosts } from '../db/schema.js';
-import { requireJobOwnership } from './jobs/ownership.js';
+import { requireJobOwnership, requireDbUser } from './jobs/ownership.js';
 import { parseBody, createScheduledPostSchema, listScheduledPostsQuerySchema } from '../schemas/index.js';
 import { isValidUUID } from '../lib/uuid.js';
 import { queuePublishJob, cancelPublishJob } from '../lib/publishQueue.js';
@@ -39,21 +39,30 @@ import { queuePublishJob, cancelPublishJob } from '../lib/publishQueue.js';
 // date-only string (see schema.ts's WHY) — adding real time-of-day control
 // would mean a DB column type change and a new SchedulePicker.tsx UI control,
 // a larger change than this pass scopes to (see CHANGELOG's dated entry).
-// 9am UTC is an arbitrary but reasonable "morning" publish slot.
+// 9am is an arbitrary but reasonable "morning" publish slot.
 const PUBLISH_HOUR_UTC = 9;
 
-function publishDelayMs(scheduledDate: string): number {
+// WHY timezoneOffsetMinutes, not just trusting scheduledDate as a UTC day:
+// CalendarGrid.tsx builds scheduledDate from the browser's LOCAL calendar day
+// (year/month/dayNum all come from local Date methods), but this function
+// used to interpret that same string as a UTC calendar day via Date.UTC() —
+// for any user not on UTC, "publish at 9am" could fire up to ~16 hours off
+// from their actual 9am, and near a calendar-day boundary could even publish
+// on the wrong day entirely. timezoneOffsetMinutes (JS Date.getTimezoneOffset()
+// convention: minutes to ADD to local time to reach UTC) lets this compute
+// the real UTC instant of "9am in the user's own timezone, on this calendar
+// day" instead. Optional and defaults to 0 (i.e. the old UTC-day behavior)
+// so an older client or a direct API call still works, just with the
+// original (documented) imprecision rather than a hard failure.
+export function publishDelayMs(scheduledDate: string, timezoneOffsetMinutes = 0): number {
   const [y, m, d] = scheduledDate.split('-').map(Number);
-  const publishAt = Date.UTC(y, m - 1, d, PUBLISH_HOUR_UTC, 0, 0);
+  const publishAtUtc = Date.UTC(y, m - 1, d, PUBLISH_HOUR_UTC, 0, 0);
+  const publishAt = publishAtUtc + timezoneOffsetMinutes * 60_000;
   return publishAt - Date.now();
 }
 
 const router = Router();
 
-// WHY a shared guard, not inline checks per route: every route below needs
-// both a reachable DB and a real UUID dbUserId (Clerk-only/demo users with no
-// DB row can't own a foreign-key row in scheduled_posts). Returns the
-// resolved userId on success, or writes the error response and returns null.
 // WHY computed, not a hardcoded "-31": query.month is validated YYYY-MM by
 // listScheduledPostsQuerySchema, so this always receives a real "YYYY-MM"
 // pair — returns the first day of the following month as "YYYY-MM-DD" for
@@ -66,25 +75,12 @@ function firstDayOfNextMonth(month: string): string {
   return `${yyyy}-${mm}-01`;
 }
 
-function requireDbUser(req: AuthRequest, res: Response): string | null {
-  const userId = req.dbUserId;
-  if (!db || !userId || !isValidUUID(userId)) {
-    res.status(503).json({
-      error: 'Scheduling requires a database connection',
-      code: 'DB_UNAVAILABLE',
-      retryable: true,
-    });
-    return null;
-  }
-  return userId;
-}
-
 // GET /api/scheduled-posts?month=YYYY-MM — list this user's scheduled posts.
 // Omitting `month` returns all of the user's scheduled posts (used by the
 // Dashboard "next scheduled post" card to look past the current month).
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Scheduling');
     if (!userId) return;
 
     const query = parseBody(listScheduledPostsQuerySchema, req.query, res);
@@ -146,7 +142,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 // client-side — moving a job to a new date is just re-POSTing it.
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Scheduling');
     if (!userId) return;
 
     const body = parseBody(createScheduledPostSchema, req.body, res);
@@ -180,7 +176,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       .returning();
 
     if (body.publishPlatform) {
-      queuePublishJob(row.id, publishDelayMs(body.scheduledDate)).catch(() => {});
+      queuePublishJob(row.id, publishDelayMs(body.scheduledDate, body.timezoneOffsetMinutes)).catch(() => {});
     } else {
       // WHY cancel unconditionally, not just when downgrading from a platform:
       // cheap and idempotent (cancelPublishJob no-ops if nothing is queued) —
@@ -202,7 +198,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 // constraint on jobId makes it an equally unambiguous lookup key.
 router.delete('/:jobId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = requireDbUser(req, res);
+    const userId = requireDbUser(req, res, 'Scheduling');
     if (!userId) return;
 
     const jobId = req.params.jobId as string;

@@ -263,6 +263,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
             Date and time
           </label>
           <input
+            className="raw-input-focus-visible"
             type="datetime-local"
             min={getMinDateTime()}
             value={scheduleDate}

@@ -31,11 +31,12 @@ function setAuthCacheEntry(clerkUserId: string, dbUserId: string): void {
   authCache.set(clerkUserId, { dbUserId, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
 }
 
-// WHY exported: no caller exists yet (there's no user-deletion route today), but
-// any future account-deletion/deactivation path MUST be able to evict a stale
-// Clerk ID → dbUserId mapping immediately rather than waiting out the 5-minute
-// TTL — otherwise a deleted user's requests would keep resolving to a dbUserId
-// that other checks (e.g. requireJobOwnership) may no longer expect to be valid.
+// WHY exported: called by routes/users/account.ts's DELETE /me, right after
+// its deletion transaction commits, to evict a stale Clerk ID → dbUserId
+// mapping immediately rather than waiting out the 5-minute TTL — otherwise a
+// deleted user's requests (bearing a still-valid Clerk session token) would
+// keep resolving to a dbUserId that no longer exists in the users table for
+// up to 5 more minutes.
 export function invalidateAuthCache(clerkUserId: string): void {
   authCache.delete(clerkUserId);
 }

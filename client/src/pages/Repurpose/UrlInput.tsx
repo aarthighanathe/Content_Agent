@@ -57,6 +57,7 @@ export function UrlInput({
       {batchMode ? (
         <>
           <textarea
+            className="raw-input-focus-visible"
             placeholder={'https://example.com/article-1\nhttps://example.com/article-2\nhttps://example.com/article-3'}
             value={batchUrls}
             onChange={e => handleBatchUrlsChange(e.target.value)}
@@ -81,6 +82,7 @@ export function UrlInput({
           <div style={{ position: 'relative' }}>
             <Link2 size={15} color="var(--text-muted)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
             <input
+              className="raw-input-focus-visible"
               type="url"
               placeholder="https://example.com/article-or-blog-post"
               value={url}
@@ -97,7 +99,7 @@ export function UrlInput({
             />
           </div>
           <p style={{ margin: '6px 0 0', fontSize: 11.5, color: 'var(--text-muted)' }}>
-            Supports: blog posts, Medium articles, newsletters, YouTube (auto-captions)
+            Supports: blog posts, Medium articles, newsletters
           </p>
         </>
       )}

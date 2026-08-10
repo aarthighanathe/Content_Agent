@@ -102,11 +102,14 @@ router.post('/:jobId/stream-token', async (req: AuthRequest, res: Response) => {
     const token = randomUUID();
     const key = `sse:token:${token}`;
     // SECURITY: store the SAME resolved identifier requireJobOwnership() was just
-    // checked against (including the 'demo' fallback for the unauthenticated/no-DB
-    // path — this route is exempted from authMiddleware, see routes/jobs/index.ts's
-    // openPaths check) under a single unambiguous `dbUserId` key. Also keeping
-    // `clerkId` (when available) for logging/debugging only — it is never read back
-    // as the resolved identity by verifySSEToken().
+    // checked against (including the 'demo' fallback for the DB-unavailable path)
+    // under a single unambiguous `dbUserId` key. This route (POST /:jobId/stream-token)
+    // DOES still go through authMiddleware — routes/jobs/index.ts only exempts the
+    // actual SSE stream endpoint (GET /:jobId/stream, matched by SSE_STREAM_PATH)
+    // from auth; STREAM_TOKEN_PATH there exempts this route from the rate limiter
+    // only, not from authMiddleware. Also keeping `clerkId` (when available) for
+    // logging/debugging only — it is never read back as the resolved identity by
+    // verifySSEToken().
     const payload = JSON.stringify({
       dbUserId: userId,
       clerkId: req.userId || null,

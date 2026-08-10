@@ -118,13 +118,18 @@ export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, Carouse
           </p>
         )}
 
-        {/* Points with editorial bullet style */}
+        {/* Points with editorial bullet style — flex:1/minHeight:0/overflow:hidden
+            so a long list clips within the fixed frame instead of pushing the
+            bottom decorative line (marginTop:'auto' below) off it. */}
         {slide.points && slide.points.length > 0 && (
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
               gap: spacing.gap,
+              flex: 1,
+              minHeight: 0,
+              overflow: 'hidden',
             }}
           >
             {slide.points.map((point, i) => (

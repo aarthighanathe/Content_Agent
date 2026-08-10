@@ -105,6 +105,7 @@ export function CompactTemplatePicker({
                   border: `1px solid ${sel ? p.colors.primary : 'var(--rule)'}`,
                   borderRadius: 16,
                   padding: '4px 9px 4px 4px',
+                  minHeight: 44,
                   cursor: 'pointer',
                   transition: 'all .15s',
                 }}

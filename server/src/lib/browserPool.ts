@@ -13,6 +13,7 @@ import type { Browser, LaunchOptions } from 'puppeteer';
 import { access } from 'fs/promises';
 import { constants } from 'fs';
 import { logger } from './logger.js';
+import { env } from '../config.js';
 
 // WHY Browser pool: launching a new Chromium process takes ~800ms and ~150MB RAM.
 // Pre-warming POOL_MIN browsers at startup eliminates cold-start latency for the
@@ -74,7 +75,7 @@ let _resolvedSystemChromePath: string | undefined | null = null;
 async function resolveSystemChromePath(): Promise<string | undefined> {
   if (_resolvedSystemChromePath !== null) return _resolvedSystemChromePath;
 
-  const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  const envPath = env.PUPPETEER_EXECUTABLE_PATH;
   if (envPath) {
     try {
       await access(envPath, constants.F_OK);
@@ -90,7 +91,7 @@ async function resolveSystemChromePath(): Promise<string | undefined> {
   // evidence we're actually running there — NODE_ENV=production alone is true on
   // any production deploy target, not just Render, and these paths are Render-image-
   // specific (see the note above re: PUPPETEER_EXECUTABLE_PATH being the portable fix).
-  if (process.env.RENDER === 'true') {
+  if (env.RENDER === 'true') {
     const possiblePaths = [
       '/usr/bin/google-chrome-stable',
       '/usr/bin/chromium-browser',

@@ -94,6 +94,8 @@ export function TopicStep({
             className="input"
             placeholder={topicPlaceholder}
             value={topic}
+            // NOTE: mirrors server/src/schemas/jobs.ts's TOPIC_MAX_LENGTH — not
+            // importable across the client/server boundary, keep in sync by hand.
             maxLength={250}
             onChange={(e) => onTopicChange(e.target.value)}
             onFocus={onFocusTopic}
@@ -136,10 +138,10 @@ export function TopicStep({
 
       {/* Brand Voice — its own section, not nested under Tone. WHY: "brand voice" is
           actually a bundle (voice description + phrases to use/avoid + industry, per
-          UserProfile in store.ts) sent to the writer agent independently of the tone
-          pill (writer.ts: <brand_voice>/<phrases_to_include>/<phrases_to_avoid> tags
-          alongside, not inside, the tone resolution). Placing it directly beneath Tone
-          made it read as a footnote to the tone pill; it's a separate, persistent
+          the Profile type in types/api.ts) sent to the writer agent independently of
+          the tone pill (writer.ts: <brand_voice>/<phrases_to_include>/<phrases_to_avoid>
+          tags alongside, not inside, the tone resolution). Placing it directly beneath
+          Tone made it read as a footnote to the tone pill; it's a separate, persistent
           profile, so it gets a parallel section instead. */}
       <div style={{ marginBottom: 20 }}>
         <SectionLabel icon={<Sparkles size={13} style={{ flexShrink: 0 }} />} withRule={false}>

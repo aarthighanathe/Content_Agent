@@ -44,7 +44,7 @@ export default function LibraryPage() {
         onSelectCollection={lib.setActiveCollectionId}
         onCreateCollection={(name) => lib.createCollectionMutation.mutate(name)}
         creating={lib.createCollectionMutation.isPending}
-        onDeleteCollection={(id) => lib.deleteCollectionMutation.mutate(id)}
+        onRequestDeleteCollection={(id, name) => lib.setDeleteCollectionConfirm({ id, name })}
         deletingId={lib.deleteCollectionMutation.isPending ? lib.deleteCollectionMutation.variables ?? null : null}
         loading={lib.collectionsLoading}
       />
@@ -124,6 +124,17 @@ export default function LibraryPage() {
           onConfirm={lib.handleConfirmBulkDelete}
           isPending={lib.bulkDeleteJobsMutation.isPending}
           error={lib.bulkDeleteError || (lib.failedJobIds.length > 0 ? `Failed to delete ${lib.failedJobIds.length} job${lib.failedJobIds.length !== 1 ? 's' : ''}: ${lib.failedJobIds.slice(0, 3).join(', ')}${lib.failedJobIds.length > 3 ? '...' : ''}` : '')}
+        />
+      )}
+
+      {/* ── Delete Collection Confirm Modal ── */}
+      {lib.deleteCollectionConfirm && (
+        <ConfirmDeleteModal
+          title={`Delete "${lib.deleteCollectionConfirm.name}"?`}
+          message="The collection will be removed. Jobs inside it are not deleted — this only removes the grouping."
+          onCancel={() => lib.setDeleteCollectionConfirm(null)}
+          onConfirm={() => lib.deleteCollectionMutation.mutate(lib.deleteCollectionConfirm!.id)}
+          isPending={lib.deleteCollectionMutation.isPending}
         />
       )}
 

@@ -112,13 +112,18 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </p>
         )}
 
-        {/* Points as story beats */}
+        {/* Points as story beats — flex:1/minHeight:0/overflow:hidden so a long
+            list clips within the fixed frame instead of pushing the story
+            signature (marginTop:'auto' below) off it. */}
         {slide.points && slide.points.length > 0 && (
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
               gap: spacing.gap,
+              flex: 1,
+              minHeight: 0,
+              overflow: 'hidden',
             }}
           >
             {slide.points.map((point, i) => (

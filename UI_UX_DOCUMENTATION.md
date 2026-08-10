@@ -1,5 +1,14 @@
 # ContentAgent — UI/UX Documentation
 > Generated: 2026-06-14 | Codebase: post-Phase-4, all planned features shipped
+>
+> **Corrected 2026-08-10** (`prompts/FIX_AUDIT_FINDINGS.md` §6.2, from the 2026-08-10 ui-ux-audit
+> finding): §1A and §2A were substantially rewritten to describe the real 6-theme `[data-theme]`
+> system (shipped 2026-08-02 — see `CLAUDE.md` §13) and the actual currently-active font stack,
+> neither of which this doc previously reflected. Section 10's findings #3, #4, #7, #11, #12 are
+> marked resolved with verification notes. §2B's per-element Type Scale table and most of
+> Sections 3-9 were **not** re-audited in this pass — treat font-family names and any color
+> values elsewhere in this document as unverified against the current 6-theme system unless a
+> section explicitly says otherwise.
 
 ---
 
@@ -24,35 +33,46 @@
 
 ### 1A. CSS Custom Properties (Design Tokens)
 
-All tokens are defined in `client/src/index.css` inside `@theme {}` (Tailwind 4 syntax). They become available as Tailwind utility classes (e.g., `bg-dark-900`, `text-accent-purple`).
+**Corrected 2026-08-10 (was last accurate 2026-06-14, before the 6-theme system shipped
+2026-08-02 — see `CLAUDE.md` §13 for the full architecture):** the app is **not** permanently
+one dark palette. `client/src/index.css` defines real color/font tokens as plain CSS custom
+properties, one block per `[data-theme="..."]` value on `<html>` (6 selectable identities:
+`aurora` [default], `deep-marine`, `obsidian-ember`, `nightshade`, `ink-verdigris`,
+`carbon-signal` — user-switchable via `ThemeSwitcher.tsx`, persisted to `localStorage`). The
+Tailwind 4 `@theme {}` block described below no longer hardcodes values itself — every
+`--color-*`/`--font-*` name inside it now aliases to one of the `[data-theme]` tokens (e.g.
+`--color-dark-900: var(--bg-base)`), so existing `bg-dark-900`-style utility classes keep
+working unchanged while resolving through whichever theme is active at runtime.
 
-| Token | Value | Type | Used For |
-|---|---|---|---|
-| `--color-dark-900` | `#030310` | Solid hex | Primary page background, body bg |
-| `--color-dark-800` | `#07071C` | Solid hex | Card backgrounds, `.card`, `.card-glow` |
-| `--color-dark-700` | `#0B0B26` | Solid hex | Deeper card alternative |
-| `--color-dark-600` | `rgba(124, 58, 237, 0.10)` | Alpha violet | Violet-tinted surface |
-| `--color-dark-500` | `rgba(245, 158, 11, 0.10)` | Alpha gold | Gold-tinted surface |
-| `--color-dark-400` | `rgba(245, 158, 11, 0.24)` | Alpha gold | Stronger gold surface |
-| `--color-dark-300` | `rgba(255, 255, 255, 0.22)` | Alpha white | Light surface overlay |
-| `--color-dark-200` | `rgba(255, 255, 255, 0.52)` | Alpha white | Medium-bright text |
-| `--color-dark-100` | `rgba(255, 255, 255, 0.92)` | Alpha white | Near-white text |
-| `--color-accent-purple` | `#8B5CF6` | Solid hex | Purple accent elements |
-| `--color-accent-violet` | `#7C3AED` | Solid hex | Sidebar border gradient, violet accents |
-| `--color-accent-blue` | `#3B82F6` | Solid hex | Blue badge elements |
-| `--color-accent-cyan` | `#22D3EE` | Solid hex | Twitter/Cyan accent, Aurora slides |
-| `--color-accent-pink` | `#EC4899` | Solid hex | Instagram Carousel accent |
-| `--color-accent-green` | `#10B981` | Solid hex | Success states, approved badge |
-| `--color-accent-orange` | `#F97316` | Solid hex | Video Script accent, Ideate gradient |
-| `--color-gradient-start` | `#F59E0B` | Solid hex | Gold gradient start |
-| `--color-gradient-mid` | `#FBBF24` | Solid hex | Gold gradient mid |
-| `--color-gradient-end` | `#F59E0B` | Solid hex | Gold gradient end |
-| `--font-sans` | `'Inter', system-ui, -apple-system, sans-serif` | Font | Body text |
-| `--font-heading` | `'Playfair Display', Georgia, serif` | Font | Page headings, hero |
-| `--font-display` | `'Space Grotesk', system-ui, sans-serif` | Font | Logo, stat values, subheadings |
-| `--font-mono` | `'DM Mono', monospace` | Font | Labels, badges, codes, metadata |
+**Per-theme tokens** (values shown are the `aurora` default — see `index.css` for all 6):
 
-**Note:** There are no light mode / dark mode variants. The entire app is permanently dark. The `@theme` block is Tailwind 4's replacement for `tailwind.config.js`.
+| Token | `aurora` value | Used For |
+|---|---|---|
+| `--bg-base` | `#030310` | Primary page background, body bg |
+| `--bg-raised` | `#07071C` | Card backgrounds, `.card`, `.card-glow` |
+| `--bg-card` | `#0B0B26` | Deeper card alternative |
+| `--text-primary` | `rgba(255,255,255,0.92)` | Near-white text |
+| `--text-secondary` | `rgba(255,255,255,0.55)` | Medium-bright text |
+| `--text-muted` | `rgba(255,255,255,0.40)` | De-emphasized text |
+| `--rule` | `rgba(255,255,255,0.07)` | Borders/dividers |
+| `--accent` | `#F59E0B` | Primary brand accent (was called "gold" in this doc's old Quick Reference — still accurate for the default theme, but themeable now, not a fixed color) |
+| `--accent-2` | `#8B5CF6` | Secondary brand accent (was "violet") |
+| `--accent-glow` | `rgba(245,158,11,0.34)` | Glow/shadow tint |
+| `--on-accent` | `#030310` | Text color placed on top of `--accent` fills |
+| `--font-display` / `--font-heading` | `"Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif` | See font-stack correction in §2A — this is identical across all 6 themes |
+| `--font-body` (aliased as `--font-sans`) | `"Segoe UI", system-ui, sans-serif` | Body text — identical across all 6 themes |
+| `--font-mono` | `ui-monospace, Consolas, monospace` | Labels, badges, codes, metadata |
+
+**Fixed across every theme (never themed — semantic/platform/carousel colors, not brand
+decoration; see `CLAUDE.md` §13):** `--color-error` (`#EF4444`), `--color-success` (`#10B981`),
+`--color-warning` (`#F59E0B`), the `.badge-*` palette, platform-brand colors
+(Instagram/LinkedIn/Twitter/video — §1B below), and the entire carousel-slide rendering system
+(§1C below, `CAROUSEL_THEMES`/`slideColors`).
+
+**Legacy `--color-accent-purple`/`-violet`/`-blue`/`-cyan`/`-pink`/`-orange` aliases** (still
+present in the `@theme` block for backward compatibility with older utility-class call sites)
+remain fixed hex values, not tied to the active `[data-theme]` — don't read them as "the current
+theme's accent," they're the original Aurora-era brand palette frozen in place.
 
 ---
 
@@ -160,16 +180,30 @@ actually reads before assuming they should match.
 
 ### 2A. Font Families
 
-All fonts imported from Google Fonts via `@import url('https://fonts.googleapis.com/css2?...')` at the top of `index.css`.
+**Corrected 2026-08-10 — this section was substantially stale.** `index.css` still `@import`s
+the same Google Fonts URL (Playfair Display, Inter, Space Grotesk, DM Mono), but **none of the
+four are referenced by any `--font-*` token or `[data-theme]` block anymore** — grep confirms
+zero occurrences of any of those four family names outside that one `@import` line. The import
+itself now looks like dead weight (loading font files the CSS never assigns to anything), worth
+someone's follow-up to confirm and remove if truly unused — that's a separate cleanup, not
+re-verified line-by-line here.
 
-| Font | Source | Weights Loaded | Role |
-|---|---|---|---|
-| **Inter** | Google Fonts | 300, 400, 500, 600, 700, 800 | Body text, UI labels, buttons — `--font-sans` |
-| **Playfair Display** | Google Fonts | 400, 400italic, 600, 700, 700italic, 900, 900italic | Page headings, hero headline, feature titles, card headings — `--font-heading` |
-| **Space Grotesk** | Google Fonts | 500, 600, 700 | Logo, stat numbers, display text — `--font-display` |
-| **DM Mono** | Google Fonts | 400, 500 | Badges, labels, timestamps, metadata, section labels — `--font-mono` |
+The real, currently-active font stack (identical across all 6 `[data-theme]` blocks — theming
+here only varies color, not typography) is Windows-native system fonts, not the Google Fonts
+above:
 
-**Font strategy:** Editorial serif (Playfair Display) for all H1/H2 headings creates a premium feel; DM Mono for all microcopy gives a "technical/AI" personality; Space Grotesk for numbers and the logo bridges display and body. Inter handles all interactive text.
+| Token | Actual value | Role |
+|---|---|---|
+| `--font-display` / `--font-heading` | `"Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif` | Headings, logo, stat values, display text (both tokens carry the identical stack) |
+| `--font-body` (aliased as `--font-sans`) | `"Segoe UI", system-ui, sans-serif` | Body text, UI labels, buttons |
+| `--font-mono` | `ui-monospace, Consolas, monospace` | Badges, labels, timestamps, metadata, section labels |
+
+**§2B's Type Scale table below was NOT re-audited row-by-row in this pass** — it was written
+against the old Playfair Display/Inter/Space Grotesk/DM Mono stack and is very likely still
+citing font-family names that don't match the CSS above for at least some rows. Treat every
+family name in §2B as unverified until someone re-checks each UI element against the real
+`--font-display`/`--font-body`/`--font-mono` values; the sizes/weights/colors may still be
+accurate even where the family name isn't.
 
 ---
 
@@ -980,16 +1014,16 @@ All icons are from `lucide-react`. The following table lists icons found across 
 |---|---|---|---|---|
 | 1 | H1 font family inconsistency | Ideate, Repurpose vs all others | High | Ideate/Repurpose use Space Grotesk 700 22px for H1; all other pages use Playfair Display 700 |
 | 2 | Result page H1 font | Result page | Medium | Uses Space Grotesk instead of Playfair Display for job topic title |
-| 3 | Dashboard eyebrow uses violet | Dashboard | Medium | `#A78BFA` eyebrow color vs gold `#F59E0B` on all other pages |
-| 4 | Video script missing from platformMeta | Dashboard | Medium | Falls back to purple badge/icon instead of its documented red/coral color |
+| 3 | ~~Dashboard eyebrow uses violet~~ **Resolved** | Dashboard | — | Re-checked 2026-08-10: no `#A78BFA`-colored "eyebrow" label exists in `Dashboard.tsx` anymore. The one remaining `#A78BFA` occurrence in `Dashboard/RecentGenerations.tsx` is an unrelated, correctly-scoped `badge-purple` fallback for an unrecognized platform, not this finding |
+| 4 | ~~Video script missing from platformMeta~~ **Resolved** | Dashboard | — | Re-checked 2026-08-10: `platformMeta.ts` has a real `video_script` entry (`#F87171` red/coral, `Video` icon, `badge-red`) — no longer falls back to purple |
 | 5 | ~~Split theme accent mismatch~~ **Resolved** | Carousel theme picker | — | No server-side theme accent exists anymore post carousel-rewrite (see §1C) — nothing left to mismatch against |
 | 6 | ~~Only 5 themes in picker~~ **Resolved** | Carousel theme picker | — | All 9 themes are now exposed in `CAROUSEL_THEMES` in constants.ts (verified: aurora, magazine, split, bold, minimal, neon, violet, crimson, rose) |
-| 7 | URL input focus: cyan instead of gold | Repurpose page | Low | `rgba(34,211,238,0.35)` focus border — inconsistent with standard gold focus ring on all other inputs |
-| 8 | Background shade inconsistency | Library vs Dashboard | Low | Library uses `#08081A`, Dashboard uses `#07071C` for row/card backgrounds |
+| 7 | ~~URL input focus: cyan instead of gold~~ **Resolved** | Repurpose page | — | Re-checked 2026-08-10: no hardcoded cyan focus color remains in `Repurpose.tsx`/`UrlInput.tsx` — both now use `var(--accent)` (the active theme's accent token), consistent with every other input. Note "gold" itself is no longer a fixed constant either — `--accent` varies by the user's selected `[data-theme]` (see §1A) |
+| 8 | Background shade inconsistency | Library vs Dashboard | Low | Library uses `#08081A`, Dashboard uses `#07071C` for row/card backgrounds — not re-verified against the 6-theme system's `--bg-raised` token in this pass |
 | 9 | Three red error variants | All pages | Low | `#EF4444`, `#F87171`, `#F43F5E` used interchangeably for semantically identical error states |
 | 10 | Body text color variations | All pages | Low | `rgba(255,255,255,0.88)`, `.90`, `.92`, `.96` used for body/card heading text with no rule |
-| 11 | Hardcoded hex values in JSX | All pages | Medium | Design tokens exist in `@theme` but JSX uses literal hex strings everywhere. Changing a color requires hunting hundreds of inline styles |
-| 12 | Library route `Clock` icon | Sidebar nav | Low | Semantically misleading icon for "Library" — Clock implies history/time |
+| 11 | ~~Hardcoded hex values in JSX~~ **Resolved (re-scoped)** | All pages | — | Re-checked 2026-08-10: hex literals still exist (23 files under `pages/`), but spot-checking shows they're now correctly-scoped platform-brand/semantic colors (e.g. `Repurpose.tsx`'s Instagram/LinkedIn/Twitter gradient hexes) — exactly the category `CLAUDE.md` §13 (added 2026-08-02, after this finding was written) documents as **intentionally fixed and never themed**, not an oversight. The original criticism (design tokens exist but aren't used) no longer describes a real problem now that theming is token-driven via `[data-theme]` (§1A) |
+| 12 | ~~Library route `Clock` icon~~ **Resolved** | Sidebar nav | — | Fixed 2026-08-10 (`prompts/FIX_AUDIT_FINDINGS.md` §5.4) — `AuthLayout.tsx` now uses `BookMarked` for both the desktop sidebar and mobile tab bar |
 | 13 | Logo design split between landing and app | Landing vs AuthLayout | Low | Landing uses `Layers` icon from Lucide; App sidebar uses `✦` DM Mono character |
 | 14 | Gradient button orange-gold on Ideate | Ideate page | Low | Generate button gradient `#F59E0B → #F97316` (orange) vs standard `#F59E0B → #FBBF24` (gold) |
 | 15 | Missing hover states on some links | Dashboard "View all" | Low | History link uses `onMouseEnter/Leave` style manipulation instead of CSS classes — fragile |
@@ -1058,24 +1092,32 @@ All icons are from `lucide-react`. The following table lists icons found across 
 
 ### Primary Colors (copy-paste ready)
 
-| Name | CSS Token | Hex | Role |
+**Corrected 2026-08-10:** `--color-dark-900`/`--color-dark-800` and `--color-gradient-start`/
+`-mid` are now aliases that resolve through the active `[data-theme]` (see §1A) — the hex values
+below are the `aurora` (default) theme's values only, not fixed constants. The legacy
+`--color-accent-*` aliases (violet/purple/cyan/green/pink) remain fixed regardless of theme.
+
+| Name | CSS Token | `aurora` Hex | Role |
 |---|---|---|---|
-| Gold Primary | `var(--color-gradient-start)` | `#F59E0B` | CTAs, active states, nav highlight |
-| Gold Light | `var(--color-gradient-mid)` | `#FBBF24` | Gradient endpoint, hover brightening |
-| Violet | `var(--color-accent-violet)` | `#7C3AED` | Sidebar border, secondary accents |
-| Purple | `var(--color-accent-purple)` | `#8B5CF6` | Researcher agent, voice chips, violet accent |
-| Cyan | `var(--color-accent-cyan)` | `#22D3EE` | Writer agent, Twitter platform, DNA |
-| Green | `var(--color-accent-green)` | `#10B981` | Success, approved, formatter agent |
-| Pink | `var(--color-accent-pink)` | `#EC4899` | Instagram Carousel platform |
-| Page Background | `var(--color-dark-900)` | `#030310` | Body background |
-| Card Background | `var(--color-dark-800)` | `#07071C` | Cards, job rows |
+| Accent Primary (themeable) | `var(--accent)` / `var(--color-gradient-start)` | `#F59E0B` | CTAs, active states, nav highlight — varies by selected theme |
+| Accent Secondary (themeable) | `var(--accent-2)` / `var(--color-gradient-mid)` | `#8B5CF6` | Gradient endpoint, hover brightening — varies by selected theme |
+| Violet (fixed) | `var(--color-accent-violet)` | `#7C3AED` | Legacy alias, not theme-driven |
+| Purple (fixed) | `var(--color-accent-purple)` | `#8B5CF6` | Researcher agent, voice chips |
+| Cyan (fixed) | `var(--color-accent-cyan)` | `#22D3EE` | Writer agent, Twitter platform, DNA |
+| Green (fixed) | `var(--color-accent-green)` | `#10B981` | Success, approved, formatter agent |
+| Pink (fixed) | `var(--color-accent-pink)` | `#EC4899` | Instagram Carousel platform |
+| Page Background (themeable) | `var(--bg-base)` / `var(--color-dark-900)` | `#030310` | Body background — varies by selected theme |
+| Card Background (themeable) | `var(--bg-raised)` / `var(--color-dark-800)` | `#07071C` | Cards, job rows — varies by selected theme |
 
 ### Font Stack
 
-- **Headings (H1, H2):** `'Playfair Display', Georgia, serif`
-- **Display / Numbers:** `'Space Grotesk', system-ui, sans-serif`
-- **Body / UI:** `'Inter', system-ui, -apple-system, sans-serif`
-- **Metadata / Labels:** `'DM Mono', monospace`
+**Corrected 2026-08-10** — see the full correction note in §2A above (this is the real,
+currently-active stack; the previously-documented Playfair Display/Space Grotesk/Inter/DM Mono
+names are no longer referenced anywhere in `index.css`, despite still being `@import`ed):
+
+- **Headings / Display / Logo:** `"Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif`
+- **Body / UI:** `"Segoe UI", system-ui, sans-serif`
+- **Metadata / Labels:** `ui-monospace, Consolas, monospace`
 
 ### Key Measurements
 

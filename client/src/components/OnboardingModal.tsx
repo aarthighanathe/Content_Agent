@@ -2,9 +2,11 @@
 // to personalize their content generation experience. Two-step flow (brand setup → sample preview)
 // ensures users understand the value before completing setup.
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { Sparkles, ArrowRight, Check, Briefcase, Smile, Zap, BookOpen, Star } from 'lucide-react';
 import { getOnboardingStatus, completeOnboarding } from '../api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useIsMountedRef } from '../hooks/useTrackedTimeout';
 
 const TONES = [
   { id: 'professional',  label: 'Professional', Icon: Briefcase  },
@@ -28,15 +30,29 @@ export function OnboardingModal() {
   const [tone, setTone]           = useState('professional');
   const [saving, setSaving]       = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useIsMountedRef();
+  // WHY gated on authLoaded && isSignedIn: same race Dashboard.tsx/AuthLayout.tsx's
+  // own profile queries guard against — without this, the request could fire before
+  // window.Clerk.session is hydrated, get no Authorization header, and 401 (silently
+  // swallowed below as "stay hidden", but still a wasted round-trip on every mount).
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
 
   useEffect(() => {
+    if (!authLoaded || !isSignedIn) return;
     // Skip if already dismissed in this session
     if (sessionStorage.getItem('ca_onboarding_dismissed')) return;
 
     getOnboardingStatus()
-      .then(({ completed }) => { if (!completed) setShow(true); })
+      .then(({ completed }) => {
+        // WHY guarded: a slow request resolving after this component has
+        // already unmounted (e.g. the user navigated away quickly) would
+        // otherwise call setShow on an unmounted component — same pattern as
+        // HashtagPanel.tsx's fetchHashtags.
+        if (!isMountedRef.current) return;
+        if (!completed) setShow(true);
+      })
       .catch(() => { /* no auth yet or network fail — stay hidden */ });
-  }, []);
+  }, [isMountedRef, authLoaded, isSignedIn]);
 
   async function handleComplete() {
     setSaving(true);
@@ -169,6 +185,7 @@ export function OnboardingModal() {
                   Brand or Creator Name
                 </label>
                 <input
+                  className="raw-input-focus-visible"
                   type="text"
                   value={brandName}
                   onChange={(e) => setBrandName(e.target.value)}

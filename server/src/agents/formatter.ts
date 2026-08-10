@@ -76,10 +76,14 @@ function formatCarousel(slides: WriterCarouselResponse): FormattedCarouselRespon
       }
     }
 
-    // Max 80 words per slide body — enough for detailed, specific copy
+    // WHY 65, not 80: writer.ts's prompt (and CLAUDE.md §9) specify a 45-60
+    // word target per slide body — this truncation is a second enforcement
+    // layer, not the primary limit, so it allows a small overshoot (writer
+    // output routinely lands a few words over its own target) without
+    // permitting the +33% drift the old 80-word cap silently tolerated.
     const words = (formatted.body || '').split(/\s+/);
-    if (words.length > 80) {
-      formatted.body = words.slice(0, 80).join(' ') + '…';
+    if (words.length > 65) {
+      formatted.body = words.slice(0, 65).join(' ') + '…';
     }
 
     // Preserve structured points array if present

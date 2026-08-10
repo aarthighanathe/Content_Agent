@@ -291,6 +291,23 @@ ${slides.map((s, i) => `<div class="slide">
     return true;
   });
 
+  // WHY "Rendering N slides…", not a fake "slide N of M" counter: the server
+  // renders every slide and zips them in one request, returning a single blob
+  // at the end — there's no real per-slide completion signal reaching the
+  // client without new backend plumbing (SSE/polling), which this fix
+  // deliberately avoids adding. LoadingView.tsx's own packetLabel() comment
+  // states progress UI here must never show fabricated numbers — showing the
+  // real, already-known slide count (no false claim of live completion
+  // tracking) is the honest version of "give this format more detail than a
+  // bare spinner," closing the gap with LoadingView's per-stage detail
+  // without inventing progress the client doesn't actually have.
+  function exportingLabel(formatId: string): string {
+    if (formatId === 'png' && Array.isArray(content)) {
+      return `Rendering ${content.length} slide${content.length === 1 ? '' : 's'}…`;
+    }
+    return 'Saving…';
+  }
+
   return (
     <>
       {/* Backdrop */}
@@ -385,9 +402,10 @@ ${slides.map((s, i) => `<div class="slide">
                     color: state === 'done' ? 'var(--color-success)' : state === 'error' ? 'var(--color-error)' : recommended ? 'var(--accent)' : 'var(--text-secondary)',
                     borderRadius: 8, padding: '7px 12px', cursor: state === 'exporting' ? 'wait' : 'pointer',
                     fontSize: 12, fontWeight: 600, transition: 'all .18s', minWidth: 80, justifyContent: 'center',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  {state === 'exporting' && <><ExportSpinner /> Saving…</>}
+                  {state === 'exporting' && <><ExportSpinner /> {exportingLabel(fmt.id)}</>}
                   {state === 'done'      && <><CheckCircle size={11} /> Saved!</>}
                   {state === 'error'     && 'Error'}
                   {state === 'idle'      && <><Download size={11} /> Download</>}

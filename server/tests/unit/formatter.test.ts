@@ -54,18 +54,18 @@ describe('runFormatter — instagram_carousel', () => {
     expect(last.cta.action).toBeTruthy();
   });
 
-  it('body > 80 words is truncated with ellipsis', async () => {
+  it('body > 65 words is truncated with ellipsis', async () => {
     const { runFormatter } = await import('../../src/agents/formatter.js');
     const slides = [makeSlide({ body: longBody(100) }), makeSlide()];
     const result = await runFormatter(makeJob('instagram_carousel'), slides) as any[];
     const words = result[0].body.split(/\s+/);
     expect(result[0].body.endsWith('…')).toBe(true);
-    expect(words.length).toBe(80);
+    expect(words.length).toBe(65);
   });
 
-  it('body with exactly 80 words is NOT truncated', async () => {
+  it('body with exactly 65 words is NOT truncated', async () => {
     const { runFormatter } = await import('../../src/agents/formatter.js');
-    const slides = [makeSlide({ body: longBody(80) }), makeSlide()];
+    const slides = [makeSlide({ body: longBody(65) }), makeSlide()];
     const result = await runFormatter(makeJob('instagram_carousel'), slides) as any[];
     expect(result[0].body.endsWith('…')).toBe(false);
   });

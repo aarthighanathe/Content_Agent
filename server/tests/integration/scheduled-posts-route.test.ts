@@ -148,6 +148,22 @@ vi.mock('../../src/routes/jobs/ownership.js', () => ({
     }
     return { id: jobId, userId: owner };
   }),
+  // WHY a real-ish implementation, not a blind pass-through: scheduledPosts.ts
+  // now imports the shared requireDbUser (extracted from this file's own
+  // former local copy, plus collections.ts's identical one, plus the
+  // feedMonitors.ts bug fix that motivated consolidating all three) — this
+  // mirrors its actual db/userId/UUID checks so the "no DB user" and
+  // "malformed jobId param" test cases below still exercise real behavior.
+  requireDbUser: vi.fn((req: any, res: any, featureLabel: string) => {
+    const userId = req.dbUserId;
+    const isValidUUID = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    if (!userId || !isValidUUID(userId)) {
+      res.status(503).json({ error: `${featureLabel} requires a database connection`, code: 'DB_UNAVAILABLE', retryable: true });
+      return null;
+    }
+    return userId;
+  }),
+  isValidUUID: (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v),
 }));
 
 // ─── App factory ──────────────────────────────────────────────────────────

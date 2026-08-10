@@ -44,6 +44,11 @@ export function useLibraryData() {
   const [deleteJobError, setDeleteJobError] = useState('');
   const [bulkDeleteError, setBulkDeleteError] = useState('');
   const [failedJobIds, setFailedJobIds] = useState<string[]>([]);
+  // WHY a confirm-pending id, same pattern as deleteJobConfirm above: collection
+  // delete previously fired the mutation directly on click with zero
+  // confirmation step — the single highest-severity UX finding in the
+  // 2026-08-10 audit run.
+  const [deleteCollectionConfirm, setDeleteCollectionConfirm] = useState<{ id: string; name: string } | null>(null);
 
   // WHY unified toast (#45): CSV export previously gave no visible feedback on success
   // and silently swallowed Blob/download errors. Same { message, isError? } | null shape
@@ -119,9 +124,19 @@ export function useLibraryData() {
     onSuccess: (_data, collectionId) => {
       queryClient.invalidateQueries({ queryKey: ['library', 'collections'] });
       if (activeCollectionId === collectionId) setActiveCollectionId(null);
+      setDeleteCollectionConfirm(null);
       flashToast('Collection deleted');
     },
-    onError: () => flashToast('Failed to delete collection — please try again.', true),
+    // WHY closes the modal on failure too (unlike deleteJobMutation, which
+    // keeps its modal open with a persistent error prop): this mutation
+    // already had an established toast-based error convention (matching
+    // createCollectionMutation right above) before the confirm step was
+    // added — the toast is sufficient feedback, and the delete (X) button on
+    // the pill remains available to retry without reopening a modal.
+    onError: () => {
+      setDeleteCollectionConfirm(null);
+      flashToast('Failed to delete collection — please try again.', true);
+    },
   });
 
   const addToCollectionMutation = useMutation({
@@ -350,5 +365,6 @@ export function useLibraryData() {
     collections, collectionsLoading: collectionsQuery.isLoading,
     activeCollectionId, setActiveCollectionId,
     createCollectionMutation, deleteCollectionMutation, addToCollectionMutation,
+    deleteCollectionConfirm, setDeleteCollectionConfirm,
   };
 }

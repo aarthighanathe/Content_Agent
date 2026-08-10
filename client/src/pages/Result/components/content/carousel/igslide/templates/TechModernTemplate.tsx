@@ -143,13 +143,18 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
             </p>
           )}
 
-          {/* Points with tech bullet style */}
+          {/* Points with tech bullet style — flex:1/minHeight:0/overflow:hidden
+              so a long list clips within the fixed frame instead of pushing
+              the bottom tech bar below off it. */}
           {slide.points && slide.points.length > 0 && (
             <div
               style={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: spacing.gap,
+                flex: 1,
+                minHeight: 0,
+                overflow: 'hidden',
               }}
             >
               {slide.points.map((point, i) => (

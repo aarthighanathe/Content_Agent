@@ -119,7 +119,10 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
             </p>
           )}
 
-          {/* Points with creative layout */}
+          {/* Points with creative layout — flex:1/minHeight:0/overflow:hidden
+              so a long list clips gracefully within the frame instead of only
+              being caught by TemplateLayout's own outer clip (which would cut
+              off mid-point rather than the list shrinking to fit). */}
           {slide.points && slide.points.length > 0 && (
             <div
               style={{
@@ -127,6 +130,9 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: spacing.gap,
+                flex: 1,
+                minHeight: 0,
+                overflow: 'hidden',
               }}
             >
               {slide.points.map((point, i) => (

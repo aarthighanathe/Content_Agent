@@ -8,6 +8,7 @@ import insightsRouter from './insights.js';
 import versionsRouter from './versions.js';
 import listRouter from './list.js';
 import manageRouter from './manage.js';
+import regenerateRouter from './regenerate.js';
 
 const router = Router();
 
@@ -64,7 +65,8 @@ router.use('/', renderRouter);    // POST /:jobId/export/carousel-png
 router.use('/', insightsRouter);  // GET /audience-defaults — must precede manageRouter's GET /:jobId
 router.use('/', versionsRouter);  // GET /:jobId/versions, POST /:jobId/versions/:versionId/restore
 router.use('/', listRouter);      // GET / — paginated, searchable, filterable, sortable job list
-router.use('/', manageRouter);    // GET /:jobId, DELETE /:jobId, PATCH /:jobId/content, POST /:jobId/regenerate, POST /:jobId/multiply
+router.use('/', manageRouter);    // GET /:jobId, DELETE /:jobId, PATCH /:jobId/tag, /:jobId/carousel-template, /:jobId/content
+router.use('/', regenerateRouter); // POST /:jobId/regenerate, POST /:jobId/multiply
 
 export { jobsMemory } from './ownership.js';
 export { runPipelineDirect } from './create.js';

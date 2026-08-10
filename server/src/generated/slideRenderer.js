@@ -12700,619 +12700,631 @@ function FeaturesLayout({ slide, colors }) {
   ] });
 }
 
-// src/lib/templateSystem.ts
-var TEMPLATES = {
-  "modern-minimal": {
-    id: "modern-minimal",
-    name: "Modern Minimal",
-    description: "Clean, spacious design with large typography and subtle decorative lines",
-    category: "minimal",
-    typography: {
-      headingFont: "Plus Jakarta Sans",
-      bodyFont: "Plus Jakarta Sans",
-      headingWeight: 700,
-      bodyWeight: 400,
-      headingSize: 32,
-      bodySize: 14,
-      letterSpacing: 0
-    },
-    spacing: {
-      padding: 32,
-      gap: 16,
-      sectionSpacing: 24
-    },
-    layout: {
-      coverStyle: "centered",
-      contentStyle: "card",
-      decorativeElements: ["thin-lines", "numbered-steps"]
-    },
-    colorPalettes: [
-      {
-        id: "ocean-blue",
-        name: "Ocean Blue",
-        colors: {
-          primary: "#3B82F6",
-          secondary: "#1E40AF",
-          accent: "#60A5FA",
-          background: "#F0F9FF",
-          text: "#1E3A8A"
-        }
-      },
-      {
-        id: "forest-green",
-        name: "Forest Green",
-        colors: {
-          primary: "#10B981",
-          secondary: "#065F46",
-          accent: "#34D399",
-          background: "#ECFDF5",
-          text: "#064E3B"
-        }
-      },
-      {
-        id: "slate-gray",
-        name: "Slate Gray",
-        colors: {
-          primary: "#64748B",
-          secondary: "#334155",
-          accent: "#94A3B8",
-          background: "#F8FAFC",
-          text: "#1E293B"
-        }
-      }
-    ],
-    defaultPaletteIndex: 0
+// src/lib/templates/modernMinimal.ts
+var modernMinimal = {
+  id: "modern-minimal",
+  name: "Modern Minimal",
+  description: "Clean, spacious design with large typography and subtle decorative lines",
+  typography: {
+    headingFont: "Plus Jakarta Sans",
+    bodyFont: "Plus Jakarta Sans",
+    headingWeight: 700,
+    bodyWeight: 400,
+    headingSize: 32,
+    bodySize: 14,
+    letterSpacing: 0
   },
-  "bold-statement": {
-    id: "bold-statement",
-    name: "Bold Statement",
-    description: "High-contrast, attention-grabbing design with dramatic spacing",
-    category: "bold",
-    typography: {
-      headingFont: "DM Sans",
-      bodyFont: "DM Sans",
-      headingWeight: 800,
-      bodyWeight: 500,
-      headingSize: 36,
-      bodySize: 15,
-      letterSpacing: -0.5
-    },
-    spacing: {
-      padding: 28,
-      gap: 20,
-      sectionSpacing: 28
-    },
-    layout: {
-      coverStyle: "full-bleed",
-      contentStyle: "highlight",
-      decorativeElements: ["geometric-shapes", "bold-borders"]
-    },
-    colorPalettes: [
-      {
-        id: "electric-orange",
-        name: "Electric Orange",
-        colors: {
-          primary: "#FF6B35",
-          secondary: "#E85D04",
-          accent: "#FF9F1C",
-          background: "#FFF7ED",
-          text: "#1C1917"
-        }
-      },
-      {
-        id: "vivid-purple",
-        name: "Vivid Purple",
-        colors: {
-          primary: "#8B5CF6",
-          secondary: "#7C3AED",
-          accent: "#A78BFA",
-          background: "#F5F3FF",
-          text: "#1E1B4B"
-        }
-      },
-      {
-        id: "crimson-red",
-        name: "Crimson Red",
-        colors: {
-          primary: "#DC2626",
-          secondary: "#B91C1C",
-          accent: "#EF4444",
-          background: "#FEF2F2",
-          text: "#450A0A"
-        }
-      }
-    ],
-    defaultPaletteIndex: 0
+  spacing: {
+    padding: 32,
+    gap: 16,
+    sectionSpacing: 24
   },
-  "editorial-classic": {
-    id: "editorial-classic",
-    name: "Editorial Classic",
-    description: "Magazine-style layout with elegant serif headings",
-    category: "editorial",
-    typography: {
-      headingFont: "Playfair Display",
-      bodyFont: "Plus Jakarta Sans",
-      headingWeight: 700,
-      bodyWeight: 400,
-      headingSize: 34,
-      bodySize: 14,
-      letterSpacing: 0.5
-    },
-    spacing: {
-      padding: 36,
-      gap: 18,
-      sectionSpacing: 26
-    },
-    layout: {
-      coverStyle: "split",
-      contentStyle: "card",
-      decorativeElements: ["quote-marks", "dividers", "drop-caps"]
-    },
-    colorPalettes: [
-      {
-        id: "warm-gold",
-        name: "Warm Gold",
-        colors: {
-          primary: "#D97706",
-          secondary: "#92400E",
-          accent: "#F59E0B",
-          background: "#FFFBEB",
-          text: "#451A03"
-        }
-      },
-      {
-        id: "classic-burgundy",
-        name: "Classic Burgundy",
-        colors: {
-          primary: "#881337",
-          secondary: "#4C0519",
-          accent: "#BE123C",
-          background: "#FFF1F2",
-          text: "#4A044E"
-        }
-      },
-      {
-        id: "navy-cream",
-        name: "Navy Cream",
-        colors: {
-          primary: "#1E3A8A",
-          secondary: "#1E40AF",
-          accent: "#3B82F6",
-          background: "#EFF6FF",
-          text: "#172554"
-        }
-      }
-    ],
-    defaultPaletteIndex: 0
+  layout: {
+    coverStyle: "centered",
+    contentStyle: "card"
   },
-  "tech-modern": {
-    id: "tech-modern",
-    name: "Tech Modern",
-    description: "Clean, tech-focused design with grid layouts and monospace accents",
-    category: "modern",
-    typography: {
-      headingFont: "Inter",
-      bodyFont: "DM Sans",
-      headingWeight: 600,
-      bodyWeight: 400,
-      headingSize: 30,
-      bodySize: 14,
-      letterSpacing: -0.25
-    },
-    spacing: {
-      padding: 30,
-      gap: 16,
-      sectionSpacing: 22
-    },
-    layout: {
-      coverStyle: "centered",
-      contentStyle: "list",
-      decorativeElements: ["grid-patterns", "code-accents"]
-    },
-    colorPalettes: [
-      {
-        id: "cyber-cyan",
-        name: "Cyber Cyan",
-        colors: {
-          primary: "#06B6D4",
-          secondary: "#0891B2",
-          accent: "#22D3EE",
-          background: "#ECFEFF",
-          text: "#164E63"
-        }
-      },
-      {
-        id: "matrix-green",
-        name: "Matrix Green",
-        colors: {
-          primary: "#22C55E",
-          secondary: "#16A34A",
-          accent: "#4ADE80",
-          background: "#F0FDF4",
-          text: "#14532D"
-        }
-      },
-      {
-        id: "neon-pink",
-        name: "Neon Pink",
-        colors: {
-          primary: "#EC4899",
-          secondary: "#DB2777",
-          accent: "#F472B6",
-          background: "#FDF2F8",
-          text: "#831843"
-        }
+  colorPalettes: [
+    {
+      id: "ocean-blue",
+      name: "Ocean Blue",
+      colors: {
+        primary: "#3B82F6",
+        secondary: "#1E40AF",
+        accent: "#60A5FA",
+        background: "#F0F9FF",
+        text: "#1E3A8A"
       }
-    ],
-    defaultPaletteIndex: 0
-  },
-  "vibrant-pop": {
-    id: "vibrant-pop",
-    name: "Vibrant Pop",
-    description: "Colorful, energetic design with playful elements and rounded corners",
-    category: "modern",
-    typography: {
-      headingFont: "Plus Jakarta Sans",
-      bodyFont: "Plus Jakarta Sans",
-      headingWeight: 700,
-      bodyWeight: 500,
-      headingSize: 32,
-      bodySize: 15,
-      letterSpacing: 0
     },
-    spacing: {
-      padding: 32,
-      gap: 18,
-      sectionSpacing: 24
-    },
-    layout: {
-      coverStyle: "centered",
-      contentStyle: "card",
-      decorativeElements: ["colorful-blobs", "emoji-accents"]
-    },
-    colorPalettes: [
-      {
-        id: "sunset-gradient",
-        name: "Sunset Gradient",
-        colors: {
-          primary: "#F97316",
-          secondary: "#FB923C",
-          accent: "#FDBA74",
-          background: "#FFF7ED",
-          text: "#7C2D12"
-        }
-      },
-      {
-        id: "berry-blast",
-        name: "Berry Blast",
-        colors: {
-          primary: "#A855F7",
-          secondary: "#C084FC",
-          accent: "#E879F9",
-          background: "#FAF5FF",
-          text: "#581C87"
-        }
-      },
-      {
-        id: "tropical-mint",
-        name: "Tropical Mint",
-        colors: {
-          primary: "#14B8A6",
-          secondary: "#2DD4BF",
-          accent: "#5EEAD4",
-          background: "#F0FDFA",
-          text: "#134E4A"
-        }
+    {
+      id: "forest-green",
+      name: "Forest Green",
+      colors: {
+        primary: "#10B981",
+        secondary: "#065F46",
+        accent: "#34D399",
+        background: "#ECFDF5",
+        text: "#064E3B"
       }
-    ],
-    defaultPaletteIndex: 0
-  },
-  "luxury-dark": {
-    id: "luxury-dark",
-    name: "Luxury Dark",
-    description: "Premium dark theme with gold/metallic accents and elegant spacing",
-    category: "classic",
-    typography: {
-      headingFont: "Playfair Display",
-      bodyFont: "Inter",
-      headingWeight: 600,
-      bodyWeight: 400,
-      headingSize: 32,
-      bodySize: 14,
-      letterSpacing: 0.5
     },
-    spacing: {
-      padding: 36,
-      gap: 20,
-      sectionSpacing: 28
-    },
-    layout: {
-      coverStyle: "minimal",
-      contentStyle: "minimal",
-      decorativeElements: ["metallic-gradients", "thin-borders"]
-    },
-    colorPalettes: [
-      {
-        id: "gold-black",
-        name: "Gold Black",
-        colors: {
-          primary: "#F59E0B",
-          secondary: "#D97706",
-          accent: "#FBBF24",
-          background: "#0A0A0A",
-          text: "#FAFAF9"
-        }
-      },
-      {
-        id: "silver-charcoal",
-        name: "Silver Charcoal",
-        colors: {
-          primary: "#9CA3AF",
-          secondary: "#6B7280",
-          accent: "#D1D5DB",
-          background: "#0F0F0F",
-          text: "#F3F4F6"
-        }
-      },
-      {
-        id: "bronze-midnight",
-        name: "Bronze Midnight",
-        colors: {
-          primary: "#B45309",
-          secondary: "#92400E",
-          accent: "#D97706",
-          background: "#0C0A09",
-          text: "#FAFAF9"
-        }
+    {
+      id: "slate-gray",
+      name: "Slate Gray",
+      colors: {
+        primary: "#64748B",
+        secondary: "#334155",
+        accent: "#94A3B8",
+        background: "#F8FAFC",
+        text: "#1E293B"
       }
-    ],
-    defaultPaletteIndex: 0
-  },
-  "clean-corporate": {
-    id: "clean-corporate",
-    name: "Clean Corporate",
-    description: "Professional, business-focused design with structured layouts",
-    category: "minimal",
-    typography: {
-      headingFont: "Inter",
-      bodyFont: "Inter",
-      headingWeight: 600,
-      bodyWeight: 400,
-      headingSize: 30,
-      bodySize: 14,
-      letterSpacing: 0
-    },
-    spacing: {
-      padding: 32,
-      gap: 16,
-      sectionSpacing: 24
-    },
-    layout: {
-      coverStyle: "split",
-      contentStyle: "card",
-      decorativeElements: ["icon-accents", "progress-bars"]
-    },
-    colorPalettes: [
-      {
-        id: "professional-blue",
-        name: "Professional Blue",
-        colors: {
-          primary: "#2563EB",
-          secondary: "#1D4ED8",
-          accent: "#3B82F6",
-          background: "#EFF6FF",
-          text: "#1E3A8A"
-        }
-      },
-      {
-        id: "trust-gray",
-        name: "Trust Gray",
-        colors: {
-          primary: "#475569",
-          secondary: "#334155",
-          accent: "#64748B",
-          background: "#F8FAFC",
-          text: "#0F172A"
-        }
-      },
-      {
-        id: "growth-green",
-        name: "Growth Green",
-        colors: {
-          primary: "#059669",
-          secondary: "#047857",
-          accent: "#10B981",
-          background: "#ECFDF5",
-          text: "#064E3B"
-        }
-      }
-    ],
-    defaultPaletteIndex: 0
-  },
-  "creative-abstract": {
-    id: "creative-abstract",
-    name: "Creative Abstract",
-    description: "Artistic design with organic shapes and asymmetric layouts",
-    category: "modern",
-    typography: {
-      headingFont: "DM Sans",
-      bodyFont: "Plus Jakarta Sans",
-      headingWeight: 700,
-      bodyWeight: 400,
-      headingSize: 34,
-      bodySize: 14,
-      letterSpacing: 0.25
-    },
-    spacing: {
-      padding: 30,
-      gap: 18,
-      sectionSpacing: 26
-    },
-    layout: {
-      coverStyle: "full-bleed",
-      contentStyle: "highlight",
-      decorativeElements: ["abstract-shapes", "gradient-overlays"]
-    },
-    colorPalettes: [
-      {
-        id: "artistic-gradient",
-        name: "Artistic Gradient",
-        colors: {
-          primary: "#8B5CF6",
-          secondary: "#EC4899",
-          accent: "#F43F5E",
-          background: "#FDF4FF",
-          text: "#4A044E"
-        }
-      },
-      {
-        id: "organic-earth",
-        name: "Organic Earth",
-        colors: {
-          primary: "#78716C",
-          secondary: "#57534E",
-          accent: "#A8A29E",
-          background: "#FAFAF9",
-          text: "#292524"
-        }
-      },
-      {
-        id: "dreamy-lavender",
-        name: "Dreamy Lavender",
-        colors: {
-          primary: "#A78BFA",
-          secondary: "#8B5CF6",
-          accent: "#C4B5FD",
-          background: "#F5F3FF",
-          text: "#4C1D95"
-        }
-      }
-    ],
-    defaultPaletteIndex: 0
-  },
-  "storyteller": {
-    id: "storyteller",
-    name: "Storyteller",
-    description: "Narrative-focused design with visual flow and connecting elements",
-    category: "editorial",
-    typography: {
-      headingFont: "Playfair Display",
-      bodyFont: "Plus Jakarta Sans",
-      headingWeight: 600,
-      bodyWeight: 400,
-      headingSize: 32,
-      bodySize: 14,
-      letterSpacing: 0.5
-    },
-    spacing: {
-      padding: 34,
-      gap: 18,
-      sectionSpacing: 26
-    },
-    layout: {
-      coverStyle: "centered",
-      contentStyle: "list",
-      decorativeElements: ["connecting-lines", "chapter-markers"]
-    },
-    colorPalettes: [
-      {
-        id: "story-amber",
-        name: "Story Amber",
-        colors: {
-          primary: "#D97706",
-          secondary: "#B45309",
-          accent: "#FBBF24",
-          background: "#FFFBEB",
-          text: "#451A03"
-        }
-      },
-      {
-        id: "narrative-indigo",
-        name: "Narrative Indigo",
-        colors: {
-          primary: "#4F46E5",
-          secondary: "#4338CA",
-          accent: "#6366F1",
-          background: "#EEF2FF",
-          text: "#312E81"
-        }
-      },
-      {
-        id: "tale-teal",
-        name: "Tale Teal",
-        colors: {
-          primary: "#0D9488",
-          secondary: "#0F766E",
-          accent: "#14B8A6",
-          background: "#F0FDFA",
-          text: "#134E4A"
-        }
-      }
-    ],
-    defaultPaletteIndex: 0
-  },
-  "social-media": {
-    id: "social-media",
-    name: "Social Media",
-    description: "Optimized for engagement with clear CTAs and emoji integration",
-    category: "modern",
-    typography: {
-      headingFont: "Plus Jakarta Sans",
-      bodyFont: "Plus Jakarta Sans",
-      headingWeight: 800,
-      bodyWeight: 500,
-      headingSize: 34,
-      bodySize: 15,
-      letterSpacing: 0
-    },
-    spacing: {
-      padding: 30,
-      gap: 18,
-      sectionSpacing: 24
-    },
-    layout: {
-      coverStyle: "centered",
-      contentStyle: "card",
-      decorativeElements: ["emoji-accents", "action-buttons"]
-    },
-    colorPalettes: [
-      {
-        id: "engagement-pink",
-        name: "Engagement Pink",
-        colors: {
-          primary: "#EC4899",
-          secondary: "#DB2777",
-          accent: "#F472B6",
-          background: "#FDF2F8",
-          text: "#831843"
-        }
-      },
-      {
-        id: "viral-orange",
-        name: "Viral Orange",
-        colors: {
-          primary: "#F97316",
-          secondary: "#EA580C",
-          accent: "#FB923C",
-          background: "#FFF7ED",
-          text: "#7C2D12"
-        }
-      },
-      {
-        id: "trending-blue",
-        name: "Trending Blue",
-        colors: {
-          primary: "#3B82F6",
-          secondary: "#2563EB",
-          accent: "#60A5FA",
-          background: "#EFF6FF",
-          text: "#1E3A8A"
-        }
-      }
-    ],
-    defaultPaletteIndex: 0
-  }
+    }
+  ],
+  defaultPaletteIndex: 0
 };
+
+// src/lib/templates/boldStatement.ts
+var boldStatement = {
+  id: "bold-statement",
+  name: "Bold Statement",
+  description: "High-contrast, attention-grabbing design with dramatic spacing",
+  typography: {
+    headingFont: "DM Sans",
+    bodyFont: "DM Sans",
+    headingWeight: 800,
+    bodyWeight: 500,
+    headingSize: 36,
+    bodySize: 15,
+    letterSpacing: -0.5
+  },
+  spacing: {
+    padding: 28,
+    gap: 20,
+    sectionSpacing: 28
+  },
+  layout: {
+    coverStyle: "full-bleed",
+    contentStyle: "highlight"
+  },
+  colorPalettes: [
+    {
+      id: "electric-orange",
+      name: "Electric Orange",
+      colors: {
+        primary: "#FF6B35",
+        secondary: "#E85D04",
+        accent: "#FF9F1C",
+        background: "#FFF7ED",
+        text: "#1C1917"
+      }
+    },
+    {
+      id: "vivid-purple",
+      name: "Vivid Purple",
+      colors: {
+        primary: "#8B5CF6",
+        secondary: "#7C3AED",
+        accent: "#A78BFA",
+        background: "#F5F3FF",
+        text: "#1E1B4B"
+      }
+    },
+    {
+      id: "crimson-red",
+      name: "Crimson Red",
+      colors: {
+        primary: "#DC2626",
+        secondary: "#B91C1C",
+        accent: "#EF4444",
+        background: "#FEF2F2",
+        text: "#450A0A"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templates/editorialClassic.ts
+var editorialClassic = {
+  id: "editorial-classic",
+  name: "Editorial Classic",
+  description: "Magazine-style layout with elegant serif headings",
+  typography: {
+    headingFont: "Playfair Display",
+    bodyFont: "Plus Jakarta Sans",
+    headingWeight: 700,
+    bodyWeight: 400,
+    headingSize: 34,
+    bodySize: 14,
+    letterSpacing: 0.5
+  },
+  spacing: {
+    padding: 36,
+    gap: 18,
+    sectionSpacing: 26
+  },
+  layout: {
+    coverStyle: "split",
+    contentStyle: "card"
+  },
+  colorPalettes: [
+    {
+      id: "warm-gold",
+      name: "Warm Gold",
+      colors: {
+        primary: "#D97706",
+        secondary: "#92400E",
+        accent: "#F59E0B",
+        background: "#FFFBEB",
+        text: "#451A03"
+      }
+    },
+    {
+      id: "classic-burgundy",
+      name: "Classic Burgundy",
+      colors: {
+        primary: "#881337",
+        secondary: "#4C0519",
+        accent: "#BE123C",
+        background: "#FFF1F2",
+        text: "#4A044E"
+      }
+    },
+    {
+      id: "navy-cream",
+      name: "Navy Cream",
+      colors: {
+        primary: "#1E3A8A",
+        secondary: "#1E40AF",
+        accent: "#3B82F6",
+        background: "#EFF6FF",
+        text: "#172554"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templates/techModern.ts
+var techModern = {
+  id: "tech-modern",
+  name: "Tech Modern",
+  description: "Clean, tech-focused design with grid layouts and monospace accents",
+  typography: {
+    headingFont: "Inter",
+    bodyFont: "DM Sans",
+    headingWeight: 600,
+    bodyWeight: 400,
+    headingSize: 30,
+    bodySize: 14,
+    letterSpacing: -0.25
+  },
+  spacing: {
+    padding: 30,
+    gap: 16,
+    sectionSpacing: 22
+  },
+  layout: {
+    coverStyle: "centered",
+    contentStyle: "list"
+  },
+  colorPalettes: [
+    {
+      id: "cyber-cyan",
+      name: "Cyber Cyan",
+      colors: {
+        primary: "#06B6D4",
+        secondary: "#0891B2",
+        accent: "#22D3EE",
+        background: "#ECFEFF",
+        text: "#164E63"
+      }
+    },
+    {
+      id: "matrix-green",
+      name: "Matrix Green",
+      colors: {
+        primary: "#22C55E",
+        secondary: "#16A34A",
+        accent: "#4ADE80",
+        background: "#F0FDF4",
+        text: "#14532D"
+      }
+    },
+    {
+      id: "neon-pink",
+      name: "Neon Pink",
+      colors: {
+        primary: "#EC4899",
+        secondary: "#DB2777",
+        accent: "#F472B6",
+        background: "#FDF2F8",
+        text: "#831843"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templates/vibrantPop.ts
+var vibrantPop = {
+  id: "vibrant-pop",
+  name: "Vibrant Pop",
+  description: "Colorful, energetic design with playful elements and rounded corners",
+  typography: {
+    headingFont: "Plus Jakarta Sans",
+    bodyFont: "Plus Jakarta Sans",
+    headingWeight: 700,
+    bodyWeight: 500,
+    headingSize: 32,
+    bodySize: 15,
+    letterSpacing: 0
+  },
+  spacing: {
+    padding: 32,
+    gap: 18,
+    sectionSpacing: 24
+  },
+  layout: {
+    coverStyle: "centered",
+    contentStyle: "card"
+  },
+  colorPalettes: [
+    {
+      id: "sunset-gradient",
+      name: "Sunset Gradient",
+      colors: {
+        primary: "#F97316",
+        secondary: "#FB923C",
+        accent: "#FDBA74",
+        background: "#FFF7ED",
+        text: "#7C2D12"
+      }
+    },
+    {
+      id: "berry-blast",
+      name: "Berry Blast",
+      colors: {
+        primary: "#A855F7",
+        secondary: "#C084FC",
+        accent: "#E879F9",
+        background: "#FAF5FF",
+        text: "#581C87"
+      }
+    },
+    {
+      id: "tropical-mint",
+      name: "Tropical Mint",
+      colors: {
+        primary: "#14B8A6",
+        secondary: "#2DD4BF",
+        accent: "#5EEAD4",
+        background: "#F0FDFA",
+        text: "#134E4A"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templates/luxuryDark.ts
+var luxuryDark = {
+  id: "luxury-dark",
+  name: "Luxury Dark",
+  description: "Premium dark theme with gold/metallic accents and elegant spacing",
+  typography: {
+    headingFont: "Playfair Display",
+    bodyFont: "Inter",
+    headingWeight: 600,
+    bodyWeight: 400,
+    headingSize: 32,
+    bodySize: 14,
+    letterSpacing: 0.5
+  },
+  spacing: {
+    padding: 36,
+    gap: 20,
+    sectionSpacing: 28
+  },
+  layout: {
+    coverStyle: "minimal",
+    contentStyle: "minimal"
+  },
+  colorPalettes: [
+    {
+      id: "gold-black",
+      name: "Gold Black",
+      colors: {
+        primary: "#F59E0B",
+        secondary: "#D97706",
+        accent: "#FBBF24",
+        background: "#0A0A0A",
+        text: "#FAFAF9"
+      }
+    },
+    {
+      id: "silver-charcoal",
+      name: "Silver Charcoal",
+      colors: {
+        primary: "#9CA3AF",
+        secondary: "#6B7280",
+        accent: "#D1D5DB",
+        background: "#0F0F0F",
+        text: "#F3F4F6"
+      }
+    },
+    {
+      id: "bronze-midnight",
+      name: "Bronze Midnight",
+      colors: {
+        primary: "#B45309",
+        secondary: "#92400E",
+        accent: "#D97706",
+        background: "#0C0A09",
+        text: "#FAFAF9"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templates/cleanCorporate.ts
+var cleanCorporate = {
+  id: "clean-corporate",
+  name: "Clean Corporate",
+  description: "Professional, business-focused design with structured layouts",
+  typography: {
+    headingFont: "Inter",
+    bodyFont: "Inter",
+    headingWeight: 600,
+    bodyWeight: 400,
+    headingSize: 30,
+    bodySize: 14,
+    letterSpacing: 0
+  },
+  spacing: {
+    padding: 32,
+    gap: 16,
+    sectionSpacing: 24
+  },
+  layout: {
+    coverStyle: "split",
+    contentStyle: "card"
+  },
+  colorPalettes: [
+    {
+      id: "professional-blue",
+      name: "Professional Blue",
+      colors: {
+        primary: "#2563EB",
+        secondary: "#1D4ED8",
+        accent: "#3B82F6",
+        background: "#EFF6FF",
+        text: "#1E3A8A"
+      }
+    },
+    {
+      id: "trust-gray",
+      name: "Trust Gray",
+      colors: {
+        primary: "#475569",
+        secondary: "#334155",
+        accent: "#64748B",
+        background: "#F8FAFC",
+        text: "#0F172A"
+      }
+    },
+    {
+      id: "growth-green",
+      name: "Growth Green",
+      colors: {
+        primary: "#059669",
+        secondary: "#047857",
+        accent: "#10B981",
+        background: "#ECFDF5",
+        text: "#064E3B"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templates/creativeAbstract.ts
+var creativeAbstract = {
+  id: "creative-abstract",
+  name: "Creative Abstract",
+  description: "Artistic design with organic shapes and asymmetric layouts",
+  typography: {
+    headingFont: "DM Sans",
+    bodyFont: "Plus Jakarta Sans",
+    headingWeight: 700,
+    bodyWeight: 400,
+    headingSize: 34,
+    bodySize: 14,
+    letterSpacing: 0.25
+  },
+  spacing: {
+    padding: 30,
+    gap: 18,
+    sectionSpacing: 26
+  },
+  layout: {
+    coverStyle: "full-bleed",
+    contentStyle: "highlight"
+  },
+  colorPalettes: [
+    {
+      id: "artistic-gradient",
+      name: "Artistic Gradient",
+      colors: {
+        primary: "#8B5CF6",
+        secondary: "#EC4899",
+        accent: "#F43F5E",
+        background: "#FDF4FF",
+        text: "#4A044E"
+      }
+    },
+    {
+      id: "organic-earth",
+      name: "Organic Earth",
+      colors: {
+        primary: "#78716C",
+        secondary: "#57534E",
+        accent: "#A8A29E",
+        background: "#FAFAF9",
+        text: "#292524"
+      }
+    },
+    {
+      id: "dreamy-lavender",
+      name: "Dreamy Lavender",
+      colors: {
+        primary: "#A78BFA",
+        secondary: "#8B5CF6",
+        accent: "#C4B5FD",
+        background: "#F5F3FF",
+        text: "#4C1D95"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templates/storyteller.ts
+var storyteller = {
+  id: "storyteller",
+  name: "Storyteller",
+  description: "Narrative-focused design with visual flow and connecting elements",
+  typography: {
+    headingFont: "Playfair Display",
+    bodyFont: "Plus Jakarta Sans",
+    headingWeight: 600,
+    bodyWeight: 400,
+    headingSize: 32,
+    bodySize: 14,
+    letterSpacing: 0.5
+  },
+  spacing: {
+    padding: 34,
+    gap: 18,
+    sectionSpacing: 26
+  },
+  layout: {
+    coverStyle: "centered",
+    contentStyle: "list"
+  },
+  colorPalettes: [
+    {
+      id: "story-amber",
+      name: "Story Amber",
+      colors: {
+        primary: "#D97706",
+        secondary: "#B45309",
+        accent: "#FBBF24",
+        background: "#FFFBEB",
+        text: "#451A03"
+      }
+    },
+    {
+      id: "narrative-indigo",
+      name: "Narrative Indigo",
+      colors: {
+        primary: "#4F46E5",
+        secondary: "#4338CA",
+        accent: "#6366F1",
+        background: "#EEF2FF",
+        text: "#312E81"
+      }
+    },
+    {
+      id: "tale-teal",
+      name: "Tale Teal",
+      colors: {
+        primary: "#0D9488",
+        secondary: "#0F766E",
+        accent: "#14B8A6",
+        background: "#F0FDFA",
+        text: "#134E4A"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templates/socialMedia.ts
+var socialMedia = {
+  id: "social-media",
+  name: "Social Media",
+  description: "Optimized for engagement with clear CTAs and emoji integration",
+  typography: {
+    headingFont: "Plus Jakarta Sans",
+    bodyFont: "Plus Jakarta Sans",
+    headingWeight: 800,
+    bodyWeight: 500,
+    headingSize: 34,
+    bodySize: 15,
+    letterSpacing: 0
+  },
+  spacing: {
+    padding: 30,
+    gap: 18,
+    sectionSpacing: 24
+  },
+  layout: {
+    coverStyle: "centered",
+    contentStyle: "card"
+  },
+  colorPalettes: [
+    {
+      id: "engagement-pink",
+      name: "Engagement Pink",
+      colors: {
+        primary: "#EC4899",
+        secondary: "#DB2777",
+        accent: "#F472B6",
+        background: "#FDF2F8",
+        text: "#831843"
+      }
+    },
+    {
+      id: "viral-orange",
+      name: "Viral Orange",
+      colors: {
+        primary: "#F97316",
+        secondary: "#EA580C",
+        accent: "#FB923C",
+        background: "#FFF7ED",
+        text: "#7C2D12"
+      }
+    },
+    {
+      id: "trending-blue",
+      name: "Trending Blue",
+      colors: {
+        primary: "#3B82F6",
+        secondary: "#2563EB",
+        accent: "#60A5FA",
+        background: "#EFF6FF",
+        text: "#1E3A8A"
+      }
+    }
+  ],
+  defaultPaletteIndex: 0
+};
+
+// src/lib/templateData.ts
+var TEMPLATES = {
+  "modern-minimal": modernMinimal,
+  "bold-statement": boldStatement,
+  "editorial-classic": editorialClassic,
+  "tech-modern": techModern,
+  "vibrant-pop": vibrantPop,
+  "luxury-dark": luxuryDark,
+  "clean-corporate": cleanCorporate,
+  "creative-abstract": creativeAbstract,
+  "storyteller": storyteller,
+  "social-media": socialMedia
+};
+
+// src/lib/templateSystem.ts
 function isTemplateId(id) {
   return Object.prototype.hasOwnProperty.call(TEMPLATES, id);
 }
@@ -13333,7 +13345,6 @@ var import_react = __toESM(require_react(), 1);
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 var TemplateLayout = import_react.default.forwardRef(
   function TemplateLayout2({ width, height, template, children }, ref) {
-    const { layout } = template;
     return (
       // WHY no padding/background here: every *Template.tsx component already
       // applies its own `padding: spacing.padding` and `background` to its inner
@@ -13359,8 +13370,6 @@ var TemplateLayout = import_react.default.forwardRef(
             overflow: "hidden"
           },
           "data-template": template.id,
-          "data-cover-style": layout.coverStyle,
-          "data-content-style": layout.contentStyle,
           children: /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(
             "div",
             {
@@ -13678,7 +13687,10 @@ var BoldStatementTemplate = import_react3.default.forwardRef(
                           style: {
                             display: "flex",
                             flexDirection: "column",
-                            gap: spacing.gap
+                            gap: spacing.gap,
+                            flex: 1,
+                            minHeight: 0,
+                            overflow: "hidden"
                           },
                           children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
                             "div",
@@ -13863,7 +13875,10 @@ var EditorialClassicTemplate = import_react4.default.forwardRef(
                   style: {
                     display: "flex",
                     flexDirection: "column",
-                    gap: spacing.gap
+                    gap: spacing.gap,
+                    flex: 1,
+                    minHeight: 0,
+                    overflow: "hidden"
                   },
                   children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
                     "div",
@@ -14065,7 +14080,10 @@ var TechModernTemplate = import_react5.default.forwardRef(
                         style: {
                           display: "flex",
                           flexDirection: "column",
-                          gap: spacing.gap
+                          gap: spacing.gap,
+                          flex: 1,
+                          minHeight: 0,
+                          overflow: "hidden"
                         },
                         children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
                           "div",
@@ -14244,7 +14262,10 @@ var VibrantPopTemplate = import_react6.default.forwardRef(
                   style: {
                     display: "flex",
                     flexDirection: "column",
-                    gap: spacing.gap
+                    gap: spacing.gap,
+                    flex: 1,
+                    minHeight: 0,
+                    overflow: "hidden"
                   },
                   children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(
                     "div",
@@ -14314,7 +14335,7 @@ var VibrantPopTemplate = import_react6.default.forwardRef(
                               background: i <= index + 1 ? colors.BRAND_PRIMARY : `${colors.BRAND_PRIMARY}33`
                             }
                           },
-                          i
+                          `dot-${i}`
                         ))
                       }
                     )
@@ -14514,7 +14535,10 @@ var LuxuryDarkTemplate = import_react7.default.forwardRef(
                     display: "flex",
                     flexDirection: "column",
                     gap: spacing.gap,
-                    alignItems: "center"
+                    alignItems: "center",
+                    flex: 1,
+                    minHeight: 0,
+                    overflow: "hidden"
                   },
                   children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)(
                     "div",
@@ -14689,7 +14713,10 @@ var CleanCorporateTemplate = import_react8.default.forwardRef(
                   style: {
                     display: "grid",
                     gridTemplateColumns: slide.points.length > 2 ? "1fr 1fr" : "1fr",
-                    gap: spacing.gap
+                    gap: spacing.gap,
+                    flex: 1,
+                    minHeight: 0,
+                    overflow: "hidden"
                   },
                   children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)(
                     "div",
@@ -14896,7 +14923,10 @@ var CreativeAbstractTemplate = import_react9.default.forwardRef(
                           display: "flex",
                           flexDirection: "column",
                           alignItems: "center",
-                          gap: spacing.gap
+                          gap: spacing.gap,
+                          flex: 1,
+                          minHeight: 0,
+                          overflow: "hidden"
                         },
                         children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(
                           "div",
@@ -15050,7 +15080,10 @@ var StorytellerTemplate = import_react10.default.forwardRef(
                   style: {
                     display: "flex",
                     flexDirection: "column",
-                    gap: spacing.gap
+                    gap: spacing.gap,
+                    flex: 1,
+                    minHeight: 0,
+                    overflow: "hidden"
                   },
                   children: slide.points.map((point, i) => /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(
                     "div",
@@ -15354,55 +15387,57 @@ var TEMPLATE_COMPONENTS = {
 
 // src/pages/Result/components/content/carousel/IGSlide.tsx
 var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
-var IGSlide = import_react12.default.forwardRef(
-  // NOTE: isLast stays in IGSlideProps (callers pass it) but is no longer consumed here —
-  // it only ever fed the now-removed SwipeArrow.
-  function IGSlide2({ slide, index, total, colors, brandName, handle, width = 420, height = 525, designPreset = 0, templateId, paletteId }, ref) {
-    const preset = DESIGN_PRESETS[Math.abs(designPreset) % DESIGN_PRESETS.length];
-    const resolvedTemplateId = templateId && isTemplateId(templateId) ? templateId : void 0;
-    const template = resolvedTemplateId ? getTemplate(resolvedTemplateId) : void 0;
-    if (resolvedTemplateId && template) {
-      const templatePalette = paletteId ? getPalette(resolvedTemplateId, paletteId) : void 0;
-      const templateColors = templatePalette ? deriveColorSystemFromPalette(templatePalette.colors) : colors;
-      const TemplateComponent = TEMPLATE_COMPONENTS[resolvedTemplateId];
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
-        TemplateComponent,
+var IGSlide = import_react12.default.memo(
+  import_react12.default.forwardRef(
+    // NOTE: isLast stays in IGSlideProps (callers pass it) but is no longer consumed here —
+    // it only ever fed the now-removed SwipeArrow.
+    function IGSlide2({ slide, index, total, colors, brandName, handle, width = 420, height = 525, designPreset = 0, templateId, paletteId }, ref) {
+      const preset = DESIGN_PRESETS[Math.abs(designPreset) % DESIGN_PRESETS.length];
+      const resolvedTemplateId = templateId && isTemplateId(templateId) ? templateId : void 0;
+      const template = resolvedTemplateId ? getTemplate(resolvedTemplateId) : void 0;
+      if (resolvedTemplateId && template) {
+        const templatePalette = paletteId ? getPalette(resolvedTemplateId, paletteId) : void 0;
+        const templateColors = templatePalette ? deriveColorSystemFromPalette(templatePalette.colors) : colors;
+        const TemplateComponent = TEMPLATE_COMPONENTS[resolvedTemplateId];
+        return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+          TemplateComponent,
+          {
+            ref,
+            slide,
+            index,
+            total,
+            colors: templateColors,
+            brandName,
+            handle,
+            width,
+            height,
+            template
+          }
+        );
+      }
+      const type = resolveType(slide, index, total);
+      const { bgMode, background } = resolveBackground(slide, index, total, preset, colors);
+      return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(
+        "div",
         {
           ref,
-          slide,
-          index,
-          total,
-          colors: templateColors,
-          brandName,
-          handle,
-          width,
-          height,
-          template
+          style: { position: "relative", width, height, flexShrink: 0, background, overflow: "hidden", display: "flex", flexDirection: "column" },
+          children: [
+            type === "cover" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(CoverLayout, { slide, index, colors, brandName, handle, preset }),
+            type === "problem" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ProblemLayout, { slide, colors }),
+            type === "solution" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(SolutionLayout, { slide, colors, brandName, handle }),
+            type === "howto" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(HowToLayout, { slide, colors }),
+            type === "features" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(FeaturesLayout, { slide, colors }),
+            (type === "content" || type === "tip" || type === "details") && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ContentLayout, { slide, index, colors, bgMode: bgMode === "light" ? "light" : "dark", preset }),
+            type === "stat" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(StatLayout, { slide, colors }),
+            type === "quote" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(QuoteLayout, { slide, index, colors }),
+            type === "cta" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(CTALayout, { slide, colors, brandName, handle }),
+            !["cover", "problem", "solution", "howto", "features", "content", "tip", "details", "stat", "quote", "cta"].includes(type) && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ContentLayout, { slide, index, colors, bgMode: bgMode === "light" ? "light" : "dark", preset })
+          ]
         }
       );
     }
-    const type = resolveType(slide, index, total);
-    const { bgMode, background } = resolveBackground(slide, index, total, preset, colors);
-    return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(
-      "div",
-      {
-        ref,
-        style: { position: "relative", width, height, flexShrink: 0, background, overflow: "hidden", display: "flex", flexDirection: "column" },
-        children: [
-          type === "cover" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(CoverLayout, { slide, index, colors, brandName, handle, preset }),
-          type === "problem" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ProblemLayout, { slide, colors }),
-          type === "solution" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(SolutionLayout, { slide, colors, brandName, handle }),
-          type === "howto" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(HowToLayout, { slide, colors }),
-          type === "features" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(FeaturesLayout, { slide, colors }),
-          (type === "content" || type === "tip" || type === "details") && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ContentLayout, { slide, index, colors, bgMode: bgMode === "light" ? "light" : "dark", preset }),
-          type === "stat" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(StatLayout, { slide, colors }),
-          type === "quote" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(QuoteLayout, { slide, index, colors }),
-          type === "cta" && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(CTALayout, { slide, colors, brandName, handle }),
-          !["cover", "problem", "solution", "howto", "features", "content", "tip", "details", "stat", "quote", "cta"].includes(type) && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(ContentLayout, { slide, index, colors, bgMode: bgMode === "light" ? "light" : "dark", preset })
-        ]
-      }
-    );
-  }
+  )
 );
 
 // src/ssr/fonts/PlusJakartaSans-latin.woff2

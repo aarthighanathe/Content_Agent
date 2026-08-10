@@ -4,7 +4,6 @@ import { useClerk, useUser } from '@clerk/clerk-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
 import { updateBrandVoice, getProfile, analyzeVoice, getSocialConnections, disconnectSocial, exportMyData, deleteMyAccount } from '../api';
-import { useAppStore } from '../store';
 import type { ContentDna } from '../types/api';
 import { IdentityCard } from './Brand/IdentityCard';
 import { VoiceCard } from './Brand/VoiceCard';
@@ -13,6 +12,7 @@ import { ContentDnaCard } from './Brand/ContentDnaCard';
 import { PublishingConnectionsCard } from './Brand/PublishingConnectionsCard';
 import { DangerZoneCard } from './Brand/DangerZoneCard';
 import { DeleteAccountModal } from './Brand/DeleteAccountModal';
+import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { BRAND_STYLES } from './Brand/brandStyles';
 import { loadDnaHistory, saveDnaHistory } from './Brand/dnaHistory';
 import type { DnaHistoryEntry } from './Brand/dnaHistory';
@@ -24,10 +24,6 @@ import type { DnaHistoryEntry } from './Brand/dnaHistory';
 const PROFILE_QUERY_KEY = ['dashboard', 'profile'];
 
 export default function BrandSettings() {
-  // WHY selector form: setUserProfile is a stable action; the no-selector form
-  // subscribed this page to the whole store, re-rendering on every currentJob
-  // SSE tick / theme change (perf audit).
-  const setUserProfile = useAppStore((s) => s.setUserProfile);
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { signOut } = useClerk();
@@ -45,6 +41,12 @@ export default function BrandSettings() {
   const [dnaError, setDnaError]                   = useState('');
   const [dnaHistory, setDnaHistory]               = useState<DnaHistoryEntry[]>([]);
   const [disconnectingPlatform, setDisconnectingPlatform] = useState<string | null>(null);
+  // WHY a confirm-pending platform, same rationale as Library's collection-delete
+  // fix: disconnect previously fired the mutation directly on click with zero
+  // confirmation step (2026-08-10 audit — the same highest-severity UX finding
+  // as the collection-delete case, since both are silent, irreversible-feeling
+  // destructive actions with no undo).
+  const [disconnectConfirm, setDisconnectConfirm] = useState<string | null>(null);
   const [exportError, setExportError]             = useState('');
   const [showDeleteModal, setShowDeleteModal]     = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -149,8 +151,7 @@ export default function BrandSettings() {
 
   const updateBrandVoiceMutation = useMutation({
     mutationFn: updateBrandVoice,
-    onSuccess: (_data, variables) => {
-      setUserProfile({ brandName: variables.brandName, brandVoice: variables.brandVoice, phrasesUse: variables.phrasesUse, phrasesAvoid: variables.phrasesAvoid });
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
       flashToast('Brand settings saved!');
     },
@@ -195,6 +196,7 @@ export default function BrandSettings() {
       queryClient.setQueryData(['social', 'connections'], (prev: { connections: typeof socialConnections } | undefined) =>
         prev ? { connections: prev.connections.map(c => c.platform === platform ? { ...c, connected: false, displayName: null } : c) } : prev
       );
+      setDisconnectConfirm(null);
       flashToast(`${platform} disconnected`, false, 2500);
     },
     // WHY now has an onError toast: this used to swallow disconnect failures silently
@@ -202,7 +204,11 @@ export default function BrandSettings() {
     // still showed the platform as connected with no explanation if the request failed,
     // which reads as "did my click even register?" Reuses the same flashToast used for
     // every other Brand.tsx outcome instead of adding a second notification mechanism.
+    // WHY also closes the confirm modal here (not just on success): matches the
+    // collection-delete confirm's error-handling convention — the toast is
+    // sufficient feedback, and the Disconnect button remains available to retry.
     onError: (_err, platform) => {
+      setDisconnectConfirm(null);
       flashToast(`Failed to disconnect ${platform} — please try again.`, true, 4000);
     },
   });
@@ -235,7 +241,9 @@ export default function BrandSettings() {
     },
   });
 
-  function handleDisconnect(platform: string) {
+  function handleConfirmDisconnect() {
+    if (!disconnectConfirm) return;
+    const platform = disconnectConfirm;
     setDisconnectingPlatform(platform);
     disconnectSocialMutation.mutate(platform, { onSettled: () => setDisconnectingPlatform(null) });
   }
@@ -337,7 +345,7 @@ export default function BrandSettings() {
         <PublishingConnectionsCard
           socialConnections={socialConnections}
           disconnectingPlatform={disconnectingPlatform}
-          onDisconnect={handleDisconnect}
+          onDisconnect={(platform) => setDisconnectConfirm(platform)}
           isLoading={socialConnectionsQuery.isLoading}
           isError={socialConnectionsQuery.isError}
           onRetry={() => { socialConnectionsQuery.refetch().catch(() => {}); }}
@@ -397,6 +405,18 @@ export default function BrandSettings() {
           {toast.isError ? <AlertCircle size={12} /> : <Check size={12} />}
           {toast.message}
         </div>
+      )}
+
+      {disconnectConfirm && (
+        <ConfirmDeleteModal
+          title={`Disconnect ${disconnectConfirm}?`}
+          message="You'll need to reconnect before you can post to this account again."
+          confirmLabel="Disconnect"
+          pendingLabel="Disconnecting…"
+          onCancel={() => setDisconnectConfirm(null)}
+          onConfirm={handleConfirmDisconnect}
+          isPending={disconnectSocialMutation.isPending}
+        />
       )}
 
       {showDeleteModal && (

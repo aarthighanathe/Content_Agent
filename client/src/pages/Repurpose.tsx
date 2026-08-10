@@ -363,6 +363,7 @@ export default function RepurposePage() {
               Target Audience <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, opacity: 0.6 }}>(optional)</span>
             </label>
             <input
+              className="raw-input-focus-visible"
               type="text"
               placeholder="e.g. B2B marketers, startup founders, freelance designers"
               value={audience}

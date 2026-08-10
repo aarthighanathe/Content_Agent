@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Lightbulb } from 'lucide-react';
 import { generateIdeas, getCompetitorHistory, regenerateIdea } from '../api';
+import { getSubmitError } from '../lib/errorMessages';
 import { navigateToCreate, timeAgo } from '../lib/utils';
 import { SkeletonCard } from '../components/SkeletonCard';
 import { useAppStore } from '../store';
@@ -55,16 +56,16 @@ export default function IdeatePage() {
       const activeAnalysisId = useCompetitorGaps ? competitorAnalysisId : undefined;
       const { ideas: newIdeas } = await generateIdeas(count, focusTopic.trim() || undefined, activeAnalysisId);
       setIdeas(newIdeas);
-    } catch {
+    } catch (err) {
       // WHY context-aware copy (#40): when ideas already exist and regeneration fails,
       // a generic error banner reads ambiguously — the user can't tell whether the old
-      // ideas are still actionable or have been cleared. The message now explicitly
-      // acknowledges the previous ideas are still shown and usable.
-      setError(
-        ideas.length > 0
-          ? "Couldn't generate new ideas — here are your last ones. Try again when ready."
-          : 'Failed to generate ideas — please try again.'
-      );
+      // ideas are still actionable or have been cleared. The fallback explicitly
+      // acknowledges the previous ideas are still shown and usable; getSubmitError still
+      // takes priority for a real server-provided reason (rate limit, validation).
+      const fallback = ideas.length > 0
+        ? "Couldn't generate new ideas — here are your last ones. Try again when ready."
+        : 'Failed to generate ideas — please try again.';
+      setError(getSubmitError(err, fallback).message);
     }
     setLoading(false);
   }
@@ -91,8 +92,8 @@ export default function IdeatePage() {
       const activeAnalysisId = useCompetitorGaps ? competitorAnalysisId : undefined;
       const newIdea = await regenerateIdea(focusTopic.trim() || undefined, excludeTitles, activeAnalysisId);
       setIdeas(ideas.map((idea, i) => (i === index ? newIdea : idea)));
-    } catch {
-      setError('Failed to regenerate that idea — please try again.');
+    } catch (err) {
+      setError(getSubmitError(err, 'Failed to regenerate that idea — please try again.').message);
     }
     setRegeneratingIndex(null);
   }

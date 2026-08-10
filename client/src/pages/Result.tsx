@@ -178,7 +178,13 @@ export default function ResultPage() {
     () => deriveColorSystem(THEME_ACCENTS[colorTheme] ?? THEME_ACCENTS[0]),
     [colorTheme],
   );
-  const designPreset = useCarouselDesignSeed(isCarousel ? content : undefined);
+  // WHY !templateId: IGSlide only reads designPreset on the legacy (no-template) render
+  // branch — once a carousel has a template system id, the value is computed and passed
+  // down but never read (see IGSlide.tsx's template branch). Every template-system carousel
+  // was still paying for a full localStorage read/hash/write cycle here for a value nobody
+  // uses. Passing undefined short-circuits the hook's useMemo/useEffect to their cheap
+  // no-op branches (isCarousel = false) without changing its return type or call signature.
+  const designPreset = useCarouselDesignSeed(isCarousel && !templateId ? content : undefined);
 
   const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
   const { copied, copyAllText } = useExport(content);

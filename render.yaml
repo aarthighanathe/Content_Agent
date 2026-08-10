@@ -5,8 +5,14 @@ services:
     plan: free
     rootDir: server
     buildCommand: npm install --include=dev && npm --prefix ../client install --include=dev && npm run build
+    # WHY preDeployCommand, not folded into buildCommand: Render runs this after a successful
+    # build but before traffic is cut over to the new deploy, and (unlike buildCommand) it fails
+    # the deploy outright if the command exits non-zero — a broken migration blocks the rollout
+    # instead of shipping a server whose code expects a schema that was never applied. See
+    # CLAUDE.md §12 for what to do if this step fails mid-deploy.
+    preDeployCommand: npm run db:migrate
     startCommand: npm start
-    healthCheckPath: /api/health
+    healthCheckPath: /api/ready
     envVars:
       - key: NODE_ENV
         value: production

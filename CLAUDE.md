@@ -51,7 +51,12 @@
 - NEVER use `as SomeType` cast without a null/type check before it
 - ALWAYS define return types on all functions (no implicit returns)
 - ALWAYS define prop types for every React component
-- ALL API response types must have a corresponding TypeScript interface in client/src/types/ or server/src/types/
+- ALL API response types must have a corresponding TypeScript interface: genuinely cross-cutting
+  client types go in client/src/types/ (job.ts, api.ts, collection.ts, etc.); server types are
+  colocated in the module that owns them (e.g. AuthRequest in middleware/auth.ts, MemoryJob in
+  routes/jobs/ownership.ts) — there is no server/src/types/ directory (removed 2026-08-10, was
+  empty and unused; don't recreate it without an actual cross-cutting type that needs a home
+  outside any single module)
 
 ### Null Safety
 - ALWAYS handle null/undefined before accessing properties — use optional chaining (?.) AND provide a fallback (?? defaultValue)
@@ -154,7 +159,8 @@
 - New hooks go in client/src/hooks/ (shared) or page folder (page-specific)
 - New server utilities go in server/src/lib/
 - New zod schemas go in server/src/schemas/
-- New TypeScript types go in client/src/types/ or server/src/types/
+- New cross-cutting TypeScript types go in client/src/types/; server-side types are colocated in
+  the module that owns them (no server/src/types/ — see Type Safety rules above)
 - No file should exceed 400 lines — split before it gets there
 
 ### Formatting
@@ -231,9 +237,15 @@ When adding any new feature, automatically do ALL of these:
 >
 > **Companion documents (also in repo root):**
 > - `ARCHITECTURE.md` — verified current-state data flows; more detail than this file's diagrams, and the first place to check if this file's architecture description ever seems to disagree with the actual code
-> - `REVIEW_FINDINGS.md` — open issues from the most recent full-codebase review; check before assuming a subsystem is bug-free, and update it (move fixed rows to `CHANGELOG.md`) as you fix things
 > - `CHANGELOG.md` — dated history; **add an entry here for every change you make**, however small
 > - `UI_UX_DOCUMENTATION.md` — full design-system reference + brand differentiation analysis
+>
+> There is no `REVIEW_FINDINGS.md` in this repo (retired 2026-08-10 — every audit in that day's
+> 18-audit run independently confirmed it didn't exist despite being referenced here as a live
+> document; open work is now tracked per-audit-run, e.g. `AUDIT_FINDINGS_2026-08-10.md` +
+> `prompts/FIX_AUDIT_FINDINGS.md`'s checkboxes, with fixes recorded directly in `CHANGELOG.md`).
+> Don't add cross-references to it unless the file is recreated in the same change — same
+> discipline already applied to `docs/`/`ROADMAP.md` on 2026-07-28.
 
 ---
 
@@ -243,7 +255,7 @@ ContentAgent is an **AI-powered social media content generation SaaS**. Given a 
 
 **Target users:** Solo creators, marketers, and small teams who need high-quality, brand-consistent social content at volume.
 
-**Development stage:** Post-Phase-4 — all planned features shipped and security-audited. No formal roadmap document is tracked; see `CHANGELOG.md` for shipped work and `REVIEW_FINDINGS.md` for open items.
+**Development stage:** Post-Phase-4 — all planned features shipped and security-audited. No formal roadmap document is tracked; see `CHANGELOG.md` for shipped work. Open items live in the most recent audit-run file (e.g. `AUDIT_FINDINGS_2026-08-10.md`) and its companion fix-tracking prompt, not a standing `REVIEW_FINDINGS.md` (retired 2026-08-10 — see §10).
 
 **Core value props:**
 - Brand voice learning (persist tone, vocabulary, phrases)
@@ -376,6 +388,15 @@ All slides render in parallel (Promise.allSettled) → zipped with jszip → dow
 - `server/src/lib/carouselSsr.ts` — bridges the SSR bundle to the Puppeteer renderer above
 - `server/src/routes/jobs/render.ts` — the single remaining route: `POST /:jobId/export/carousel-png`
 
+**Live preview is responsive; export is not (deliberately).** `IGCarouselPreview.tsx`'s design
+width/height (420×525) used to be hardcoded pixel constants passed straight through to
+`IGSlide`/`TemplateLayout`, overflowing horizontally below ~452px viewports (fixed 2026-08-10).
+The preview now observes its container via `ResizeObserver` and scales the rendered frame down
+(never up, 4:5 ratio preserved) to fit narrow viewports. The SSR export path
+(`ssr/renderSlideHtml.tsx`'s own `SLIDE_WIDTH`/`SLIDE_HEIGHT`) is intentionally untouched by this
+— PNG export always renders at the fixed 1080×1350 design size regardless of what the live
+preview is currently scaled to.
+
 ---
 
 ## 4. Folder Structure (Current)
@@ -399,7 +420,11 @@ e:/AGContentAgent/
 │   └── src/
 │       ├── App.tsx                     ← Router + ClerkProvider + QueryClientProvider
 │       ├── api.ts                      ← All Axios API functions; Clerk JWT interceptor
-│       ├── store.ts                    ← Zustand: currentJob (SSE state), userProfile
+│       ├── store.ts                    ← Zustand: currentJob (SSE state), ideatedIdeas/savedIdeas,
+│       │                                 themeName. No `userProfile` slice (removed 2026-08-10 —
+│       │                                 was a second, staleness-prone copy of the same profile
+│       │                                 React Query already caches under `['dashboard','profile']`;
+│       │                                 every consumer now reads that query directly instead)
 │       ├── index.css                   ← Tailwind 4 + Midnight Aurora CSS variables
 │       ├── main.tsx                    ← React 19 entry point
 │       │
@@ -414,8 +439,19 @@ e:/AGContentAgent/
 │       │   ├── colorSystem.ts          ← Accent color derivation for carousel previews + palette→ColorSystem
 │       │   │                             mapping (`deriveColorSystemFromPalette`) + `getContrastColor`/
 │       │   │                             `getContrastRgba` (WCAG-luminance text contrast) — see §11a
-│       │   ├── templateSystem.ts       ← Carousel template catalog: 10 templates × 3 palettes each,
-│       │   │                             `TemplateId` union, `getTemplate`/`getPalette`/`isTemplateId` — see §11a
+│       │   ├── templateSystem.ts       ← Carousel template catalog public surface: `TemplateId` union,
+│       │   │                             type defs, `getTemplate`/`getPalette`/`getDefaultPalette`/
+│       │   │                             `isTemplateId` (110 lines — see §11a). The actual `TEMPLATES`
+│       │   │                             data record was split out (was 722 lines combined) into
+│       │   │                             `templateData.ts` (assembles the record) + `templates/*.ts`
+│       │   │                             (one file per template, ~63 lines each) below.
+│       │   ├── templateData.ts         ← Assembles `TEMPLATES: Record<TemplateId, CarouselTemplate>`
+│       │   │                             from `templates/*.ts`; re-exported by `templateSystem.ts`
+│       │   ├── templates/              ← One file per carousel template (modernMinimal.ts,
+│       │   │                             boldStatement.ts, editorialClassic.ts, techModern.ts,
+│       │   │                             vibrantPop.ts, luxuryDark.ts, cleanCorporate.ts,
+│       │   │                             creativeAbstract.ts, storyteller.ts, socialMedia.ts) —
+│       │   │                             each exports one `CarouselTemplate` object; see §11a
 │       │   └── carouselStorageKeys.ts  ← Shared `CAROUSEL_TEMPLATE_KEY`/`CAROUSEL_PALETTE_KEY` localStorage
 │       │                                 key names (Create.tsx and Result.tsx both read/write these)
 │       │
@@ -543,17 +579,32 @@ e:/AGContentAgent/
         │   │   ├── create.ts           ← POST /create, POST /batch + pipeline fallback
         │   │   ├── stream.ts           ← GET /:id/stream (SSE) + POST /:id/stream-token
         │   │   ├── render.ts           ← POST /:id/export/carousel-png (SSR-based ZIP export)
+        │   │   ├── insights.ts         ← GET /audience-defaults — learned per-platform targetAudience
+        │   │   │                          default from the user's last 40 completed jobs (most-frequent,
+        │   │   │                          not most-recent — see file's own WHY); Create.tsx's fallback when
+        │   │   │                          no learned default exists yet is a static AUDIENCE_DEFAULTS map
         │   │   ├── list.ts             ← GET / — paginated/searchable/filterable/sortable job list
         │   │   ├── versions.ts         ← GET /:id/versions, POST /:id/versions/:versionId/restore (Library version history)
-        │   │   ├── manage.ts           ← GET /:id, DELETE, PATCH, regenerate (snapshots a version), multiply
-        │   │   └── ownership.ts        ← requireJobOwnership(); jobsMemory Map
+        │   │   ├── manage.ts           ← GET /:id, DELETE, PATCH /:id/tag, PATCH /:id/carousel-template,
+        │   │   │                          PATCH /:id/content (312 lines — split 2026-08-10, was 473;
+        │   │   │                          regenerate/multiply extracted to regenerate.ts below, this file's
+        │   │   │                          second time regrowing past the 400-line cap and being re-split)
+        │   │   ├── regenerate.ts       ← POST /:id/regenerate (snapshots a version first), POST /:id/multiply
+        │   │   │                          — extracted from manage.ts 2026-08-10, same sub-router pattern as
+        │   │   │                          list.ts/versions.ts's earlier extractions from the same file
+        │   │   └── ownership.ts        ← requireJobOwnership(); jobsMemory Map; requireDbUser() (shared
+        │   │                              db+UUID-userId guard for non-:jobId user-scoped routes — used
+        │   │                              by scheduledPosts.ts/collections.ts/feedMonitors.ts, added
+        │   │                              2026-08-10 to stop the three files' near-identical guards from
+        │   │                              diverging, which had caused feedMonitors.ts to hang with zero
+        │   │                              response on a DB outage instead of a real 503)
         │   ├── content.ts              ← thin router mounting content/* below
         │   ├── content/                ← Modular content-tool routes (split from a single content.ts file)
         │   │   ├── ideate.ts           ← POST /ideate
         │   │   ├── hashtags.ts         ← POST /hashtags
         │   │   ├── repurpose.ts        ← POST /repurpose (+ shared fetchAndExtractArticle/createJobsForPlatforms, reused by feedMonitorWorker.ts)
         │   │   ├── competitor.ts       ← POST /competitor
-        │   │   └── shared.ts           ← readOutputs/sanitizeContentDeep/parseAIJson — canonical copies imported by jobs/manage.ts too
+        │   │   └── shared.ts           ← readOutputs/sanitizeContentDeep/parseAIJson — canonical copies imported by jobs/manage.ts and jobs/regenerate.ts too
         │   ├── users.ts                ← thin router mounting users/* below
         │   ├── users/                  ← Modular user-profile routes (split from a single users.ts file)
         │   │   ├── brandVoice.ts       ← POST /brand-voice, POST /analyze-voice (Content DNA)
@@ -619,7 +670,8 @@ e:/AGContentAgent/
 > in this file, `README.md`, and `CONTRIBUTING.md` — all three have since been corrected to
 > stop pointing at paths that don't exist, rather than inventing placeholder content for them.
 > Root-level docs that DO exist today: `CLAUDE.md` (this file), `README.md`, `CHANGELOG.md`,
-> `CONTRIBUTING.md`, `UI_UX_DOCUMENTATION.md`, `ARCHITECTURE.md`, `REVIEW_FINDINGS.md`.
+> `CONTRIBUTING.md`, `UI_UX_DOCUMENTATION.md`, `ARCHITECTURE.md`. (`REVIEW_FINDINGS.md` was
+> retired 2026-08-10 — see §10.)
 > If a real roadmap or docs/ tree gets introduced later, update every cross-reference in the
 > same change — don't let this drift happen again.
 
@@ -635,7 +687,7 @@ e:/AGContentAgent/
 | Brand voice | `routes/users.ts`, `agents/writer.ts` | Injected into writer + critic prompts |
 | Real-time SSE | `lib/sse.ts`, `LoadingView.tsx`, `hooks/useJobData.ts` | Fallback to polling on reconnect |
 | Critic loop | `agents/critic.ts` | Score ≥ 70 to approve; max 2 retries |
-| Content multiplication | `routes/jobs/manage.ts` | Reuses existing research report |
+| Content multiplication | `routes/jobs/regenerate.ts` | Reuses existing research report |
 | Social OAuth | `routes/social.ts`, `lib/tokenEncryption.ts` | Tokens AES-256-GCM encrypted at rest |
 | Public demo | `routes/demo.ts` | No auth; 3/hour per IP; truncated output |
 | Feed monitors (RSS auto-repurpose) | `routes/feedMonitors.ts`, `workers/feedMonitorWorker.ts`, `client/src/pages/Repurpose/FeedMonitorPanel.tsx` | Subscribe an RSS/Atom feed URL; a node-cron worker polls it every 30 min (or on-demand via "Check now") and auto-creates a Repurpose job for the newest unseen item, reusing `repurpose.ts`'s article-extraction + SSRF-guarded fetch. Gated by `contentRateLimit` on the `/check` route since it triggers the same 5-agent pipeline as Repurpose. |
@@ -734,12 +786,25 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 
 - Puppeteer pool max 8 — renders beyond this queue, timeout at 60s
 - BullMQ concurrency 2 — at most 2 jobs run simultaneously
+- **Worker-crash recovery is configured but not yet live-verified (as of 2026-08-10).**
+  `lib/queue.ts`'s `content-generation` queue sets `attempts: 3` with exponential backoff
+  (1s base delay); `workers/contentWorker.ts`'s `Worker` leaves BullMQ's `stalledInterval`/
+  `maxStalledCount` at library defaults (30s / 1) — on paper this means a worker process killed
+  mid-job should have that job detected as stalled within ~30s and automatically requeued onto
+  another worker, up to 3 total attempts before landing in `failed`. **This has not been
+  confirmed against a real killed process** — `production-readiness-checklist.md` names this the
+  single highest-value live test to run before the next deploy: on staging, `kill -9` the worker
+  process mid-pipeline-run and confirm the job requeues cleanly or fails visibly rather than
+  silently vanishing. Update this entry with the actual outcome once run.
 - Demo: 3 generations/hour per IP
 - Writer enforces 45-60 word limit per carousel slide body; critic does not re-check this
 - Content Multiplication reuses existing research — stale research propagates
 - Neon cold starts: first DB call after idle stalls 1-2s
 - On Railway/Render/Fly.io: set `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` + configure `executablePath`
-- `TOKEN_ENCRYPTION_KEY` must be exactly 32 bytes — generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+- `TOKEN_ENCRYPTION_KEY` must be exactly 32 bytes — generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+  **Required, not optional** (fixed 2026-08-10 — `config.ts` previously allowed it to be unset, in
+  which case `routes/social.ts` silently stored OAuth tokens in plaintext instead of failing; the
+  server now refuses to boot without it, matching `OAUTH_STATE_SECRET`'s existing hard-fail pattern).
 - SSE does not replay missed events on reconnect — client falls back to polling `GET /api/jobs/:id`.
   On an SSE connection error, the client now re-fetches a fresh stream-token and reopens the
   connection itself (`useJobData.ts`'s `connectToStream(..., onError)`) rather than relying solely
@@ -757,8 +822,12 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   platform stays exactly the old planning-only behavior. Choosing a platform (via `DayDetailPanel`'s
   "Auto-publish…" control, only shown when the user has a connected LinkedIn/Twitter account) queues
   a BullMQ delayed job (`lib/publishQueue.ts`, queue `scheduled-publish`) that fires at a fixed daily
-  hour (9am UTC — `PUBLISH_HOUR_UTC` in `scheduledPosts.ts`; no time-of-day picker yet) on the
-  scheduled date. `workers/publishWorker.ts` then calls the real platform post API, sharing the exact
+  hour (9am — `PUBLISH_HOUR_UTC` in `scheduledPosts.ts`; no time-of-day picker yet) **in the
+  scheduling user's own timezone**, not always UTC (fixed 2026-08-10 — `calendarHelpers.ts`'s
+  `useSchedule()` now sends `timezoneOffsetMinutes` alongside `scheduledDate` on every schedule
+  call, since `scheduledDate` itself is built from the browser's *local* calendar day while
+  `publishDelayMs()` used to always interpret it as a UTC day, misfiring auto-publish by hours).
+  `workers/publishWorker.ts` then calls the real platform post API, sharing the exact
   same posting logic (`lib/socialPublish.ts`) as the interactive `POST /api/social/post` route, and
   records the outcome back onto the row (`posted` + `postUrl`, or `failed` + `publishError`) so the
   Calendar can show a status badge. Deliberately NOT unified with `social.ts`'s separate in-memory
@@ -776,21 +845,30 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 | `CONTRIBUTING.md` | Contribution workflow, commit/PR conventions | Yes |
 | `UI_UX_DOCUMENTATION.md` | Full design-system reference + differentiation analysis | Yes |
 | `ARCHITECTURE.md` | Accurate, current system architecture (companion to this file — see note below) | Yes |
-| `REVIEW_FINDINGS.md` | Open findings from the most recent full-codebase review; move fixed items to `CHANGELOG.md` | Yes |
 | `docs/archive/` | Closed-out, point-in-time audit docs kept for historical record (not living docs — see below) | **No — see correction below** |
 
 There is no `ROADMAP.md` in this repo — don't add cross-references to it unless the file is
 created in the same change. This table used to list five planned-but-never-created `docs/*`
-files and a `ROADMAP.md`; the 2026-07-28 review (`REVIEW_FINDINGS.md` §1.9) found every reference
-to them was dangling, so they were removed rather than stubbed out. `CHANGELOG.md` records that a
-`docs/archive/` directory was added the same day, with `FUNCTIONAL_AUDIT_2026-07.md` and
-`UI_UX_AUDIT_2026-07.md` moved into it once both had been fully implemented — but a later doc-drift
-pass found neither `docs/` nor either archived file actually present in the repo today, despite
-that. **Treat `docs/archive/` as not existing until someone re-creates it** (either restore the
-directory and the two archived files, or strip the remaining references — see §4 folder listing
-above, which still shows it). `REVIEW_FINDINGS.md` stayed at root regardless — unlike those two,
-it's a **live** open-issues tracker updated in place, not a point-in-time snapshot, so archiving it
-would misrepresent open work as resolved history.
+files and a `ROADMAP.md`; the 2026-07-28 review found every reference to them was dangling, so
+they were removed rather than stubbed out. `CHANGELOG.md` records that a `docs/archive/`
+directory was added the same day, with `FUNCTIONAL_AUDIT_2026-07.md` and `UI_UX_AUDIT_2026-07.md`
+moved into it once both had been fully implemented — but a later doc-drift pass found neither
+`docs/` nor either archived file actually present in the repo today, despite that. **Treat
+`docs/archive/` as not existing until someone re-creates it** (either restore the directory and
+the two archived files, or strip the remaining references — see §4 folder listing above, which
+still shows it).
+
+**`REVIEW_FINDINGS.md` was retired 2026-08-10** — it was supposed to be a live open-issues
+tracker updated in place (fixed rows moved to `CHANGELOG.md`, per this table's old row for it),
+but every audit in that day's 18-audit full-codebase run independently confirmed the file itself
+had never actually existed, despite being referenced throughout this file as current. Rather than
+recreate it as a fourth place to track open work, the team decided to retire it: open items from
+an audit run now live in that run's own findings file (e.g. `AUDIT_FINDINGS_2026-08-10.md`) plus
+a companion fix-tracking prompt (e.g. `prompts/FIX_AUDIT_FINDINGS.md`) with per-item checkboxes,
+and fixes are recorded directly in `CHANGELOG.md` as they land — no separate standing tracker
+file. If a future audit round wants a persistent cross-run backlog again, introduce it
+deliberately (new name, real content) rather than resurrecting a reference to a file that was
+dangling for at least two consecutive full-codebase reviews.
 
 **Why this file (CLAUDE.md) can drift from the real codebase:** architecture sections here are
 hand-written and only updated when someone remembers to. The 2026-07-28 review found this file
@@ -878,8 +956,12 @@ entry for what broke and why):
   array index — a point's identity should survive reordering/editing in `EditSlideModal.tsx`.
 
 **To add an 11th template:**
-1. Add the id to `TemplateId` in `templateSystem.ts`, plus a `TEMPLATES[id]` entry
-   (typography, spacing, layout, 3+ `colorPalettes`, `defaultPaletteIndex`).
+1. Add the id to `TemplateId` in `templateSystem.ts` (types/helpers only — 110 lines as of
+   2026-08-10's split, see below). Create a new `lib/templates/yourTemplate.ts` exporting a
+   `CarouselTemplate` object (typography, spacing, layout, 3+ `colorPalettes`,
+   `defaultPaletteIndex` — copy an existing file's shape, e.g. `templates/modernMinimal.ts`),
+   then register it in `lib/templateData.ts`'s `TEMPLATES` record, which
+   `templateSystem.ts` re-exports.
 2. Add the same id to `VALID_TEMPLATE_IDS`/`templateIdEnum` in `server/src/schemas/jobs.ts`
    (mirrored server-side since the server can't import client TypeScript — same pattern as
    `VALID_TONES` in that file) so `templateId` stays enum-validated end-to-end rather than an
@@ -967,7 +1049,27 @@ scripts, not from a Dockerfile).
 - `rootDir: server` — Render builds only the `server/` subfolder
 - `buildCommand: npm install && npm run build` — `server`'s `build` script also runs
   `client`'s `build:ssr` step (see §3), so the carousel SSR bundle stays in sync automatically
-- `healthCheckPath: /api/health` — matches the existing route in `server/src/index.ts`
+- `preDeployCommand: npm run db:migrate` (added 2026-08-10) — runs `drizzle-kit migrate` after a
+  successful build but before the new deploy is cut over to live traffic. Render treats a
+  non-zero exit here as a failed deploy (the old version keeps serving traffic), so a broken
+  migration blocks the rollout rather than shipping code that expects a schema that was never
+  applied — this was previously a manual step with no automated gate at all.
+  **If a migration fails mid-deploy:** Render's dashboard shows the failed `preDeployCommand`
+  step's output — read it first; drizzle-kit's migrate output names the specific failing SQL
+  file. The previous deploy keeps serving traffic throughout (Render never promotes a deploy
+  whose `preDeployCommand` failed), so there's no user-facing outage window to react to
+  urgently. Fix forward, don't try to hand-roll a rollback: `server/drizzle/` is the append-only
+  migration history — write a new migration that corrects the issue (or is a no-op fixup) rather
+  than editing or deleting an already-applied migration file, and redeploy. If the failure was a
+  partial apply (some but not all statements in one migration file committed — Postgres DDL is
+  transactional per Neon's defaults, so this should be rare), check Neon's dashboard for the
+  actual current schema state before writing the fixup migration, don't assume the file's
+  starting point.
+- `healthCheckPath: /api/ready` (changed 2026-08-10, was `/api/health`) — `/api/health` is an
+  unconditional 200 (liveness only: "the process is up"), so Render's restart/rollback logic
+  never observed a real DB or Redis outage through it. `/api/ready` (also in `index.ts`) pings
+  both with a 3s timeout each and returns 503 if either is unreachable, so Render's health
+  monitoring now reflects actual dependency health, not just process uptime.
 - Secret-bearing env vars are declared with `sync: false`, meaning Render prompts for their
   values in the dashboard rather than expecting them in this file
 
@@ -1045,5 +1147,31 @@ Features table, `routes/feedMonitors.ts`, `workers/feedMonitorWorker.ts`,
 `Repurpose/FeedMonitorPanel.tsx`) and its 12th `schema.ts` table (was listed as 11), and
 added `lib/ssrfGuard.ts`/`lib/sanitizeSearchText.ts` (both extracted from
 previously-duplicated inline copies during this pass) to §4.*
+
+*Updated 2026-08-10: worked through `prompts/FIX_AUDIT_FINDINGS.md` Batches 1-6 (the
+consolidated output of an 18-audit full-codebase run, `AUDIT_FINDINGS_2026-08-10.md`) —
+security/data-safety fixes (carousel mobile responsiveness, required `TOKEN_ENCRYPTION_KEY`,
+Repurpose prompt-injection sanitization, `feedMonitors.ts`'s DB-outage hang, feed-monitor
+orphan cleanup, Calendar timezone bug), production-readiness fixes (DB migrations + real
+health check wired into `render.yaml`, npm audit patches), architecture cleanup
+(`manage.ts`/`templateSystem.ts` split back under the 400-line cap, `userProfile` removed
+from Zustand in favor of React Query, `formatter.ts`'s word-limit fixed), smaller correctness
+fixes (SSE reconnect, prompt XML-wrapping, auth-cache invalidation, `browserPool.ts` routed
+through `config.ts`), and UI/UX fixes (delete/disconnect confirmations, `IdeaCard.tsx`'s
+accessibility fix, focus-visible rings, Library icon, export progress). See `CHANGELOG.md`'s
+six dated 2026-08-10 entries for full details of each batch.
+**Doc-drift corrections applied in this pass (Batch 6):** `REVIEW_FINDINGS.md` retired — every
+reference removed from this file (§0 pointer, "Development stage" line, §10 table and prose)
+since every audit in the 18-audit run confirmed the file itself never existed despite being
+cited throughout as a live tracker; open work now lives per-audit-run instead (e.g.
+`AUDIT_FINDINGS_2026-08-10.md` + its fix-tracking prompt). `UI_UX_DOCUMENTATION.md` §1A/§2A
+rewritten to describe the real 6-theme `[data-theme]` system and actual font stack (neither
+matched the doc before this pass), and 5 of its Section 10 findings marked resolved with
+verification notes. Added the previously-undocumented `routes/jobs/insights.ts`
+(`GET /audience-defaults`) to §4. Removed the empty, never-actually-used `server/src/types/`
+directory and corrected the two TypeScript rules that pointed at it — server types are
+colocated in the module that owns them (e.g. `AuthRequest` in `middleware/auth.ts`), not
+gathered in a shared types folder the way `client/src/types/` genuinely is. `CHANGELOG.md`
+also backfilled a missing entry for commit `307b3ec`, which predated this session.*
 
 *Previously updated: 2026-07-28 (all 21 Section 1 findings from `REVIEW_FINDINGS.md` fixed in this session — folder structure updated for the `Create`/`Brand`/`Landing` component splits, the `postEmbeddings` table removal, and the two dead-file deletions; `docs/`/`ROADMAP.md` cross-references removed repo-wide instead of stubbed; `IGSlide.tsx` flagged as the next oversized-file candidate. Later the same day: every fixable finding from `FUNCTIONAL_AUDIT_2026-07.md` was implemented — `users.content_dna` and `content_jobs.source_job_id`/`source_platform` added via migration `0002_cute_rogue.sql`, `GET /jobs` gained real server-side search/filter/sort, `VALID_TONES` extended to match the UI, the dead "Batch" nav entry removed, and `Section 9` above updated with the resulting known limitations. See `CHANGELOG.md` for the full dated entry. Later still: production deployment target confirmed as Vercel (client) + Render (server) + Neon + Upstash, all free tier; added `render.yaml`, `client/vercel.json`, split `client/.env.example` + `server/.env.example` out of the old root `.env.example`, relabeled `docker-compose.yml`/both Dockerfiles as local-dev-only, removed the `server/Dockerfile` line that baked `.env.example` into the image, and added this §12. See `CHANGELOG.md` for the full entry.)*

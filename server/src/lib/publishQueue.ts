@@ -57,6 +57,17 @@ export async function queuePublishJob(scheduledPostId: string, delayMs: number):
       });
     }
 
+    // WHY log a warning on a negative delay, not just silently clamp: after
+    // the scheduledPosts.ts timezone fix (dateKey now paired with the
+    // client's real UTC offset), a negative delay should no longer be a
+    // legitimate case — it previously masked the timezone bug entirely by
+    // firing the job "almost immediately" with no signal anything was wrong.
+    // Still clamped to 0 (not rejected) so a mis-scheduled post fires ASAP
+    // rather than never, matching the pre-fix behavior for any edge case not
+    // covered by the fix (e.g. an old client that never sends the offset).
+    if (delayMs < 0) {
+      logger.warn('[PublishQueue] Computed a negative publish delay — clamping to fire immediately', { scheduledPostId, delayMs });
+    }
     await queue.add('publish', { scheduledPostId }, { jobId: scheduledPostId, delay: Math.max(delayMs, 0) });
     logger.info('[PublishQueue] Publish job scheduled', { scheduledPostId, delayMs });
     return true;

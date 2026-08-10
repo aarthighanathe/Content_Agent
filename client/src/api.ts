@@ -173,7 +173,13 @@ export async function multiplyJob(jobId: string, targetPlatform: string): Promis
   return response.data;
 }
 
-export async function createBatchJobs(items: Array<{ topic: string; platform: string; tone: string; targetAudience: string }>): Promise<{ jobs: Array<{ jobId: string; topic: string; platform: string }> }> {
+export async function createBatchJobs(items: Array<{ topic: string; platform: string; tone: string; targetAudience: string }>): Promise<{
+  jobs: Array<{ jobId: string; topic: string; platform: string }>;
+  // WHY present even on a fully-successful batch: the server always returns
+  // this key (possibly empty) rather than omitting it, so callers don't need
+  // an `in`/`??` check to safely read .length.
+  failedItems: Array<{ index: number; topic: string; error: string }>;
+}> {
   const response = await api.post('/jobs/batch', { items });
   return response.data;
 }

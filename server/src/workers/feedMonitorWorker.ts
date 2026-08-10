@@ -13,7 +13,7 @@ import * as Sentry from '@sentry/node';
 import cron from 'node-cron';
 import Parser from 'rss-parser';
 import { eq } from 'drizzle-orm';
-import { feedMonitors, type FeedMonitor } from '../db/schema.js';
+import { feedMonitors, users, type FeedMonitor } from '../db/schema.js';
 import { db } from '../db/index.js';
 import { getUserProfile } from '../routes/users.js';
 import { fetchAndExtractArticle, createJobsForPlatforms } from '../routes/content/repurpose.js';
@@ -38,6 +38,22 @@ function asOptionalString(value: unknown): string | undefined {
 // user can trigger an on-demand check without waiting for the cron tick.
 export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Promise<void> {
   if (!db) return;
+
+  // DEFENSE IN DEPTH: DELETE /api/users/me now deletes this user's feedMonitors
+  // rows explicitly (feed_monitors.userId has no FK constraint, so nothing
+  // enforces this automatically). This check catches any monitor that still
+  // becomes orphaned some other way (e.g. a manual DB edit) before spending a
+  // Gemini/Tavily call on it — without it, the failure mode is the eventual
+  // job insert failing on contentJobs.userId's FK constraint, landing in the
+  // catch block below, which still advances the cursor and repeats every
+  // 30-minute tick indefinitely.
+  const owner = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { id: true } });
+  if (!owner) {
+    logger.warn('[FeedMonitor] Owning user no longer exists, deactivating monitor', { monitorId: monitor.id, userId });
+    await db.delete(feedMonitors).where(eq(feedMonitors.id, monitor.id));
+    return;
+  }
+
   const feedUrl = monitor.feedUrl;
 
   // SECURITY: feedMonitorSchema only validates feedUrl as a well-formed URL —

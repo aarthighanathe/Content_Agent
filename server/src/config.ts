@@ -40,10 +40,12 @@ const envSchema = z.object({
   // ── Security ─────────────────────────────────────────────────────────────
   // TOKEN_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).
   // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  // SECURITY: required, not optional — without it, social OAuth tokens would
+  // have no way to be encrypted at rest. Missing this must fail startup, not
+  // silently fall back to plaintext storage (see routes/social.ts's dbUpsertToken).
   TOKEN_ENCRYPTION_KEY: z
     .string()
-    .length(64, 'TOKEN_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)')
-    .optional(),
+    .length(64, 'TOKEN_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)'),
   // SECURITY: without this secret, OAuth state HMAC falls back to a hardcoded
   // dev string, making OAuth state tokens trivially forgeable. Make it required
   // in production environments — set a generous default for local dev only.
@@ -68,6 +70,16 @@ const envSchema = z.object({
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
   RATE_LIMIT_MAX_JOBS: z.string().default('10'),
+
+  // ── Puppeteer / carousel rendering ──────────────────────────────────────
+  // Explicit path to a system Chrome/Chromium install — takes priority over
+  // browserPool.ts's guessed Render-image paths. Set this on any deploy
+  // target other than Render (or if Render's known paths ever change).
+  PUPPETEER_EXECUTABLE_PATH: z.string().optional(),
+  // Set by Render's own platform (not something you configure) — used only
+  // to gate browserPool.ts's Render-specific system-Chrome path guesses so
+  // they aren't attempted on other platforms where those paths don't exist.
+  RENDER: z.string().optional(),
 });
 
 const DEV_OAUTH_STATE_SECRET = 'dev-oauth-state-secret-min-32-chars!!';

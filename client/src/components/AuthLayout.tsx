@@ -1,14 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom';
-import { SignedIn, SignedOut, RedirectToSignIn, UserButton, useUser, useAuth } from '@clerk/clerk-react';
-import { useQuery } from '@tanstack/react-query';
+import { SignedIn, SignedOut, RedirectToSignIn, UserButton, useUser } from '@clerk/clerk-react';
 import { OnboardingModal } from './OnboardingModal';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { ToolsDrawer } from './ToolsDropdown';
-import { getProfile } from '../api';
-import { useAppStore } from '../store';
+import { safeGetItem, safeSetItem } from '../lib/safeLocalStorage';
 import {
-  LayoutDashboard, Sparkles, Palette, Clock,
+  LayoutDashboard, Sparkles, Palette, BookMarked,
   PanelLeftClose, PanelLeftOpen,
   Lightbulb, Link2, Search, CalendarDays,
   MoreHorizontal,
@@ -21,7 +19,10 @@ const sidebarNav = [
   { to: '/competitor',icon: Search,          label: 'Competitor' },
   { to: '/create',    icon: Sparkles,        label: 'Create' },
   { to: '/repurpose', icon: Link2,           label: 'Repurpose' },
-  { to: '/library',   icon: Clock,           label: 'Library' },
+  // WHY BookMarked, not Clock: Clock reads as "history" (a log of past
+  // events), not "library" (a saved collection) — a quick-win icon swap
+  // flagged by the 2026-08-10 UI/UX audit.
+  { to: '/library',   icon: BookMarked,      label: 'Library' },
   { to: '/calendar',  icon: CalendarDays,    label: 'Calendar' },
   { to: '/brand',     icon: Palette,         label: 'Brand Voice' },
 ];
@@ -33,41 +34,27 @@ const sidebarNav = [
 const mobileTabItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Home' },
   { to: '/create',    icon: Sparkles,        label: 'Create' },
-  { to: '/library',   icon: Clock,           label: 'Library' },
+  { to: '/library',   icon: BookMarked,      label: 'Library' },
   { to: '/brand',     icon: Palette,         label: 'Brand' },
 ];
 
+const SIDEBAR_COLLAPSED_KEY = 'contentagent-sidebar-collapsed';
+
 export default function AuthLayout() {
-  const [collapsed, setCollapsed] = useState(false);
+  // WHY lazy initializer, not a useEffect sync: matches ThemeSwitcher/store.ts's own
+  // pattern of reading localStorage synchronously on first render — an effect-based
+  // sync would render expanded for one frame before flipping collapsed, a visible flash
+  // on every reload for users who chose collapsed.
+  const [collapsed, setCollapsedState] = useState(() => safeGetItem(SIDEBAR_COLLAPSED_KEY) === '1');
   const [moreOpen, setMoreOpen] = useState(false);
   const { user } = useUser();
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
-  const setUserProfile = useAppStore((s) => s.setUserProfile);
   const location = useLocation();
   const moreActive = ['/ideate', '/competitor', '/repurpose', '/calendar'].some((p) => location.pathname.startsWith(p));
 
-  // WHY fetched here, not just on Dashboard/Brand: userProfile (Zustand) previously
-  // only ever got populated by Brand.tsx's own save-success handler, so a returning
-  // user who had brand voice configured in a prior session — but hadn't revisited
-  // /brand this session — saw Create's "brand voice will be applied" banner claim
-  // the wrong thing (FUNCTIONAL_AUDIT_2026-07.md finding #8). This runs once per
-  // authenticated session, for every page, using the same ['dashboard','profile']
-  // query key Dashboard/Brand already share so a save on Brand still invalidates it.
-  // WHY enabled: authLoaded && isSignedIn — without this, the query fires the instant
-  // AuthLayout mounts, before Clerk has hydrated window.Clerk.session. api.ts's request
-  // interceptor then finds no session, sends no Authorization header, and the server
-  // 401s. Gating on Clerk's own loaded/signed-in state means getToken() always has a
-  // real session to read from by the time this request goes out.
-  const profileQuery = useQuery({
-    queryKey: ['dashboard', 'profile'],
-    queryFn: getProfile,
-    enabled: authLoaded && isSignedIn,
-  });
-  useEffect(() => {
-    if (!profileQuery.data) return;
-    const { brandName, brandVoice, phrasesUse, phrasesAvoid } = profileQuery.data;
-    setUserProfile({ brandName, brandVoice, phrasesUse, phrasesAvoid });
-  }, [profileQuery.data, setUserProfile]);
+  function setCollapsed(next: boolean): void {
+    setCollapsedState(next);
+    safeSetItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+  }
 
   return (
     <>

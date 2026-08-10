@@ -13,7 +13,6 @@ import { useDraft } from './Create/useDraft';
 import { useBatchCreate } from './Create/useBatchCreate';
 import { useCarouselTemplateSelection } from './Create/useCarouselTemplateSelection';
 import { getSubmitError } from './Create/errorMessages';
-import { useAppStore } from '../store';
 import type { CreateHandoff } from '../lib/utils';
 
 const RECENT_TOPICS_KEY  = 'ca_recent_topics';
@@ -65,7 +64,6 @@ export default function CreatePage() {
   // WHY comment for the rule this now follows (widen the type and this read
   // together, in the same change).
   const prefill     = (location.state as CreateHandoff | null) || ({} as CreateHandoff);
-  const userProfile = useAppStore((s) => s.userProfile);
 
   // Draft persists topic/platform/tone/audience across a trip to /brand and back;
   // cleared once a job is actually submitted (see handleSubmit).
@@ -103,15 +101,15 @@ export default function CreatePage() {
     (t) => t !== topic && (topic.trim() === '' || t.toLowerCase().includes(topic.toLowerCase()))
   );
 
-  const hasBrandVoice = !!(userProfile.brandName || userProfile.brandVoice);
-
-  // WHY same query key as AuthLayout.tsx's profileQuery (['dashboard', 'profile']):
-  // React Query dedupes/caches by key, so this reads the already-fetched profile
-  // instead of firing a second /users/me request. AuthLayout only copies brand-voice
-  // fields into the Zustand store, not contentDna, so it's read directly off the
-  // query here — Content DNA is sent to every job (create.ts) but this page never
-  // confirmed on-screen that it's active.
+  // WHY this exact query key (['dashboard', 'profile']): shared with
+  // Dashboard.tsx/Brand.tsx's own getProfile() query — React Query dedupes/
+  // caches by key, so this reads the already-fetched profile instead of
+  // firing a second /users/me request. Read directly off the query rather
+  // than through a Zustand copy (removed 2026-08-10 — that second copy could
+  // go stale and briefly show an out-of-date "brand voice configured" state
+  // after a save elsewhere; see CHANGELOG's dated entry).
   const profileQuery = useQuery({ queryKey: ['dashboard', 'profile'], queryFn: getProfile });
+  const hasBrandVoice = !!(profileQuery.data?.brandName || profileQuery.data?.brandVoice);
   const hasContentDna = !!profileQuery.data?.contentDna;
 
   // WHY its own query, not folded into profileQuery: audience defaults are

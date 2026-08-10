@@ -24,7 +24,62 @@ const RING_R    = 44;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
 export function InsightsSidebar({ criticResult, className, onSteer, collapsed = false, onToggle }: Props) {
-  if (!criticResult?.scores) return null;
+  // WHY an explanatory empty state, not `return null`: this used to render
+  // nothing at all — no header, no message — whenever a job had no critic
+  // result yet (e.g. still generating, or an older job predating the critic
+  // stage). On mobile, where Insights is its own tab, that made the tab look
+  // broken (a fully blank pane) rather than "there's genuinely nothing here
+  // yet" — violates the AGENT RULES "never leave a user staring at nothing."
+  if (!criticResult?.scores) {
+    if (collapsed) {
+      return (
+        <div className={['rp-sidebar', className].filter(Boolean).join(' ')} style={{ width: 48 }}>
+          <div
+            className="card-glow"
+            role="button"
+            tabIndex={0}
+            style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, flex: 1, cursor: 'pointer', userSelect: 'none' }}
+            onClick={onToggle}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle?.(); } }}
+            title="Show AI insights"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+              AI Insights
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className={['rp-sidebar', className].filter(Boolean).join(' ')}>
+        <div className="card-glow" style={{ padding: '22px 22px', flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>AI Quality Analysis</div>
+            {onToggle && (
+              <button
+                onClick={onToggle}
+                title="Collapse insights"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center', lineHeight: 1 }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, textAlign: 'center', padding: '20px 10px' }}>
+            <Sparkles size={22} style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0, maxWidth: 220 }}>
+              No quality insights available for this content yet.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Collapsed: thin strip showing score + toggle
   if (collapsed) {

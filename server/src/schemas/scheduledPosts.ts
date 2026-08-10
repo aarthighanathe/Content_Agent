@@ -44,6 +44,17 @@ export const createScheduledPostSchema = z.object({
   jobId: jobIdSchema,
   scheduledDate: scheduledPostDateSchema,
   publishPlatform: publishPlatformSchema.optional(),
+  // WHY optional, in minutes, JS Date.getTimezoneOffset() sign convention
+  // (minutes to ADD to local time to reach UTC — e.g. UTC-5 is +300): fixes
+  // the auto-publish timezone bug where the client built scheduledDate from
+  // the browser's LOCAL calendar day but the server's publishDelayMs()
+  // interpreted that same string as a UTC calendar day, so "publish at 9am"
+  // could fire up to ~16 hours off from the user's actual 9am. Optional so an
+  // older/unpatched client (or a direct API call) still works — the server
+  // falls back to treating the date as a UTC calendar day when absent, same
+  // as before this fix. Range matches every real UTC offset (UTC-12 to
+  // UTC+14 inclusive).
+  timezoneOffsetMinutes: z.number().int().min(-840).max(720).optional(),
 });
 
 export const listScheduledPostsQuerySchema = z.object({

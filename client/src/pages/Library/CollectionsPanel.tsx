@@ -13,14 +13,18 @@ interface CollectionsPanelProps {
   onSelectCollection: (id: string | null) => void;
   onCreateCollection: (name: string) => void;
   creating: boolean;
-  onDeleteCollection: (id: string) => void;
+  /** WHY (id, name), not just id: the confirm modal needs the name to show
+   *  "Delete <name>?" — requesting confirmation instead of firing the delete
+   *  mutation directly on click (2026-08-10, the highest-severity UX finding
+   *  in that audit run). */
+  onRequestDeleteCollection: (id: string, name: string) => void;
   deletingId: string | null;
   loading: boolean;
 }
 
 export function CollectionsPanel({
   collections, activeCollectionId, onSelectCollection,
-  onCreateCollection, creating, onDeleteCollection, deletingId, loading,
+  onCreateCollection, creating, onRequestDeleteCollection, deletingId, loading,
 }: CollectionsPanelProps) {
   const [showInput, setShowInput] = useState(false);
   const [draft, setDraft] = useState('');
@@ -58,7 +62,7 @@ export function CollectionsPanel({
             title={`Delete "${c.name}"`}
             aria-label={`Delete collection ${c.name}`}
             disabled={deletingId === c.id}
-            onClick={() => onDeleteCollection(c.id)}
+            onClick={() => onRequestDeleteCollection(c.id, c.name)}
           >
             {deletingId === c.id ? <Loader2 size={9} className="lib-spin" /> : <X size={9} />}
           </button>

@@ -3,6 +3,7 @@ import type { ColorSystem } from '../../../../../lib/colorSystem';
 import { IGSlide } from './IGSlide';
 import type { SlideData } from './IGSlide';
 import { EditSlideModal } from './EditSlideModal';
+import { useTrackedTimeout } from '../../../../../hooks/useTrackedTimeout';
 import { Pen, Copy, Check } from 'lucide-react';
 
 interface Props {
@@ -24,7 +25,7 @@ interface Props {
   paletteId?:      string;
 }
 
-const SLIDE_W = 420;  // skill spec design width
+const SLIDE_W = 420;  // skill spec design width — used as the max/desktop size
 const SLIDE_H = 525;  // 4:5 ratio
 
 let fontsInjected = false;
@@ -108,6 +109,31 @@ function Avatar({ name, colors, size = 38 }: { name: string; colors: ColorSystem
 
 export function IGCarouselPreview({ slides, colors, brandName, handle, currentSlide, setCurrentSlide, onSave, slideRefs, designPreset, templateId, paletteId }: Props) {
   const total = slides.length;
+  // WHY: copyAll fires from a click handler, not an effect — there's no
+  // natural cleanup point for its 2s "revert to Copy" timer, so it's tracked
+  // and cleared on unmount via the shared hook (same pattern as useSocial.ts,
+  // ExportModal.tsx, FeedMonitorPanel.tsx).
+  const pendingTimers = useTrackedTimeout();
+
+  // WHY: SLIDE_W/SLIDE_H (420x525) are the design-spec pixel size, matching the
+  // PNG export's fixed render frame. On viewports narrower than that (most
+  // phones), rendering the frame at fixed 420px overflowed horizontally with
+  // no responsive fallback — this observes the actual wrapper width and scales
+  // the frame down (never up) while keeping the 4:5 aspect ratio, so the same
+  // pixel-perfect slide components render at a smaller, still-proportional size.
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [renderW, setRenderW] = useState(SLIDE_W);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setRenderW(Math.max(240, Math.min(SLIDE_W, Math.floor(w))));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const renderH = Math.round(renderW * (SLIDE_H / SLIDE_W));
 
   const [internalSlide, setInternalSlide] = useState(currentSlide);
   useEffect(() => {
@@ -158,7 +184,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
     const text = slides.map((s, i) => `[Slide ${i + 1}]\n${stripEmoji(s.headline || '')}\n${stripEmoji(s.body || '')}`).join('\n\n---\n\n');
     navigator.clipboard.writeText(text).then(() => {
       setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 2000);
+      pendingTimers.set(() => setCopiedAll(false), 2000);
     }).catch(() => {});
   }
 
@@ -171,18 +197,19 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
     slideRefs.current.splice(0, slideRefs.current.length, ...Array<null>(total).fill(null));
   }, [total, slideRefs]);
 
-  const trackX = -(internalSlide * SLIDE_W) + (dragging ? dragOffset : 0);
+  const trackX = -(internalSlide * renderW) + (dragging ? dragOffset : 0);
   const slideType = slides[internalSlide]?.type || 'slide';
   // NOTE: the viewport used to shrink to a square when AI-rendered PNGs arrived. The
   // export is now 4:5 like these slides, so the preview stays one consistent shape.
-  const viewportH = SLIDE_H;
+  const viewportH = renderH;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, width: '100%' }}>
+    <div ref={wrapRef} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, width: '100%' }}>
 
-      {/* ── Instagram frame — 420px wide ─────────────────────────────── */}
+      {/* ── Instagram frame — up to 420px wide, scales down on narrow viewports ── */}
       <div style={{
-        width: SLIDE_W,
+        width: renderW,
+        maxWidth: '100%',
         background: 'var(--bg-card)',
         border: '1px solid var(--rule)',
         borderRadius: 14,
@@ -221,7 +248,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
         {/* ── Carousel viewport ───────────────────────────────────────── */}
         <div
           style={{
-            width: SLIDE_W, height: viewportH, overflow: 'hidden',
+            width: renderW, height: viewportH, overflow: 'hidden',
             position: 'relative',
             cursor: dragging ? 'grabbing' : 'grab',
             userSelect: 'none',
@@ -284,8 +311,8 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
                 isLast={i === total - 1}
                 brandName={brandName}
                 handle={handle}
-                width={SLIDE_W}
-                height={SLIDE_H}
+                width={renderW}
+                height={renderH}
                 designPreset={designPreset}
                 templateId={templateId}
                 paletteId={paletteId}
@@ -356,7 +383,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
 
       {/* ── Info bar below frame ─────────────────────────────────────── */}
       <div style={{
-        marginTop: 14, width: SLIDE_W,
+        marginTop: 14, width: renderW, maxWidth: '100%',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 4px',
       }}>

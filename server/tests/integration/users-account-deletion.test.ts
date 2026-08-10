@@ -72,6 +72,12 @@ const dbMock = {
   })),
 };
 
+const invalidateAuthCacheMock = vi.fn();
+vi.mock('../../src/middleware/auth.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/middleware/auth.js')>();
+  return { ...actual, invalidateAuthCache: invalidateAuthCacheMock };
+});
+
 vi.mock('../../src/db/index.js', () => ({ db: dbMock }));
 vi.mock('../../src/db/schema.js', () => ({
   users: '__users__',
@@ -85,13 +91,15 @@ vi.mock('../../src/db/schema.js', () => ({
   collections: { userId: 'collections.userId' },
   competitorAnalyses: { userId: 'competitorAnalyses.userId' },
   jobOutputVersions: { jobId: 'jobOutputVersions.jobId' },
+  feedMonitors: { userId: 'feedMonitors.userId' },
 }));
 
-function buildApp(userId?: string) {
+function buildApp(dbUserId?: string, clerkUserId?: string) {
   const app = express();
   app.use(express.json());
   app.use((req: any, _res, next) => {
-    if (userId) req.dbUserId = userId;
+    if (dbUserId) req.dbUserId = dbUserId;
+    if (clerkUserId) req.userId = clerkUserId;
     next();
   });
   return app;
@@ -137,6 +145,46 @@ describe('DELETE /api/users/me', () => {
     expect(outputsIdx).toBeGreaterThanOrEqual(0);
     expect(jobsIdx).toBeGreaterThan(agentLogsIdx);
     expect(jobsIdx).toBeGreaterThan(outputsIdx);
+  });
+
+  // Regression test for the feed-monitor orphan-and-retry-forever cost leak
+  // (AUDIT_FINDINGS_2026-08-10.md #4): feed_monitors.userId has no FK
+  // constraint, so nothing deletes it automatically — account deletion must
+  // do it explicitly or a deleted user's active monitor keeps polling and
+  // burning Gemini/Tavily quota every 30 minutes forever.
+  it('deletes the user\'s feedMonitors rows', async () => {
+    const { default: usersRouter } = await import('../../src/routes/users.js');
+    const { feedMonitors } = await import('../../src/db/schema.js');
+    const app = buildApp('user-1');
+    app.use('/api/users', usersRouter);
+    await supertest(app).delete('/api/users/me');
+
+    const deletedTables = txMock.delete.mock.calls.map((c: any[]) => c[0]);
+    expect(deletedTables).toContain(feedMonitors);
+  });
+
+  // Regression test: middleware/auth.ts's authCache maps Clerk ID -> dbUserId
+  // with a 5-minute TTL. Without evicting it on deletion, a request in that
+  // window bearing the deleted user's still-valid Clerk session token would
+  // keep resolving to a dbUserId that no longer exists.
+  it('invalidates the auth cache using the Clerk user id (req.userId), not the dbUserId', async () => {
+    const { default: usersRouter } = await import('../../src/routes/users.js');
+    const app = buildApp('user-1', 'clerk_abc123');
+    app.use('/api/users', usersRouter);
+    await supertest(app).delete('/api/users/me');
+
+    expect(invalidateAuthCacheMock).toHaveBeenCalledTimes(1);
+    expect(invalidateAuthCacheMock).toHaveBeenCalledWith('clerk_abc123');
+  });
+
+  it('does not throw if req.userId is missing (dbUserId-only auth)', async () => {
+    const { default: usersRouter } = await import('../../src/routes/users.js');
+    const app = buildApp('user-1');
+    app.use('/api/users', usersRouter);
+    const res = await supertest(app).delete('/api/users/me');
+
+    expect(res.status).toBe(200);
+    expect(invalidateAuthCacheMock).not.toHaveBeenCalled();
   });
 });
 

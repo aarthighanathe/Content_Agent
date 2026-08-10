@@ -46,6 +46,11 @@ export function FeedMonitorPanel() {
   const [form, setForm] = useState<AddFormState>(DEFAULT_FORM);
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState(false);
+  // WHY separate from `error`: that state is scoped to the add-form section and only
+  // renders while showAdd is true — a "Check now" failure needs to surface next to the
+  // specific monitor row that failed, not silently vanish (checkMutation previously had
+  // no onError at all, matching none of its sibling mutations above).
+  const [checkError, setCheckError] = useState<{ id: string; message: string } | null>(null);
 
   // WHY tracked, not a bare setTimeout: handleCheck's refresh-after-delay timer
   // used to be fired-and-forgotten with no cleanup — if the panel unmounted
@@ -83,12 +88,14 @@ export function FeedMonitorPanel() {
   const checkMutation = useMutation({
     mutationFn: (id: string) => checkFeedMonitorNow(id),
     onSuccess: () => {
+      setCheckError(null);
       // Refresh after a brief pause so lastCheckedAt updates — tracked so the
       // timeout is cleared if the panel unmounts before it fires.
       pendingTimeouts.set(() => {
         queryClient.invalidateQueries({ queryKey: ['feedMonitors'] });
       }, 2000);
     },
+    onError: (_err, id) => setCheckError({ id, message: 'Check failed — try again shortly.' }),
   });
   const checkingId = checkMutation.isPending ? checkMutation.variables : null;
 
@@ -193,6 +200,11 @@ export function FeedMonitorPanel() {
                         {m.lastError}
                       </div>
                     )}
+                    {checkError?.id === m.id && (
+                      <div style={{ fontSize: 10.5, color: 'var(--color-error)', marginTop: 2 }}>
+                        {checkError.message}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -247,6 +259,7 @@ export function FeedMonitorPanel() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <input
+                  className="raw-input-focus-visible"
                   type="url"
                   placeholder="https://example.com/feed.xml"
                   value={form.feedUrl}
@@ -259,6 +272,7 @@ export function FeedMonitorPanel() {
                   }}
                 />
                 <select
+                  className="raw-input-focus-visible"
                   value={form.platform}
                   onChange={(e) => setForm((f) => ({ ...f, platform: e.target.value }))}
                   style={{
@@ -270,6 +284,7 @@ export function FeedMonitorPanel() {
                   {PLATFORMS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
                 <select
+                  className="raw-input-focus-visible"
                   value={form.tone}
                   onChange={(e) => setForm((f) => ({ ...f, tone: e.target.value }))}
                   style={{
@@ -282,6 +297,7 @@ export function FeedMonitorPanel() {
                   {TONES.map((t) => <option key={t} value={t} style={{ textTransform: 'capitalize' }}>{t}</option>)}
                 </select>
                 <input
+                  className="raw-input-focus-visible"
                   type="text"
                   placeholder="Target audience (optional)"
                   value={form.targetAudience}

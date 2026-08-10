@@ -16,6 +16,42 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import supertest from 'supertest';
 
+// WHY mocked: repurpose.ts imports stripScriptsAndEventHandlers from
+// lib/carousel.js, which transitively imports lib/browserPool.ts, which (as
+// of the 2026-08-10 fix routing its raw process.env reads through config.ts)
+// imports config.ts at module scope — config.ts's parseEnv() runs for real
+// on import and throws if required vars are unset, which they are here.
+vi.mock('../../src/config.js', () => ({
+  env: {
+    DATABASE_URL: 'postgres://test',
+    CLERK_SECRET_KEY: 'test_secret',
+    CLERK_PUBLISHABLE_KEY: 'test_publishable',
+    GEMINI_API_KEY: 'test_key',
+    NODE_ENV: 'test',
+    PORT: '3001',
+    FRONTEND_URL: 'http://localhost:5173',
+    APP_URL: 'http://localhost:3001',
+    RATE_LIMIT_MAX_JOBS: '10',
+    OAUTH_STATE_SECRET: 'test-oauth-secret-that-is-long-enough-32',
+    OPENAI_API_KEY: undefined,
+    TOGETHER_API_KEY: undefined,
+    GROQ_API_KEY: undefined,
+    TAVILY_API_KEY: undefined,
+    LINKEDIN_CLIENT_ID: undefined,
+    LINKEDIN_CLIENT_SECRET: undefined,
+    TWITTER_CLIENT_ID: undefined,
+    TWITTER_CLIENT_SECRET: undefined,
+    UPSTASH_REDIS_URL: undefined,
+    UPSTASH_REDIS_TOKEN: undefined,
+    REDIS_URL: undefined,
+    TOKEN_ENCRYPTION_KEY: '0'.repeat(64),
+    SENTRY_DSN: undefined,
+    CORS_ORIGINS: undefined,
+    PUPPETEER_EXECUTABLE_PATH: undefined,
+    RENDER: undefined,
+  },
+}));
+
 const generateWithAIMock = vi.fn();
 vi.mock('../../src/lib/ai.js', () => ({
   generateWithAI: (...args: unknown[]) => generateWithAIMock(...args),
@@ -60,6 +96,7 @@ beforeEach(() => {
   addJobToQueueMock.mockResolvedValue(true);
   global.fetch = vi.fn().mockResolvedValue({
     ok: true,
+    headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
     text: async () => ARTICLE_HTML,
   }) as unknown as typeof fetch;
 });
@@ -153,13 +190,32 @@ describe('POST /api/content/repurpose', () => {
   });
 
   it('returns INSUFFICIENT_CONTENT when the page has too little readable text', async () => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => '<html><body>too short</body></html>' }) as unknown as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
+      text: async () => '<html><body>too short</body></html>',
+    }) as unknown as typeof fetch;
     const app = await buildApp(OWNER);
     const res = await supertest(app).post('/api/content/repurpose').send({
       url: 'https://example.com/thin', platform: 'linkedin_post', tone: 'professional', targetAudience: 'founders',
     });
     expect(res.status).toBe(422);
     expect(res.body.code).toBe('INSUFFICIENT_CONTENT');
+  });
+
+  it('returns FETCH_FAILED when the URL responds with a non-text content type (e.g. a PDF)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/pdf' }),
+      text: async () => '%PDF-1.4 binary noise',
+    }) as unknown as typeof fetch;
+    const app = await buildApp(OWNER);
+    const res = await supertest(app).post('/api/content/repurpose').send({
+      url: 'https://example.com/whitepaper.pdf', platform: 'linkedin_post', tone: 'professional', targetAudience: 'founders',
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('FETCH_FAILED');
+    expect(jobsMemoryMock.size).toBe(0);
   });
 
   it('rejects more than 5 platforms (schema cap)', async () => {

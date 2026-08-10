@@ -27,7 +27,14 @@ interface BatchItem extends BatchJobRef {
 export default function BatchResultPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const initialJobs = (location.state as { jobs?: BatchJobRef[] } | null)?.jobs || [];
+  const navState = location.state as { jobs?: BatchJobRef[]; creationFailedCount?: number } | null;
+  const initialJobs = navState?.jobs || [];
+  // WHY a distinct name from the `failedCount` computed below: that one means
+  // "jobs that were created but whose generation pipeline later failed" —
+  // this is a different concept (items the server rejected before a job was
+  // ever created, e.g. an empty-after-trim topic or a queueing error) and
+  // previously vanished from the response with zero signal to the user.
+  const creationFailedCount = navState?.creationFailedCount ?? 0;
   const [items, setItems] = useState<BatchItem[]>(() =>
     initialJobs.map((j) => ({ ...j, status: 'pending', progress: 0 })),
   );
@@ -129,6 +136,13 @@ export default function BatchResultPage() {
             ? `${doneCount} posts ready · ${failedCount > 0 ? `${failedCount} failed` : 'all successful'}`
             : `${doneCount}/${items.length} posts done · ${items.length - totalDone} in progress`}
         </p>
+        {creationFailedCount > 0 && (
+          <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-error)', marginTop: 8 }}>
+            <AlertTriangle size={13} />
+            {creationFailedCount} item{creationFailedCount !== 1 ? 's' : ''} couldn't be submitted and{' '}
+            {creationFailedCount !== 1 ? "weren't" : "wasn't"} included in this batch.
+          </p>
+        )}
       </div>
 
       {/* Overall progress bar */}

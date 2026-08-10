@@ -120,7 +120,19 @@ export function useSchedule() {
 
   const scheduleMutation = useMutation({
     mutationFn: (vars: { dateKey: string; jobId: string; publishPlatform?: PublishPlatform }) =>
-      scheduleJob({ jobId: vars.jobId, scheduledDate: vars.dateKey, publishPlatform: vars.publishPlatform }),
+      // WHY timezoneOffsetMinutes here: dateKey is the browser's LOCAL
+      // calendar day (CalendarGrid.tsx builds it from local Date methods) —
+      // pairing it with Date.prototype.getTimezoneOffset() lets the server
+      // compute "9am in this user's own timezone" instead of always "9am
+      // UTC", which could previously fire auto-publish up to ~16 hours off
+      // from what the user actually meant. Only affects publish TIMING —
+      // scheduledDate itself (what's displayed/grouped-by) is unchanged.
+      scheduleJob({
+        jobId: vars.jobId,
+        scheduledDate: vars.dateKey,
+        publishPlatform: vars.publishPlatform,
+        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SCHEDULE_QUERY_KEY }).catch(() => {});
     },

@@ -129,12 +129,17 @@ async function dbUpsertToken(
     fbGet(userId)[platform] = data;
     return;
   }
+  // SECURITY: encryption must happen outside the DB try/catch below — if it
+  // throws (a malformed TOKEN_ENCRYPTION_KEY), that error must propagate and
+  // fail the connect request, never be swallowed into the "DB unavailable,
+  // fall back to memory" path, which would otherwise silently store the
+  // plaintext access/refresh token instead.
+  const encryptedData = {
+    ...data,
+    accessToken: encryptTokenOptional(data.accessToken) ?? data.accessToken,
+    refreshToken: encryptTokenOptional(data.refreshToken),
+  };
   try {
-    const encryptedData = {
-      ...data,
-      accessToken: encryptTokenOptional(data.accessToken) ?? data.accessToken,
-      refreshToken: encryptTokenOptional(data.refreshToken),
-    };
     // WHY a single onConflictDoUpdate instead of select-then-insert/update:
     // the previous select-then-branch shape raced two concurrent upserts for
     // the same (userId, platform) — e.g. a double-clicked "Connect LinkedIn",
@@ -150,6 +155,12 @@ async function dbUpsertToken(
       });
   } catch (err) {
     console.error('[social] DB upsert failed, writing to memory fallback:', err);
+    // NOTE: stores the raw (unencrypted) `data` here, matching dbGetTokens'
+    // fallback branch which returns fbGet() rows without ever decrypting them
+    // — the in-memory Map is only ever a same-process DB-outage escape hatch,
+    // never persisted to disk, so this is the existing accepted risk for that
+    // specific failure mode (unlike an encryption-key failure, which now
+    // throws before reaching this catch instead of landing here).
     fbGet(userId)[platform] = data;
   }
 }

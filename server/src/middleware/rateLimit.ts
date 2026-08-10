@@ -4,6 +4,7 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import rateLimit from 'express-rate-limit';
 import { ipKeyGenerator } from 'express-rate-limit';
+import type { AugmentedRequest } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import type { AuthRequest } from './auth.js';
 import { getRedisClient } from '../lib/redisClient.js';
@@ -42,6 +43,12 @@ function stripHtml(value: string): string {
  * /api/content/* (including /ideate's focusTopic), /api/demo/jobs/create
  */
 export function sanitizeGenerationInput(req: Request, res: Response, next: NextFunction): void {
+  // NOTE topic=500 vs schemas/jobs.ts's TOPIC_MAX_LENGTH=250: this middleware runs
+  // BEFORE zod validation as a generous outer pre-filter (reject obviously-abusive
+  // payloads early, cheaply), not the source of truth for the real business-rule cap.
+  // createJobSchema (and jobs/create.ts's batch route, and the client's Create form's
+  // maxLength) all enforce the tighter 250 downstream — don't "fix" this by making
+  // them match; they're deliberately different layers with different jobs.
   const LIMITS: Record<string, number> = {
     topic: 500,
     targetAudience: 200,
@@ -177,11 +184,20 @@ function buildRateLimiter(config: RateLimiterConfig): RequestHandler[] {
       const authReq = req as AuthRequest;
       return authReq.userId || authReq.dbUserId || ipKeyGenerator(req.ip ?? '') || (req.socket?.remoteAddress ?? 'unknown') || 'unknown';
     }),
-    handler: (_req, res) => {
+    // WHY retryAfterMs, not just standardHeaders' Retry-After: the client's
+    // countdown UI (Create/errorMessages.ts, TopicStep.tsx's countdownText)
+    // was already built to consume a numeric retryAfterMs field on the 429
+    // body — this was the one missing piece leaving that UI permanently dead
+    // code. req.rateLimit.resetTime is populated by express-rate-limit before
+    // the handler runs (requestPropertyName defaults to 'rateLimit').
+    handler: (req, res) => {
+      const resetTime = (req as AugmentedRequest).rateLimit?.resetTime;
+      const retryAfterMs = resetTime ? Math.max(0, resetTime.getTime() - Date.now()) : undefined;
       res.status(429).json({
         error: config.message,
         code: config.code,
         retryable: false,
+        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
       });
     },
     standardHeaders: true,
@@ -207,6 +223,10 @@ const AUTH_JOB_MAX = parseInt(env.RATE_LIMIT_MAX_JOBS, 10);
 // unauthenticated fallback path — exactly the case a rate limiter most needs to
 // get right. Fixed to ipKeyGenerator(req.ip ?? ''), the string IP the function
 // actually expects.
+// WHY no explicit keyGenerator: this used to duplicate buildRateLimiter's own
+// default keyGenerator byte-for-byte (2026-08-10 — every sibling limiter
+// below already omits it) — removed to avoid the two copies silently
+// diverging if one is ever edited without the other.
 export const authJobRateLimit = buildRateLimiter({
   prefix: 'auth',
   windowMs: 60 * 60 * 1000,
@@ -214,10 +234,6 @@ export const authJobRateLimit = buildRateLimiter({
   message: 'Too many generation requests. You can create up to 10 pieces of content per hour.',
   code: 'RATE_LIMITED',
   skip: (req) => req.method === 'GET',
-  keyGenerator: (req: Request) => {
-    const authReq = req as AuthRequest;
-    return authReq.userId || authReq.dbUserId || ipKeyGenerator(req.ip ?? '') || (req.socket?.remoteAddress ?? 'unknown') || 'unknown';
-  },
 });
 
 /**

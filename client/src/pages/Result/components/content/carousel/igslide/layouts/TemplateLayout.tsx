@@ -25,19 +25,17 @@ interface TemplateLayoutProps {
  * to the slide content. Template-specific layouts extend this to add their
  * unique structural elements.
  *
- * NOTE: `layout.decorativeElements` (e.g. 'thin-lines', 'quote-marks') is NOT
- * rendered generically here — each *Template.tsx component already builds its
- * own hand-crafted decorative shapes inline (see e.g. StorytellerTemplate's
- * quote mark, LuxuryDarkTemplate's corner ornaments). A prior generic
- * `<div className="template-deco-{element}">` loop here rendered empty,
- * unstyled divs with no backing CSS — pure dead output — and was removed.
- * `decorativeElements` itself stays real data, read by TemplateGallery.tsx's
- * preview swatches via `.includes()` checks.
+ * NOTE: decorative elements are NOT rendered generically here — each
+ * *Template.tsx component already builds its own hand-crafted decorative
+ * shapes inline (see e.g. StorytellerTemplate's quote mark, LuxuryDarkTemplate's
+ * corner ornaments). A prior generic `<div className="template-deco-{element}">`
+ * loop here rendered empty, unstyled divs with no backing CSS — pure dead
+ * output — and was removed, along with the `layout.decorativeElements` data
+ * field itself (2026-08-10 — its only real consumer, TemplateGallery.tsx, was
+ * already deleted in the 2026-08-06 migration to CompactTemplatePicker.tsx).
  */
 export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutProps>(
   function TemplateLayout({ width, height, template, children }, ref) {
-    const { layout } = template;
-
     return (
       // WHY no padding/background here: every *Template.tsx component already
       // applies its own `padding: spacing.padding` and `background` to its inner
@@ -61,8 +59,6 @@ export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutPro
           overflow: 'hidden',
         }}
         data-template={template.id}
-        data-cover-style={layout.coverStyle}
-        data-content-style={layout.contentStyle}
       >
         {/* Child content — each template component computes its own heading/body
             styles from `template.typography` directly rather than reading an

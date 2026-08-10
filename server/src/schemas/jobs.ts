@@ -59,8 +59,19 @@ export const templateIdEnum = z.enum(VALID_TEMPLATE_IDS);
 // jobIdSchema.
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// WHY exported: this is the real, enforced business-rule cap on a job's topic —
+// jobs/create.ts's POST /batch route mirrors it in its own inline per-item schema
+// (import this instead of hand-typing 250 again there). It's intentionally lower
+// than sanitizeGenerationInput's LIMITS.topic=500 in middleware/rateLimit.ts,
+// which is a generous pre-validation pre-filter that runs before this schema, not
+// the source of truth — and lower still than the client's Create form's
+// maxLength={250}, which mirrors this exact constant for the same reason (see
+// TopicStep.tsx/BatchTopicList.tsx, not directly importable across the client/
+// server boundary — same limitation VALID_TEMPLATE_IDS above already documents).
+export const TOPIC_MAX_LENGTH = 250;
+
 export const createJobSchema = z.object({
-  topic: z.string().min(3, 'Topic must be at least 3 characters').max(250, 'Topic must be 250 characters or fewer').trim(),
+  topic: z.string().min(3, 'Topic must be at least 3 characters').max(TOPIC_MAX_LENGTH, `Topic must be ${TOPIC_MAX_LENGTH} characters or fewer`).trim(),
   platform: platformEnum,
   tone: toneEnum,
   targetAudience: z.string().min(1, 'targetAudience is required').max(300).trim(),

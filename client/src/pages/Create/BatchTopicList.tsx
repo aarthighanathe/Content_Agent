@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Plus, Trash2, Sparkles, AlertCircle } from 'lucide-react';
 import { Dropdown } from '../../components/Dropdown';
+import { ToneSelector } from './ToneSelector';
 import { platforms } from './platforms';
 
 export interface BatchRow {
@@ -119,6 +120,8 @@ export function BatchTopicList({
                 className="input"
                 value={row.topic}
                 onChange={(e) => updateRow(row.id, { topic: e.target.value })}
+                // NOTE: mirrors server/src/schemas/jobs.ts's TOPIC_MAX_LENGTH — not
+                // importable across the client/server boundary, keep in sync by hand.
                 maxLength={250}
                 placeholder="Topic for this post…"
                 style={{ flex: 1, minWidth: 0, borderColor: row.error ? 'var(--color-error)' : undefined }}
@@ -172,30 +175,27 @@ export function BatchTopicList({
 
       {/* Shared tone/audience — applied to every row that doesn't need per-row
           overrides; the server schema (POST /jobs/batch) already accepts these
-          as batch-level defaults. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }} className="batch-shared-grid">
-        <div>
-          <label style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
-            Tone (applies to all)
-          </label>
-          <input
-            className="input"
-            value={tone}
-            onChange={(e) => onToneChange(e.target.value)}
-            placeholder="e.g. professional"
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
-            Target audience (applies to all)
-          </label>
-          <input
-            className="input"
-            value={targetAudience}
-            onChange={(e) => onTargetAudienceChange(e.target.value)}
-            placeholder="e.g. small business owners"
-          />
-        </div>
+          as batch-level defaults. Tone uses the same ToneSelector pill picker
+          as the single-topic form so the client can't submit a free-text value
+          the server's toneEnum would reject — this was previously a plain text
+          input, the one generation field that broke the "every generation
+          field is enum-validated" invariant between the two Create paths. */}
+      <div>
+        <label style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
+          Tone (applies to all, optional)
+        </label>
+        <ToneSelector value={tone} onChange={onToneChange} />
+      </div>
+      <div>
+        <label style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
+          Target audience (applies to all)
+        </label>
+        <input
+          className="input"
+          value={targetAudience}
+          onChange={(e) => onTargetAudienceChange(e.target.value)}
+          placeholder="e.g. small business owners"
+        />
       </div>
 
       {errorMsg && (
@@ -220,12 +220,6 @@ export function BatchTopicList({
           <><Sparkles size={14} /> Generate {validRowCount || ''} {validRowCount === 1 ? 'post' : 'posts'}</>
         )}
       </button>
-
-      <style>{`
-        @media (max-width: 480px) {
-          .batch-shared-grid { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../../../store';
 import { getJob, regenerateJob, getStreamToken } from '../../../api';
+import { useIsMountedRef } from '../../../hooks/useTrackedTimeout';
 import type { ContentJob, SSEEvent } from '../../../types/job';
 
 // WHY partial ContentJob: the SSE-bootstrapped shape (before the first REST getJob() lands)
@@ -14,9 +15,9 @@ type JobData = ContentJob | null;
 export function useJobData(jobId: string | undefined) {
   // WHY slice selectors, not the whole-store no-selector form: subscribing with
   // no selector makes this hook (and the whole Result tree via Result.tsx) re-render
-  // on every store mutation — theme switches, Ideate saves, userProfile updates —
-  // not just on currentJob/SSE progress. Selecting the exact slices keeps Result
-  // renders tied to the job stream (perf audit).
+  // on every store mutation — theme switches, Ideate saves — not just on
+  // currentJob/SSE progress. Selecting the exact slices keeps Result renders
+  // tied to the job stream (perf audit).
   const currentJob         = useAppStore((s) => s.currentJob);
   const connectToStream    = useAppStore((s) => s.connectToStream);
   const disconnectStream   = useAppStore((s) => s.disconnectStream);
@@ -27,6 +28,14 @@ export function useJobData(jobId: string | undefined) {
   // WHY: tracks the last time mergeSSEIntoJobData actually processed an event, so the
   // REST poll below can skip firing while SSE is demonstrably alive — see poll effect.
   const lastSSEEventAt = useRef<number>(0);
+  const isMountedRef = useIsMountedRef();
+  // WHY a second, hook-scoped debounce flag (not shared with the mount effect's
+  // local `reconnecting`): handleRegenerate's post-regenerate connectToStream
+  // call lives outside any single effect's closure — it can be invoked many
+  // times over the hook's lifetime (desktop toolbar, mobile footer,
+  // FeedbackPanel's Apply, ErrorState's Try again), so its own onError
+  // reconnect needs its own debounce state, not the mount effect's.
+  const regenerateReconnecting = useRef(false);
 
   const loadJob = useCallback(async () => {
     if (!jobId) return;
@@ -218,17 +227,36 @@ export function useJobData(jobId: string | undefined) {
     setJobData((p): JobData => (p ? { ...p, status: 'pending', outputs: [] } : p));
     try {
       await regenerateJob(jobId, feedback);
-      let streamToken: string | undefined;
-      try {
-        const result = await getStreamToken(jobId);
-        streamToken = result.token;
-      } catch {
-        streamToken = await getToken() ?? undefined;
-      }
+
+      // WHY a local named function, not inlining connectToStream's onError:
+      // openStream needs to call itself again on a fresh-token reconnect,
+      // same as the mount effect's connect() below — without this, a post-
+      // regenerate SSE error had no onError at all, so the browser's native
+      // EventSource retry kept reusing the eventually-expired token forever
+      // instead of recovering, falling back entirely on the 10-25s-delayed
+      // REST poll (see the poll effect above) rather than reconnecting.
+      const openStream = async () => {
+        let streamToken: string | undefined;
+        try {
+          const result = await getStreamToken(jobId);
+          streamToken = result.token;
+        } catch {
+          streamToken = await getToken() ?? undefined;
+        }
+        if (!isMountedRef.current) return;
+        connectToStream(jobId, streamToken, mergeSSEIntoJobData, () => {
+          if (!isMountedRef.current || regenerateReconnecting.current) return;
+          regenerateReconnecting.current = true;
+          setTimeout(() => {
+            regenerateReconnecting.current = false;
+            if (isMountedRef.current) openStream();
+          }, 15000);
+        });
+      };
       // connect AFTER POST so server state is 'pending' when SSE opens; pass
       // mergeSSEIntoJobData same as the initial connect effect above — without it,
       // SSE events after a Regenerate were received but never merged into jobData.
-      connectToStream(jobId, streamToken, mergeSSEIntoJobData);
+      await openStream();
     } catch (_e) {
       // NOTE: Regenerate errors are handled by ErrorState component; no need for console.error
       setRegenerating(false);

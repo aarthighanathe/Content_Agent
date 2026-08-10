@@ -9,7 +9,7 @@ import { setJobInStore } from '../../workers/contentWorker.js';
 import { runAndPersistPipeline, type PipelineJob } from '../../lib/pipeline.js';
 import { getUserProfile } from '../users.js';
 import { jobsMemory } from './ownership.js';
-import { parseBody, createJobSchema, VALID_PLATFORMS, competitorResponseSchema } from '../../schemas/index.js';
+import { parseBody, createJobSchema, VALID_PLATFORMS, toneEnum, competitorResponseSchema, TOPIC_MAX_LENGTH } from '../../schemas/index.js';
 import { logger } from '../../lib/logger.js';
 import { db } from '../../db/index.js';
 import { competitorAnalyses } from '../../db/schema.js';
@@ -199,14 +199,18 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
 router.post('/batch', async (req: AuthRequest, res: Response) => {
   try {
     const { z } = await import('zod');
+    // WHY toneEnum, not z.string(): matches the single-topic createJobSchema's
+    // enum-validated `tone` — this was the one generation field that broke the
+    // "every generation field is enum-validated" invariant, letting the batch
+    // path accept a value the single-topic path would reject.
     const batchSchema = z.object({
       items: z.array(z.object({
-        topic: z.string().min(3).max(250).trim(),
+        topic: z.string().min(3).max(TOPIC_MAX_LENGTH).trim(),
         platform: z.enum(VALID_PLATFORMS),
-        tone: z.string().optional(),
+        tone: toneEnum.optional(),
         targetAudience: z.string().optional(),
       })).min(1).max(7),
-      tone: z.string().optional(),
+      tone: toneEnum.optional(),
       targetAudience: z.string().optional(),
     });
     const body = parseBody(batchSchema, req.body, res);
@@ -216,13 +220,28 @@ router.post('/batch', async (req: AuthRequest, res: Response) => {
     const userId = req.dbUserId || req.userId || 'demo';
     const userProfile = await getUserProfile(userId);
 
+    // WHY track skipped-before-attempt items separately, not just silently
+    // filtering them out: an item with an all-whitespace topic passes the
+    // schema's length check (counted before trim) but fails this post-trim
+    // guard — previously this simply vanished from the response with no
+    // signal, indistinguishable from the client's own perspective between
+    // "the server dropped my topic" and "everything I submitted succeeded."
+    const failedItems: Array<{ index: number; topic: string; error: string }> = [];
+    const attemptable = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item, index }) => {
+        if (item.topic?.trim()) return true;
+        failedItems.push({ index, topic: item.topic ?? '', error: 'Topic is empty after trimming whitespace' });
+        return false;
+      });
+
     // WHY Promise.allSettled over a for-await loop: each item does an independent
     // addJobToQueue() round-trip (Redis) plus a possible direct-pipeline kickoff;
     // awaiting them one at a time serializes up to 7 network round-trips for no
     // reason. allSettled (not all) so one item's queue failure can't abort the
     // batch — each item already falls back to direct-pipeline mode individually.
     const settled = await Promise.allSettled(
-      items.filter((item) => item.topic?.trim()).map(async (item) => {
+      attemptable.map(async ({ item, index }) => {
         const jobId = uuidv4();
         const jobTone = item.tone || tone || 'professional';
         const jobAudience = item.targetAudience || targetAudience || 'general audience';
@@ -251,21 +270,41 @@ router.post('/batch', async (req: AuthRequest, res: Response) => {
           });
         }
 
-        return { jobId, topic, platform: item.platform };
+        return { jobId, topic, platform: item.platform, index };
       }),
     );
 
     // WHY build from settled results in original order rather than push-inside-loop:
     // Promise.allSettled preserves input order in its output array, so mapping over
-    // it keeps createdJobs in the same order the client submitted items — a failed
-    // item (schema-impossible today, but defensive) is simply omitted instead of
-    // aborting the whole batch.
+    // it keeps createdJobs in the same order the client submitted items. A rejected
+    // settlement (e.g. addJobToQueue itself throwing, rather than just returning
+    // false) now lands in failedItems instead of silently vanishing.
     const createdJobs: Array<{ jobId: string; topic: string; platform: (typeof items)[number]['platform'] }> = [];
-    for (const r of settled) {
-      if (r.status === 'fulfilled') createdJobs.push(r.value);
+    for (let i = 0; i < settled.length; i++) {
+      const r = settled[i];
+      const { item, index } = attemptable[i];
+      if (r.status === 'fulfilled') {
+        createdJobs.push({ jobId: r.value.jobId, topic: r.value.topic, platform: r.value.platform });
+      } else {
+        failedItems.push({
+          index,
+          topic: item.topic?.trim() || '',
+          error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+        });
+      }
+    }
+    // WHY sort by index: attemptable/failedItems are populated in two different
+    // passes (pre-filter skips, then allSettled results) — sorting once at the
+    // end keeps failedItems in the same original submission order regardless of
+    // which pass caught a given item, so the client can map failures back to
+    // rows without needing to search.
+    failedItems.sort((a, b) => a.index - b.index);
+
+    if (createdJobs.length === 0) {
+      return res.status(422).json({ error: 'All items in the batch failed to process', code: 'BATCH_ALL_FAILED', retryable: true, failedItems });
     }
 
-    return res.status(201).json({ jobs: createdJobs });
+    return res.status(201).json({ jobs: createdJobs, failedItems });
   } catch (error: unknown) {
     console.error('Failed to create batch jobs:', error);
     Sentry.captureException(error, { tags: { route: 'POST /batch' } });

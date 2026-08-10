@@ -15,9 +15,11 @@ import {
   collections,
   competitorAnalyses,
   jobOutputVersions,
+  feedMonitors,
 } from '../../db/schema.js';
 import { eq, inArray } from 'drizzle-orm';
 import { userProfiles } from './profileStore.js';
+import { invalidateAuthCache } from '../../middleware/auth.js';
 
 const router = Router();
 
@@ -121,6 +123,16 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
       // must be deleted before contentJobs/users or the transaction aborts.
       await tx.delete(scheduledPosts).where(eq(scheduledPosts.userId, userId));
 
+      // WHY explicit, not automatic: feed_monitors.userId has NO FK constraint
+      // at all (schema.ts's own WHY comment — the worker runs outside a
+      // request context and re-resolves the user by clerkId rather than
+      // joining). Without this, a deleted user's active monitor would keep
+      // polling every 30 minutes forever, burning Gemini/Tavily quota on a
+      // job insert that fails its contentJobs.userId FK check and lands in a
+      // generic catch that still advances the cursor and repeats indefinitely
+      // — a live, unbounded cost leak with zero visibility.
+      await tx.delete(feedMonitors).where(eq(feedMonitors.userId, userId));
+
       // WHY: collectionJobs.jobId/collectionId, collections.userId, competitorAnalyses.userId,
       // and jobOutputVersions.jobId are FKs with ON DELETE no action — must be deleted
       // before contentJobs/users or the transaction aborts.
@@ -146,6 +158,14 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
     for (const [jobId, job] of jobsMemory.entries()) {
       if (job.userId === userId) jobsMemory.delete(jobId);
     }
+
+    // WHY: middleware/auth.ts's authCache maps Clerk ID → dbUserId with a
+    // 5-minute TTL — without evicting it here, a request in the next 5
+    // minutes bearing this now-deleted user's still-valid Clerk session
+    // token would keep resolving to a dbUserId that no longer exists in the
+    // users table, instead of failing auth cleanly. req.userId (not
+    // req.dbUserId) is the cache key — see AuthRequest's own field comments.
+    if (req.userId) invalidateAuthCache(req.userId);
 
     res.json({ success: true });
     return;
