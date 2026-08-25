@@ -72,7 +72,7 @@ export default function AuthLayout() {
                     <span style={{ fontSize: 15, fontFamily: "var(--font-mono)", fontWeight: 500 }}>✦</span>
                   </div>
                   <span className="sidebar-logo-text">
-                    Content<span style={{ color: 'var(--accent)' }}>Agent</span>
+                    Pensie<span style={{ color: 'var(--accent)' }}>ve</span>
                   </span>
                 </Link>
               )}
@@ -151,7 +151,7 @@ export default function AuthLayout() {
                 <span style={{ fontSize: 13, fontFamily: "var(--font-mono)", fontWeight: 500 }}>✦</span>
               </div>
               <span style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>
-                Content<span style={{ color: 'var(--accent)' }}>Agent</span>
+                Pensie<span style={{ color: 'var(--accent)' }}>ve</span>
               </span>
             </Link>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

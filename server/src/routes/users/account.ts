@@ -73,7 +73,7 @@ router.get('/me/export', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    res.setHeader('Content-Disposition', `attachment; filename="contentagent-export-${userId}.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="pensieve-export-${userId}.json"`);
     res.json({
       exportedAt: new Date().toISOString(),
       partial: partialFailures > 0,

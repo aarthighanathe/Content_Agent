@@ -1,6 +1,6 @@
-# Contributing to ContentAgent
+# Contributing to Pensieve
 
-Thank you for your interest in contributing to ContentAgent! This document outlines the guidelines and processes for contributing to this project.
+Thank you for your interest in contributing to Pensieve! This document outlines the guidelines and processes for contributing to this project.
 
 ## Getting Started
 
@@ -14,7 +14,7 @@ Thank you for your interest in contributing to ContentAgent! This document outli
 1. **Clone the repository**
 ```bash
 git clone <repo-url>
-cd ContentAgent
+cd Pensieve
 cd server && npm install
 cd ../client && npm install
 ```
@@ -101,7 +101,7 @@ npm run test
 ## Repository Structure
 
 ```
-ContentAgent/
+Pensieve/
 ├── server/                    # Backend application
 │   ├── src/
 │   │   ├── routes/           # API routes

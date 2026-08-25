@@ -18,7 +18,7 @@ const TONES = [
 
 const SAMPLE_POST = {
   hook: "Most founders spend 40 hours a week on content. Here's how AI does it in 2 minutes.",
-  body: "The research → write → critique loop that powers ContentAgent:\n\n1. 3 live Tavily searches surface what's trending right now\n2. A Writer agent drafts platform-specific content\n3. A Critic agent scores it 0-100 and rewrites until it passes 70\n4. You only see the polished result\n\nResult: content that actually performs, not just content that exists.",
+  body: "The research → write → critique loop that powers Pensieve:\n\n1. 3 live Tavily searches surface what's trending right now\n2. A Writer agent drafts platform-specific content\n3. A Critic agent scores it 0-100 and rewrites until it passes 70\n4. You only see the polished result\n\nResult: content that actually performs, not just content that exists.",
   hashtags: ['#ContentMarketing', '#AItools', '#SocialMediaStrategy'],
   score: 87,
 };
@@ -172,7 +172,7 @@ export function OnboardingModal() {
                 <Sparkles size={22} color="var(--accent)" />
               </div>
               <h2 id="onboarding-modal-title" style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
-                Welcome to ContentAgent
+                Welcome to Pensieve
               </h2>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
                 Let's personalise your content in 30 seconds.

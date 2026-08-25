@@ -60,7 +60,7 @@ export function MobileMenu({ open, isSignedIn, onClose }: MobileMenuProps) {
             <Layers size={16} />
           </div>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-            Content<span style={{ color: 'var(--accent)' }}>Agent</span>
+            Pensie<span style={{ color: 'var(--accent)' }}>ve</span>
           </span>
         </Link>
         <button

@@ -27,7 +27,7 @@ import { sql } from 'drizzle-orm';
 import jobRoutes from './routes/jobs/index.js';
 import contentRoutes from './routes/content.js';
 import userRoutes, { seedUserProfilesFromDB } from './routes/users.js';
-import socialRoutes from './routes/social.js';
+import socialRoutes from './routes/social/index.js';
 import demoRoutes from './routes/demo.js';
 import imageGenRoutes from './routes/imageGen.js';
 import scheduledPostsRoutes from './routes/scheduledPosts.js';
@@ -214,7 +214,7 @@ app.use(errorHandler);
 
 // Start server
 const server = app.listen(PORT, async () => {
-  logger.info('ContentAgent API running', { port: PORT });
+  logger.info('Pensieve API running', { port: PORT });
 
   // Pre-populate in-memory user profiles so brand voice is available immediately
   await seedUserProfilesFromDB();

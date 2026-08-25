@@ -1,4 +1,4 @@
-# ContentAgent — UI/UX Documentation
+# Pensieve — UI/UX Documentation
 > Generated: 2026-06-14 | Codebase: post-Phase-4, all planned features shipped
 >
 > **Corrected 2026-08-10** (`prompts/FIX_AUDIT_FINDINGS.md` §6.2, from the 2026-08-10 ui-ux-audit
@@ -1038,7 +1038,7 @@ All icons are from `lucide-react`. The following table lists icons found across 
 
 ## SECTION 11: DESIGN DIFFERENTIATION ANALYSIS
 
-### 1. ContentAgent's Current Visual Identity (3-5 words)
+### 1. Pensieve's Current Visual Identity (3-5 words)
 **"Dark editorial intelligence — gold authority."**
 
 ### 2. Distinctive Visual Elements
@@ -1082,9 +1082,9 @@ All icons are from `lucide-react`. The following table lists icons found across 
 - The `✦` logo character (unusual, AI-associated)
 - Agent color coding throughout loading state
 
-### 6. ONE Visual Signature ContentAgent Could Uniquely Own
+### 6. ONE Visual Signature Pensieve Could Uniquely Own
 
-**The "Gold Score Ring" as a brand mark.** The SVG arc quality ring (gold gradient, animated stroke-dashoffset) combined with the DM Mono score number inside it is the single most distinctive UI element ContentAgent produces. If this ring appeared in marketing materials, loading states, favicon, empty states, and social previews — always in gold with the same spring animation — it could become as recognizable as Spotify's green wave or Duolingo's streak flame. Currently it only appears once (in the result sidebar). This element should be elevated to a core brand signature.
+**The "Gold Score Ring" as a brand mark.** The SVG arc quality ring (gold gradient, animated stroke-dashoffset) combined with the DM Mono score number inside it is the single most distinctive UI element Pensieve produces. If this ring appeared in marketing materials, loading states, favicon, empty states, and social previews — always in gold with the same spring animation — it could become as recognizable as Spotify's green wave or Duolingo's streak flame. Currently it only appears once (in the result sidebar). This element should be elevated to a core brand signature.
 
 ---
 

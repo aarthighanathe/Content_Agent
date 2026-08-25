@@ -48,11 +48,11 @@ export function CtaFooter({ isSignedIn }: CtaFooterProps) {
             <Layers size={13} />
           </div>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 600, color: 'var(--text-muted)' }}>
-            Content<span style={{ color: 'color-mix(in srgb, var(--accent) 40%, transparent)' }}>Agent</span>
+            Pensie<span style={{ color: 'color-mix(in srgb, var(--accent) 40%, transparent)' }}>ve</span>
           </span>
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'color-mix(in srgb, var(--text-primary) 16%, transparent)', letterSpacing: 0.8 }}>
-          © {currentYear} ContentAgent. All rights reserved.
+          © {currentYear} Pensieve. All rights reserved.
         </div>
       </footer>
     </>

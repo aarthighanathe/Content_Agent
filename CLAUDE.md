@@ -231,7 +231,7 @@ When adding any new feature, automatically do ALL of these:
 
 ---
 
-# ContentAgent — CLAUDE.md
+# Pensieve — CLAUDE.md
 
 > **Read this before every editing session.** Single source of truth for architecture, conventions, active decisions, and gotchas.
 >
@@ -251,7 +251,7 @@ When adding any new feature, automatically do ALL of these:
 
 ## 1. Project Overview
 
-ContentAgent is an **AI-powered social media content generation SaaS**. Given a topic, platform, tone, and target audience it orchestrates a 5-agent LLM pipeline (Orchestrator → Researcher → Writer → Formatter → Critic) to produce platform-optimized content: Instagram carousels (9 visual themes), LinkedIn posts, Twitter/X threads, Instagram captions, and video scripts.
+Pensieve is an **AI-powered social media content generation SaaS**. Given a topic, platform, tone, and target audience it orchestrates a 5-agent LLM pipeline (Orchestrator → Researcher → Writer → Formatter → Critic) to produce platform-optimized content: Instagram carousels (9 visual themes), LinkedIn posts, Twitter/X threads, Instagram captions, and video scripts.
 
 **Target users:** Solo creators, marketers, and small teams who need high-quality, brand-consistent social content at volume.
 

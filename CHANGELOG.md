@@ -15,6 +15,100 @@
 
 ---
 
+## 2026-08-26 — Renamed the product from "ContentAgent" to "Pensieve"
+
+Documentation-and-branding-only rename — no behavior change. Updated every user-visible brand
+string and internal product-name reference across docs and code:
+
+- **Docs:** `README.md`, `CONTRIBUTING.md`, `LICENSE`, `CLAUDE.md`, `ARCHITECTURE.md`,
+  `UI_UX_DOCUMENTATION.md`, `FEATURES.md` (new, added same day) — title lines and inline
+  "ContentAgent is/runs..." prose updated to "Pensieve". `.github/workflows/ci.yml`'s display
+  name updated to `Pensieve CI/CD`.
+- **UI:** page `<title>`/Open Graph/Twitter-card meta text in `client/index.html`; the sidebar +
+  landing-nav + mobile-menu wordmark (`AuthLayout.tsx`, `Landing/Nav.tsx`,
+  `Landing/MobileMenu.tsx`) and footer copyright line (`Landing/CtaFooter.tsx`); onboarding modal
+  copy (`OnboardingModal.tsx`); landing page feature copy (`Landing/Features.tsx`,
+  `Landing/Hero.tsx`'s illustrative mockup URL text).
+- **Server:** boot log line (`index.ts`), feed-monitor and article-fetch `User-Agent` strings
+  (`feedMonitorWorker.ts`, `content/repurpose.ts` — product-name token only), seed demo email
+  (`seed.ts`), and the two data-export download filenames (`Brand.tsx`'s client-side export,
+  `users/account.ts`'s `GET /me/export`) — both now `pensieve-export-*.json`.
+
+**Deliberately left unchanged** (flagged as a separate manual follow-up, not done here):
+- **localStorage keys** (`contentagent-theme`, `contentagent-sidebar-collapsed`,
+  `contentagent-ideated-ideas`, `contentagent-ideas-generated-at`, `contentagent-saved-ideas` in
+  `store.ts`/`AuthLayout.tsx`/`index.html`) — these hold live user preference data in existing
+  users' browsers. Renaming the key string would make the app look for a key that was never
+  written for anyone who already visited, silently resetting their theme choice, saved ideas, and
+  sidebar-collapsed state to defaults on next load. Left as-is until a real migration (read old
+  key → write new key → drop old key) is written.
+- **Deploy config and hardcoded production URLs** — `render.yaml`'s service name
+  (`contentagent-api`), `client/index.html`'s canonical/OG URLs, `client/public/sitemap.xml` and
+  `robots.txt`, and the example domains in `client/.env.example`/`server/.env.example`. These
+  describe infrastructure that actually exists today (a live Render service, a live Vercel
+  domain); editing the file doesn't rename the deployed resource, so changing them here would
+  just make the config describe something that doesn't match reality until the Render/Vercel/DNS
+  side is renamed by hand. The one exception: `feedMonitorWorker.ts`'s and `repurpose.ts`'s
+  `User-Agent` strings kept their `contentAgent.ai` domain segment for the same reason, while the
+  product-name segment ahead of it was still renamed.
+- **`docker-compose.yml`'s `POSTGRES_DB=contentagent`** — a local-dev-only container env default;
+  changing it would require an existing local Postgres volume to be recreated, and it's invisible
+  to any user, so it wasn't touched in this pass.
+
+## 2026-08-14 — Fixed all 13 findings from AUDIT_FINDINGS_2026-08-14.md
+
+**Status:** All 13 findings from the full-codebase `/code-review max` run fixed. `tsc --noEmit`
+clean on both `client` and `server`; `npm run build:ssr` re-run and verified after the
+`usePointKeys` hook change; server test suite passing after two test files' mocked/dynamic-import
+paths were updated to follow the `routes/social.ts` → `routes/social/index.ts` move.
+
+- **#1/#2 — Fixed two related Chromium-process leaks in `browserPool.ts`.** `withTimeout()` now
+  accepts an `onLateResolve` hook so a `puppeteer.launch()` that resolves after its own timeout
+  already rejected the race gets closed instead of orphaned; `spawnBrowser()` wires this in for
+  both the primary and fallback launch attempts. Separately, `closeBrowserPool()` now waits (via
+  `waitForReservationsToSettle()`, bounded by the same launch timeout) for any in-flight
+  `acquireBrowser()` reservation to finish before taking its close snapshot, so a shutdown racing
+  a reservation no longer skips it.
+- **#3 — `POST /:jobId/multiply` now validates tone/audience before running the pipeline.**
+  Extracted the `STALE_JOB_DATA` guard already on `/regenerate` into a shared
+  `hasStaleJobData()` helper in `routes/jobs/regenerate.ts` and applied it to `/multiply` too, so
+  a source job with a legacy-invalid tone fails fast instead of burning a full pipeline run.
+- **#4 — Removed the stray `"server": "file:../server"` entry from `client/package.json`** (and
+  regenerated `package-lock.json`) — an unused accidental link that pulled the entire backend
+  dependency tree into client installs.
+- **#5 — Split `social.ts` and `pipeline.ts` back under the 400-line cap.** `routes/social.ts`
+  became `routes/social/index.ts` (connections/disconnect/post/schedule) +
+  `routes/social/oauth.ts` (state signing, `/connect`, `/callback`) + `lib/socialTokens.ts`
+  (DB/in-memory token store, now shared by `publishWorker.ts` and `socialPublish.ts` without
+  pulling in Express route handlers). `lib/pipeline.ts` had its type/interface definitions
+  extracted to `lib/pipelineTypes.ts`, re-exported from `pipeline.ts` so none of its 9 external
+  importers needed changes.
+- **#6/#7/#11 — Hardened `fetchWithSsrfGuard()` in `ssrfGuard.ts`.** Rejects any call with a
+  `RequestInit.body` up front (a one-shot stream body can't safely be resent across a redirect
+  hop); wrapped the whole function in try/catch so a raw network error (DNS failure, reset, abort)
+  folds into the same `{ok:false, reason}` shape every other failure already returns instead of
+  propagating uncaught; removed the now-explicitly-documented unreachable trailing return.
+- **#8 — Added a shared, memoized `usePointKeys()` hook** (`igslide/types.ts`) and switched all 10
+  `igslide/templates/*.tsx` components to call it instead of each repeating
+  `slide.points ? stablePointKeys(slide.points) : []` inline — removes a duplicated pattern future
+  template authors could drift on, and stops the O(n) key computation from rerunning on every
+  render when `slide.points` hasn't changed.
+- **#9 — Exported `isValidTone`/`isValidPlatform` from `persistJob.ts`** and imported them in
+  `regenerate.ts` instead of reimplementing the identical `includes()` check inline — the two
+  validation sites can no longer drift apart.
+- **#10 — Extracted a `findFreeSlot()` helper in `browserPool.ts`** so `acquireBrowser()`'s fast
+  path and poll loop share one "find an unclaimed slot" predicate instead of two copies that had
+  already drifted once (when `reserved` was added alongside the pre-existing `busy`).
+- **#12 — Fixed a falsy-zero bug in `seed.ts`'s console preview** (`|| 'N/A'` → `?? 'N/A'`) — the
+  same bug class already fixed at `persistJob.ts`'s `qualityScore` handling, missed in the dev-only
+  seed script.
+- **#13 — Documented why `PoolEntry.reserved` exists independently of `busy`** in `browserPool.ts`
+  (accurate in-flight-reservation counting via `_pool.length`, even though every current *read*
+  site's exclusion is already covered by `busy` alone) rather than restructuring the two flags into
+  a discriminated union, which was judged higher-risk than the finding's severity warranted.
+
+---
+
 ## 2026-08-10 — Batch 7 (final batch: retried-audit findings) of AUDIT_FINDINGS_2026-08-10.md
 
 **Status:** Batch 7 of `prompts/FIX_AUDIT_FINDINGS.md` complete — all 11 items, with one

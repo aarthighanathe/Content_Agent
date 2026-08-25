@@ -1,4 +1,4 @@
-name: ContentAgent CI/CD
+name: Pensieve CI/CD
 
 on:
   push:

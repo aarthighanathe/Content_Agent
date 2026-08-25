@@ -28,7 +28,7 @@ export function Nav({ isSignedIn, onOpenMobileMenu }: NavProps) {
           <Layers size={17} />
         </div>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 15.5, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>
-          Content<span style={{ color: 'var(--accent)' }}>Agent</span>
+          Pensie<span style={{ color: 'var(--accent)' }}>ve</span>
         </span>
       </Link>
 

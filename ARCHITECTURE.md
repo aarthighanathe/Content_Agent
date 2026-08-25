@@ -1,4 +1,4 @@
-# ContentAgent — Architecture Reference
+# Pensieve — Architecture Reference
 
 > Companion to `CLAUDE.md`. Where `CLAUDE.md` is the "read this before every editing session"
 > document (conventions, hard rules, folder map), this file is the **verified, current-state**

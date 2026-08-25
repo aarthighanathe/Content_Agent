@@ -1,10 +1,10 @@
-# ContentAgent
+# Pensieve
 
 AI-powered social media content generation SaaS. Give it a topic; it researches, writes, critiques, and formats content for five platforms.
 
 ## What it does
 
-ContentAgent runs a 5-agent pipeline (Orchestrator → Researcher → Writer → Formatter → Critic) that produces platform-optimized content from a single topic. The critic scores output on five dimensions and requests revisions until quality exceeds 70/100. Final content is streamed to the browser in real time via SSE.
+Pensieve runs a 5-agent pipeline (Orchestrator → Researcher → Writer → Formatter → Critic) that produces platform-optimized content from a single topic. The critic scores output on five dimensions and requests revisions until quality exceeds 70/100. Final content is streamed to the browser in real time via SSE.
 
 Supported platforms: Instagram carousels (9 visual themes, Puppeteer-rendered PNGs), LinkedIn posts, Twitter/X threads, Instagram captions, and video scripts. One research session can be adapted to all five platforms without re-running the research phase.
 
@@ -52,7 +52,7 @@ Everything else (Upstash, Tavily, OpenAI, social OAuth) is optional — the app 
 ```bash
 # Clone the repo
 git clone <repo-url>
-cd AGContentAgent
+cd Pensieve
 
 # Install server dependencies
 cd server && npm install && cd ..

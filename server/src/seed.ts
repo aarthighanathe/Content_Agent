@@ -8,7 +8,7 @@
 
 const demoUser = {
   clerkId: 'demo-clerk-id',
-  email: 'demo@contentagent.com',
+  email: 'demo@pensieve.com',
   brandName: 'TechFlow',
   brandVoice: 'professional, educational',
   phrasesUse: 'data-driven, innovative, scalable',
@@ -115,7 +115,7 @@ console.info('🌱 Seed data preview:');
 console.info('\n📧 Demo User:', JSON.stringify(demoUser, null, 2));
 console.info(`\n📝 ${demoJobs.length} Demo Jobs:`);
 demoJobs.forEach((job, i) => {
-  console.info(`  ${i + 1}. [${job.platform}] ${job.topic} — Score: ${job.outputs[1]?.qualityScore || 'N/A'}/100`);
+  console.info(`  ${i + 1}. [${job.platform}] ${job.topic} — Score: ${job.outputs[1]?.qualityScore ?? 'N/A'}/100`);
 });
 
 console.info('\n✅ To use this seed data, set up DATABASE_URL in .env and run migrations first.');

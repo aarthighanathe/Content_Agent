@@ -64,7 +64,7 @@ const features: Feature[] = [
     iconBg: 'color-mix(in srgb, var(--accent) 10%, transparent)',
     iconBorder: 'color-mix(in srgb, var(--accent) 22%, transparent)',
     title: 'Brand DNA',
-    desc: 'Paste your best posts and ContentAgent extracts your writing fingerprint — tone, rhythm, vocabulary — then writes every piece in your voice.',
+    desc: 'Paste your best posts and Pensieve extracts your writing fingerprint — tone, rhythm, vocabulary — then writes every piece in your voice.',
     accent: 'var(--accent)',
   },
 ];
@@ -72,7 +72,7 @@ const features: Feature[] = [
 export function Features() {
   return (
     <>
-      <SectionDivider label="Why ContentAgent" />
+      <SectionDivider label="Why Pensieve" />
 
       {/* ══════════ FEATURES ══════════ */}
       <section className="section" id="features" style={{ padding: '100px 72px' }}>

@@ -119,7 +119,7 @@ export function Hero({ isSignedIn }: HeroProps) {
               ))}
             </div>
             <div style={{ flex: 1, background: 'color-mix(in srgb, var(--accent-2) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 14%, transparent)', borderRadius: 6, padding: '4px 14px', fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'color-mix(in srgb, var(--text-primary) 22%, transparent)', textAlign: 'center', maxWidth: 320, margin: '0 auto' }}>
-              app.contentagent.ai/result/…
+              app.pensieve.ai/result/…
             </div>
           </div>
 
