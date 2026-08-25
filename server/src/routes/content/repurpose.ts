@@ -7,7 +7,7 @@ import { generateWithAI } from '../../lib/ai.js';
 import { getUserProfile } from '../users.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { stripScriptsAndEventHandlers } from '../../lib/carousel.js';
-import { assertUrlIsPublic } from '../../lib/ssrfGuard.js';
+import { fetchWithSsrfGuard } from '../../lib/ssrfGuard.js';
 import { sanitizeSearchText } from '../../lib/sanitizeSearchText.js';
 import { parseBody, repurposeSchema, repurposeBatchSchema } from '../../schemas/index.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
@@ -43,24 +43,29 @@ async function fetchAndExtractArticle(url: string): Promise<ExtractResult> {
   }
 
   // SSRF protection — block requests to private/loopback IP ranges (DNS-rebinding
-  // resistant; see lib/ssrfGuard.ts for the full rationale). Shared with feed
-  // monitors' RSS fetch (workers/feedMonitorWorker.ts) so both consumers of
-  // user-supplied URLs get the same hardening pass.
-  const urlSafety = await assertUrlIsPublic(parsedUrl.toString());
-  if (!urlSafety.safe) {
-    return { ok: false, status: 400, error: urlSafety.reason || 'URL points to a private or reserved address', code: 'VALIDATION_ERROR', retryable: false };
-  }
-
-  // Fetch and extract readable text from the URL
+  // resistant; see lib/ssrfGuard.ts for the full rationale), AND re-validate
+  // every hop of any HTTP redirect the response chain follows (fetchWithSsrfGuard),
+  // since a public URL that 302s to a private/metadata address would otherwise
+  // bypass the initial check entirely. Shared with feed monitors' RSS fetch
+  // (workers/feedMonitorWorker.ts) so both consumers of user-supplied URLs get
+  // the same hardening pass.
   let rawHtml: string;
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
-    const fetchRes = await fetch(parsedUrl.toString(), {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ContentAgent/1.0; +https://contentAgent.ai)' },
-    });
-    clearTimeout(timeout);
+    let fetchResult;
+    try {
+      fetchResult = await fetchWithSsrfGuard(parsedUrl.toString(), {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Pensieve/1.0; +https://contentAgent.ai)' },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!fetchResult.ok) {
+      return { ok: false, status: 400, error: fetchResult.reason, code: 'VALIDATION_ERROR', retryable: false };
+    }
+    const fetchRes = fetchResult.response;
     if (!fetchRes.ok) {
       return { ok: false, status: 422, error: `URL returned HTTP ${fetchRes.status} — make sure it is publicly accessible`, code: 'FETCH_FAILED', retryable: true };
     }

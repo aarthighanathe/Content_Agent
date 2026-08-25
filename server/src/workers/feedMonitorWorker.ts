@@ -17,13 +17,16 @@ import { feedMonitors, users, type FeedMonitor } from '../db/schema.js';
 import { db } from '../db/index.js';
 import { getUserProfile } from '../routes/users.js';
 import { fetchAndExtractArticle, createJobsForPlatforms } from '../routes/content/repurpose.js';
-import { assertUrlIsPublic } from '../lib/ssrfGuard.js';
+import { assertUrlIsPublic, fetchWithSsrfGuard } from '../lib/ssrfGuard.js';
 import { logger } from '../lib/logger.js';
 
-const rssParser = new Parser({
-  timeout: 12_000,
-  headers: { 'User-Agent': 'ContentAgent-FeedMonitor/1.0 (+https://contentAgent.ai)' },
-});
+// WHY no timeout/headers options here: those configure rss-parser's own
+// internal HTTP client, used only by parseURL(). We fetch the feed body
+// ourselves via fetchWithSsrfGuard (see checkFeedMonitor below) so every
+// redirect hop can be SSRF-revalidated, then hand the raw XML to
+// parseString() — which does no networking of its own, so those options
+// would be silently ignored.
+const rssParser = new Parser();
 
 // WHY a typeof guard, not a bare `as string` cast: rss-parser types every
 // custom/namespaced field (pubDate/guid/link) as `unknown` on
@@ -77,9 +80,26 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
     return;
   }
 
+  // SECURITY: fetch the feed body ourselves via fetchWithSsrfGuard (which
+  // re-validates every redirect hop against assertUrlIsPublic), then hand the
+  // raw XML string to parseString() — rss-parser's own parseURL() follows
+  // HTTP redirects internally with no re-validation of the redirect target,
+  // which would otherwise let a public feed URL 302 to a private/metadata
+  // address and bypass the assertUrlIsPublic() check above entirely.
   let feed: Parser.Output<Record<string, unknown>>;
   try {
-    feed = await rssParser.parseURL(feedUrl);
+    const fetchResult = await fetchWithSsrfGuard(feedUrl, {
+      headers: { 'User-Agent': 'Pensieve-FeedMonitor/1.0 (+https://contentAgent.ai)' },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!fetchResult.ok) {
+      throw new Error(fetchResult.reason);
+    }
+    if (!fetchResult.response.ok) {
+      throw new Error(`Feed URL returned HTTP ${fetchResult.response.status}`);
+    }
+    const xml = await fetchResult.response.text();
+    feed = await rssParser.parseString(xml);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.warn('[FeedMonitor] Failed to fetch/parse feed', { feedUrl, error: message });

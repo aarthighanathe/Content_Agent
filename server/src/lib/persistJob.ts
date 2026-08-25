@@ -15,10 +15,14 @@ import { isValidUUID } from './uuid.js';
 // `jobResult: any`) or, now that it's typed, fail the whole transaction on a
 // TS overload-resolution error instead of a clear runtime message — this
 // guard makes an unexpected value a loud, specific failure instead of either.
-function isValidPlatform(p: string): p is (typeof VALID_PLATFORMS)[number] {
+// WHY exported: routes/jobs/regenerate.ts needs the identical predicate to
+// validate a source job's tone before reusing it for a new pipeline run
+// (STALE_JOB_DATA guard) — importing this keeps both call sites in lockstep
+// instead of maintaining two separate `includes()` literals.
+export function isValidPlatform(p: string): p is (typeof VALID_PLATFORMS)[number] {
   return (VALID_PLATFORMS as readonly string[]).includes(p);
 }
-function isValidTone(t: string): t is (typeof VALID_TONES)[number] {
+export function isValidTone(t: string): t is (typeof VALID_TONES)[number] {
   return (VALID_TONES as readonly string[]).includes(t);
 }
 
@@ -125,7 +129,7 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
             agentName: o.agentName,
             outputType: o.outputType,
             content: o.content,
-            qualityScore: o.qualityScore || null,
+            qualityScore: o.qualityScore ?? null,
             partial: o.partial ? 1 : 0,
           }))
         );

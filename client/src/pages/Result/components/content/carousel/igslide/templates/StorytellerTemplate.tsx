@@ -3,7 +3,7 @@ import { TemplateLayout } from '../layouts/TemplateLayout';
 import type { CarouselTemplateProps } from './templateProps';
 import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
-import { stablePointKeys } from '../types';
+import { usePointKeys } from '../types';
 
 /**
  * Storyteller Template
@@ -23,6 +23,7 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
   template,
 }, ref) {
   const { typography, spacing } = template;
+  const pointKeys = usePointKeys(slide.points);
 
   return (
     <TemplateLayout
@@ -128,7 +129,7 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           >
             {slide.points.map((point, i) => (
               <div
-                key={stablePointKeys(slide.points!)[i]}
+                key={pointKeys[i]}
                 style={{
                   display: 'flex',
                   gap: 16,

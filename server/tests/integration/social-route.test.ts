@@ -57,7 +57,7 @@ let userCounter = 0;
 
 async function buildSocialApp(userId?: string) {
   const uid = userId ?? `social-user-${++userCounter}`;
-  const { default: socialRouter } = await import('../../src/routes/social.js');
+  const { default: socialRouter } = await import('../../src/routes/social/index.js');
   const app = express();
   app.use(express.json());
   app.use((req: any, _res, next) => {

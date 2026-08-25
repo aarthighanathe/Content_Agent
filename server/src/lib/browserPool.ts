@@ -40,21 +40,56 @@ const LAUNCH_ARGS = [
 ];
 
 export interface PoolEntry {
-  browser: Browser;
+  browser: Browser | null;
   busy: boolean;
+  // WHY a separate flag from `busy` (not fully redundant, even though every
+  // current read site also checks `!busy`): `reserved` is what lets
+  // `_pool.length` count an in-flight spawnBrowser() reservation *before* the
+  // browser itself exists (browser: null). `busy` alone would give the same
+  // exclusion at the two findFreeSlot() call sites below, but a future caller
+  // that needs an accurate in-flight-reservation count from pool length still
+  // needs this flag to exist independently of `busy`.
+  reserved: boolean;
 }
 
 const _pool: PoolEntry[] = [];
 let _poolReady = false;
 
+// WHY a shared helper: acquireBrowser's fast path and its poll loop both need
+// the identical "find an unclaimed slot" predicate — inlining it twice already
+// drifted once when `reserved` was added alongside the pre-existing `busy`.
+function findFreeSlot(): PoolEntry | undefined {
+  return _pool.find((e) => !e.busy && !e.reserved);
+}
+
 // WHY a shared helper: both spawnBrowser and replaceBrokenBrowser's close() need
 // the identical "race against a deadline, reject on timeout" behavior — inlining
 // it twice would risk the two timeouts drifting apart later.
-export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+// WHY the onLateResolve hook: Promise.race never cancels the losing side — if
+// `promise` resolves after the timeout already rejected the race, the caller
+// treats it as failed and nothing else references the resolved value. For a
+// browser launch specifically, that value is a live Chromium process; without
+// this hook it leaks for the life of the server (orphaned OS process).
+export function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+  onLateResolve?: (value: T) => void,
+): Promise<T> {
+  let settled = false;
   return Promise.race([
-    promise,
+    promise.then((value) => {
+      settled = true;
+      return value;
+    }),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs / 1000}s`)), timeoutMs),
+      setTimeout(() => {
+        if (settled) return;
+        if (onLateResolve) {
+          promise.then(onLateResolve).catch(() => {});
+        }
+        reject(new Error(`${label} timed out after ${timeoutMs / 1000}s`));
+      }, timeoutMs),
     ),
   ]);
 }
@@ -127,11 +162,20 @@ async function spawnBrowser(): Promise<Browser> {
     launchOptions.executablePath = systemChromePath;
   }
 
+  // WHY closeOrphanedLaunch: if puppeteer.launch() resolves after withTimeout()
+  // already rejected the race, this hook closes the orphaned browser instead of
+  // leaking the OS process (see withTimeout's own WHY comment above).
+  const closeOrphanedLaunch = (browser: Browser): void => {
+    logger.warn('[BrowserPool] Launch resolved after timeout — closing orphaned browser');
+    browser.close().catch(() => {});
+  };
+
   try {
     const browser = await withTimeout(
       puppeteer.launch(launchOptions),
       BROWSER_LAUNCH_TIMEOUT_MS,
       'Browser launch',
+      closeOrphanedLaunch,
     );
     return browser;
   } catch (error) {
@@ -147,6 +191,7 @@ async function spawnBrowser(): Promise<Browser> {
         puppeteer.launch(launchOptions),
         BROWSER_LAUNCH_TIMEOUT_MS,
         'Browser launch (fallback)',
+        closeOrphanedLaunch,
       );
     }
     throw error;
@@ -165,7 +210,7 @@ async function initPool(): Promise<void> {
   const failures: unknown[] = [];
   for (const result of results) {
     if (result.status === 'fulfilled') {
-      _pool.push({ browser: result.value, busy: false });
+      _pool.push({ browser: result.value, busy: false, reserved: false });
     } else {
       failures.push(result.reason);
     }
@@ -196,21 +241,35 @@ initPool().catch(() => {});
 export async function acquireBrowser(): Promise<PoolEntry> {
   await initPool();
 
-  const free = _pool.find((e) => !e.busy);
+  const free = findFreeSlot();
   if (free) { free.busy = true; return free; }
 
+  // WHY reserve synchronously before awaiting spawnBrowser(): pushing the
+  // placeholder entry (reserved:true) here, before any `await`, makes
+  // `_pool.length` reflect the reservation immediately. Without this, two
+  // concurrent acquireBrowser() calls could both read `_pool.length <
+  // POOL_MAX` as true before either finished spawning, growing the pool
+  // past POOL_MAX (the documented OOM-prevention cap — see the WHY comment
+  // above POOL_MIN/POOL_MAX).
   if (_pool.length < POOL_MAX) {
-    const browser = await spawnBrowser();
-    const entry: PoolEntry = { browser, busy: true };
+    const entry: PoolEntry = { browser: null, busy: true, reserved: true };
     _pool.push(entry);
-    return entry;
+    try {
+      entry.browser = await spawnBrowser();
+      entry.reserved = false;
+      return entry;
+    } catch (err) {
+      const idx = _pool.indexOf(entry);
+      if (idx !== -1) _pool.splice(idx, 1);
+      throw err;
+    }
   }
 
   // All slots busy — wait up to RENDER_TIMEOUT_MS
   const deadline = Date.now() + RENDER_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 150));
-    const slot = _pool.find((e) => !e.busy);
+    const slot = findFreeSlot();
     if (slot) { slot.busy = true; return slot; }
   }
   throw new Error('Browser pool exhausted — all slots busy');
@@ -224,12 +283,21 @@ export async function replaceBrokenBrowser(entry: PoolEntry): Promise<void> {
   // WHY timeout here too: a browser already in a broken state (the reason we're
   // replacing it) is exactly the kind of process most likely to hang on close() —
   // without a deadline this would block the pool slot from ever being freed.
-  try { await withTimeout(entry.browser.close(), BROWSER_LAUNCH_TIMEOUT_MS, 'Browser close'); } catch { /* ignore — treat as failure regardless, we're discarding this entry */ }
-  const idx = _pool.indexOf(entry);
+  if (entry.browser) {
+    try { await withTimeout(entry.browser.close(), BROWSER_LAUNCH_TIMEOUT_MS, 'Browser close'); } catch { /* ignore — treat as failure regardless, we're discarding this entry */ }
+  }
+  // WHY re-derive idx only at splice time, not cached across the await below:
+  // spawnBrowser() awaits, during which _pool can be mutated by a concurrent
+  // acquireBrowser()/replaceBrokenBrowser() splice — indexOf by reference
+  // (entry identity) computed fresh here (not before the await) always finds
+  // this exact entry's current position, or -1 if it was already removed.
+  entry.reserved = true;
   try {
     entry.browser = await spawnBrowser();
     entry.busy = false;
+    entry.reserved = false;
   } catch (respawnErr) {
+    const idx = _pool.indexOf(entry);
     if (idx !== -1) _pool.splice(idx, 1);
     logger.error('[BrowserPool] Removed dead browser after respawn failure', {
       poolSize: _pool.length,
@@ -254,8 +322,26 @@ export async function isPoolAvailable(): Promise<boolean> {
   return _pool.length > 0;
 }
 
+// WHY wait for in-flight reservations first: a synchronous snapshot of _pool
+// taken while acquireBrowser() has reserved a slot (browser: null, reserved:
+// true) but is still awaiting spawnBrowser() would skip that entry — closing
+// only what existed at the instant of the snapshot leaks the browser that
+// resolves moments later (orphaned Chromium process surviving shutdown). We
+// poll briefly for reservations to settle (bounded by BROWSER_LAUNCH_TIMEOUT_MS,
+// the same deadline spawnBrowser() itself is racing against) before taking the
+// close snapshot.
+async function waitForReservationsToSettle(): Promise<void> {
+  const deadline = Date.now() + BROWSER_LAUNCH_TIMEOUT_MS;
+  while (Date.now() < deadline && _pool.some((e) => e.reserved)) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 export async function closeBrowserPool() {
-  await Promise.allSettled(_pool.map((e) => e.browser.close()));
+  await waitForReservationsToSettle();
+  await Promise.allSettled(
+    _pool.filter((e): e is PoolEntry & { browser: Browser } => e.browser !== null).map((e) => e.browser.close()),
+  );
 }
 
 // WHY: shutdown is coordinated centrally in index.ts (HTTP server drain → BullMQ
@@ -264,4 +350,4 @@ export async function closeBrowserPool() {
 // in-flight HTTP requests / pipeline jobs before they finish. The 'exit' handler
 // stays as a last-resort synchronous cleanup for paths that bypass the
 // coordinated shutdown (e.g. an uncaught exception).
-process.on('exit', () => { _pool.forEach((e) => e.browser.close().catch(() => {})); });
+process.on('exit', () => { _pool.forEach((e) => { e.browser?.close().catch(() => {}); }); });

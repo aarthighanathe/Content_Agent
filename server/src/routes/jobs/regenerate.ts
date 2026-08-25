@@ -21,10 +21,25 @@ import { runAndPersistPipeline } from '../../lib/pipeline.js';
 import type { ResearchResult } from '../../agents/researcher.js';
 import type { OrchestratorResult } from '../../agents/orchestrator.js';
 import { parseBody, regenerateJobSchema, multiplyJobSchema } from '../../schemas/index.js';
+import { isValidTone } from '../../lib/persistJob.js';
 import { logger } from '../../lib/logger.js';
 import { readOutputs } from '../content/shared.js';
 
 const router = Router({ mergeParams: true });
+
+// WHY shared by both /regenerate and /multiply: both carry a source job's
+// tone/targetAudience straight into a fresh pipeline run with no schema
+// re-check (the request-body schemas only validate their own new fields). A
+// legacy row whose tone predates a VALID_TONES vocabulary change, or a null
+// targetAudience from some other historical edge case, would otherwise run an
+// entire 5-agent pipeline only to fail at persistJobToDB's own validation —
+// wasting Gemini/Tavily quota and losing the result (see pipeline.ts's
+// runAndPersistPipeline catch-block handling). Reuses persistJob.ts's
+// isValidTone so this predicate can't drift from the one persistJobToDB
+// itself enforces.
+function hasStaleJobData(job: { tone?: string | null; targetAudience?: string | null }): boolean {
+  return !job.tone || !isValidTone(job.tone) || !job.targetAudience;
+}
 
 // POST /:jobId/regenerate
 router.post('/:jobId/regenerate', async (req: AuthRequest, res: Response) => {
@@ -37,6 +52,14 @@ router.post('/:jobId/regenerate', async (req: AuthRequest, res: Response) => {
 
     const existingJob = await requireJobOwnership(jobId, userId, res);
     if (!existingJob) return;
+
+    if (hasStaleJobData(existingJob)) {
+      return res.status(400).json({
+        error: "This job's tone or audience data is no longer valid — please create a new job instead of regenerating.",
+        code: 'STALE_JOB_DATA',
+        retryable: false,
+      });
+    }
 
     // WHY snapshot here, not in persistJobToDB: persistJobToDB unconditionally
     // deletes+re-inserts contentOutputs on every persist (every job
@@ -119,6 +142,14 @@ router.post('/:jobId/multiply', async (req: AuthRequest, res: Response) => {
     const sourceJob = await requireJobOwnership(jobId, userId, res);
     if (!sourceJob) return;
 
+    if (hasStaleJobData(sourceJob)) {
+      return res.status(400).json({
+        error: "This job's tone or audience data is no longer valid — please create a new job instead of multiplying.",
+        code: 'STALE_JOB_DATA',
+        retryable: false,
+      });
+    }
+
     const sourceOutputs = readOutputs(sourceJob);
     const cachedResearch = sourceOutputs.find((o) => o.agentName === 'researcher' && o.outputType === 'research')
       ?.content as ResearchResult | undefined;
@@ -144,6 +175,7 @@ router.post('/:jobId/multiply', async (req: AuthRequest, res: Response) => {
     };
 
     jobsMemory.set(newJobId, newJob);
+    setJobInStore(newJobId, newJob);
 
     // FLOW: Content Multiplier skips orchestrator+researcher — it reuses the
     // source job's cached research/task-plan/platform-rules and starts

@@ -5,7 +5,7 @@
 // exact same logic — duplicating ~80 lines of fetch/parsing code across two
 // call sites would let them silently drift (e.g. one gets a bug fix the
 // other doesn't). This is the single shared implementation both call.
-import type { SocialTokenData } from '../routes/social.js';
+import type { SocialTokenData } from './socialTokens.js';
 
 interface LinkedInProfileResponse {
   id?: string;

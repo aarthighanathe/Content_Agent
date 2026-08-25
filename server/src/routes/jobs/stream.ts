@@ -89,7 +89,19 @@ router.get('/:jobId/stream', async (req: Request, res: Response) => {
 router.post('/:jobId/stream-token', async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
-    const userId = req.dbUserId || req.userId || 'demo';
+    // SECURITY: this route persists its resolved identity into a 15-minute
+    // Redis-backed token (unlike a per-request fallback), so unlike other
+    // routes' `req.dbUserId || req.userId || 'demo'` pattern, fail closed
+    // here instead of falling through to a shared 'demo' identity — that
+    // fallback should be unreachable given authMiddleware's fail-closed
+    // guarantee (this route runs behind it, see the SECURITY note below),
+    // but a stateful token is exactly the wrong place to rely on that
+    // invariant holding forever without a local backstop.
+    if (!req.dbUserId) {
+      res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
+      return;
+    }
+    const userId = req.dbUserId;
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
 
@@ -102,11 +114,11 @@ router.post('/:jobId/stream-token', async (req: AuthRequest, res: Response) => {
     const token = randomUUID();
     const key = `sse:token:${token}`;
     // SECURITY: store the SAME resolved identifier requireJobOwnership() was just
-    // checked against (including the 'demo' fallback for the DB-unavailable path)
-    // under a single unambiguous `dbUserId` key. This route (POST /:jobId/stream-token)
-    // DOES still go through authMiddleware — routes/jobs/index.ts only exempts the
-    // actual SSE stream endpoint (GET /:jobId/stream, matched by SSE_STREAM_PATH)
-    // from auth; STREAM_TOKEN_PATH there exempts this route from the rate limiter
+    // checked against under a single unambiguous `dbUserId` key. This route
+    // (POST /:jobId/stream-token) DOES still go through authMiddleware —
+    // routes/jobs/index.ts only exempts the actual SSE stream endpoint
+    // (GET /:jobId/stream, matched by SSE_STREAM_PATH) from auth;
+    // STREAM_TOKEN_PATH there exempts this route from the rate limiter
     // only, not from authMiddleware. Also keeping `clerkId` (when available) for
     // logging/debugging only — it is never read back as the resolved identity by
     // verifySSEToken().

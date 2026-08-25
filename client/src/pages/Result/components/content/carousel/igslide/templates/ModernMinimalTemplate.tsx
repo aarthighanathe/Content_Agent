@@ -3,7 +3,7 @@ import { TemplateLayout } from '../layouts/TemplateLayout';
 import type { CarouselTemplateProps } from './templateProps';
 import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
-import { stablePointKeys } from '../types';
+import { usePointKeys } from '../types';
 
 /**
  * Modern Minimal Template
@@ -23,6 +23,7 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
     template,
   }, ref) {
   const { typography, spacing } = template;
+  const pointKeys = usePointKeys(slide.points);
 
   return (
     <TemplateLayout
@@ -119,7 +120,7 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
           >
             {slide.points.map((point, i) => (
               <div
-                key={stablePointKeys(slide.points!)[i]}
+                key={pointKeys[i]}
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',

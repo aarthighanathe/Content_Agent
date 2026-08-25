@@ -11,7 +11,7 @@ import { logger } from '../lib/logger.js';
 import { db } from '../db/index.js';
 import { scheduledPosts, contentJobs } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { dbGetToken, PLATFORM_LABELS } from '../routes/social.js';
+import { dbGetToken, PLATFORM_LABELS } from '../lib/socialTokens.js';
 import { publishToSocialPlatform } from '../lib/socialPublish.js';
 import { readOutputs } from '../routes/content/shared.js';
 import { assembleJobFromDB } from '../routes/jobs/ownership.js';

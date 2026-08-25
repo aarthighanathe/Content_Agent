@@ -3,6 +3,7 @@
 // so external consumers (ssr/renderSlideHtml.tsx, IGCarouselPreview.tsx,
 // useCarouselDesignSeed.ts, EditSlideModal.tsx, SlideVisual.tsx) keep importing from
 // './IGSlide' unchanged — only the internal layout/decoration code moved.
+import { useMemo } from 'react';
 
 export interface SlidePoint {
   icon: string;
@@ -40,4 +41,17 @@ export function stablePointKeys(points: SlidePoint[]): string[] {
     seen.set(base, occurrence + 1);
     return `${base}#${occurrence}`;
   });
+}
+
+// WHY a shared hook, not each template component calling stablePointKeys
+// inline: all 10 igslide/templates/*.tsx components previously repeated the
+// identical `slide.points ? stablePointKeys(slide.points) : []` guard, which
+// (a) is one more thing CLAUDE.md §11a's "copy an existing template" onboarding
+// step can silently drift on, and (b) recomputed on every render even when
+// `slide.points` hadn't changed (e.g. every keystroke while live-editing a
+// different field of the same slide in EditSlideModal.tsx). useMemo here
+// means the O(n) map-plus-occurrence-counting pass only reruns when the
+// points array reference actually changes.
+export function usePointKeys(points: SlidePoint[] | undefined): string[] {
+  return useMemo(() => (points ? stablePointKeys(points) : []), [points]);
 }

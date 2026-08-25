@@ -75,3 +75,88 @@ export async function assertUrlIsPublic(url: string): Promise<UrlSafetyResult> {
 
   return { safe: true };
 }
+
+export interface GuardedFetchResult {
+  ok: true;
+  response: Response;
+}
+export interface GuardedFetchFailure {
+  ok: false;
+  reason: string;
+}
+
+const MAX_REDIRECT_HOPS = 5;
+
+// SECURITY: assertUrlIsPublic() alone only validates the *initial* URL — the
+// native fetch() (and rss-parser's own HTTP client) follow HTTP redirects by
+// default with no re-validation of the redirect target, so a public URL that
+// 302s to http://169.254.169.254/... (cloud metadata) or an internal service
+// transparently bypasses the guard entirely. This wrapper follows redirects
+// manually (`redirect: 'manual'`) and re-runs assertUrlIsPublic() on every
+// `Location` header before following it, capped at MAX_REDIRECT_HOPS to avoid
+// an infinite/hostile redirect chain becoming a hang. Both consumers of
+// user-supplied URLs (repurpose.ts's article fetch, feedMonitorWorker.ts's
+// RSS fetch) should call this instead of fetch()/parseURL() directly.
+// WHY body is rejected outright rather than forwarded across hops: a
+// ReadableStream (or any other one-shot body) consumed by hop 0's fetch()
+// would be exhausted by the time a later hop tries to resend the identical
+// `options` object, throwing or hanging depending on the stream
+// implementation. Both current callers (repurpose.ts, feedMonitorWorker.ts)
+// only ever pass GET-shaped options (signal/headers, no body), so this is a
+// documented restriction on a general-purpose export, not a functional
+// change for any real call site today.
+export async function fetchWithSsrfGuard(
+  url: string,
+  options: RequestInit = {},
+): Promise<GuardedFetchResult | GuardedFetchFailure> {
+  if (options.body) {
+    return { ok: false, reason: 'fetchWithSsrfGuard does not support request bodies (redirect hops cannot safely resend a consumed body)' };
+  }
+
+  let currentUrl = url;
+
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+      const safety = await assertUrlIsPublic(currentUrl);
+      if (!safety.safe) {
+        return { ok: false, reason: safety.reason || 'URL points to a private or reserved address' };
+      }
+
+      const response = await fetch(currentUrl, { ...options, redirect: 'manual' });
+
+      // A `redirect: 'manual'` response for a 3xx is an "opaqueredirect" type
+      // response in browser fetch semantics, but Node's undici implementation
+      // surfaces it as a normal response object with status 3xx and a
+      // Location header — check status directly rather than response.type.
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) {
+          return { ok: false, reason: 'Redirect response had no Location header' };
+        }
+        if (hop === MAX_REDIRECT_HOPS) {
+          return { ok: false, reason: 'Too many redirects' };
+        }
+        // Location may be relative — resolve against the current URL.
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+
+      return { ok: true, response };
+    }
+
+    // WHY unreachable in practice, kept as a type-safety backstop: every
+    // in-loop path returns before falling through, and the loop's own
+    // `hop === MAX_REDIRECT_HOPS` guard above returns before the final
+    // iteration could ever fall off the end — but TypeScript can't prove
+    // that from the loop shape alone, so the function needs an explicit
+    // return here to type-check as always returning.
+    return { ok: false, reason: 'Too many redirects' };
+  } catch (err) {
+    // WHY caught here instead of left to propagate: folds a raw network
+    // error (DNS failure, connection reset, abort) into the same
+    // {ok:false, reason} shape every other failure in this function already
+    // returns, so callers don't need a second, differently-shaped error path
+    // just for network-level failures.
+    return { ok: false, reason: err instanceof Error ? err.message : 'Network request failed' };
+  }
+}

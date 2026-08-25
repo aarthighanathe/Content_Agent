@@ -62,7 +62,11 @@ router.post('/competitor', async (req: AuthRequest, res: Response) => {
     const { handle, industry } = body;
 
     const cleanHandle = handle.trim().replace(/^@/, '');
-    const industryCtx = industry ? ` in the ${industry} industry` : '';
+    // SECURITY: wrap user-controlled industry in XML delimiters before
+    // splicing into the prompt, matching the identical field's handling in
+    // content/ideate.ts — never pass raw user input into a prompt string
+    // unwrapped.
+    const industryCtx = industry ? ` in the <industry>${industry}</industry> industry` : '';
 
     const searchContext = await buildSearchContext(cleanHandle, industry);
 

@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { env } from '../config.js';
+import { logger } from './logger.js';
 
 const ALG = 'aes-256-gcm';
 const KEY_HEX = env.TOKEN_ENCRYPTION_KEY;
@@ -42,5 +43,17 @@ export function encryptTokenOptional(value: string | undefined | null): string |
 
 export function decryptTokenOptional(encoded: string | undefined | null): string | undefined {
   if (!encoded) return undefined;
-  try { return decryptToken(encoded); } catch { return undefined; }
+  try {
+    return decryptToken(encoded);
+  } catch (err) {
+    // WHY log here: this failure previously vanished silently, so a mass
+    // decryption failure (e.g. a botched TOKEN_ENCRYPTION_KEY rotation)
+    // manifested only as social connections quietly appearing
+    // "disconnected" with zero server-side signal anything was wrong. Never
+    // log the ciphertext itself.
+    logger.warn('[tokenEncryption] Failed to decrypt a stored token', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
 }

@@ -3,7 +3,7 @@ import { TemplateLayout } from '../layouts/TemplateLayout';
 import type { CarouselTemplateProps } from './templateProps';
 import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
-import { stablePointKeys } from '../types';
+import { usePointKeys } from '../types';
 
 /**
  * Social Media Template
@@ -23,6 +23,7 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
   template,
 }, ref) {
   const { typography, spacing } = template;
+  const pointKeys = usePointKeys(slide.points);
 
   return (
     <TemplateLayout
@@ -154,7 +155,7 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           >
             {slide.points.map((point, i) => (
               <div
-                key={stablePointKeys(slide.points!)[i]}
+                key={pointKeys[i]}
                 style={{
                   display: 'flex',
                   alignItems: 'center',

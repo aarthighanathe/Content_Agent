@@ -153,7 +153,7 @@ function signOAuthState(payload: object): string {
 }
 
 async function buildApp() {
-  const { default: socialRouter } = await import('../../src/routes/social.js');
+  const { default: socialRouter } = await import('../../src/routes/social/index.js');
   const app = express();
   app.use(express.json());
   app.use('/api/social', socialRouter);
@@ -234,7 +234,7 @@ describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
     const app2 = express();
     app2.use(express.json());
     app2.use((req: any, _res, next) => { req.dbUserId = USER_ID; next(); });
-    const { default: socialRouter } = await import('../../src/routes/social.js');
+    const { default: socialRouter } = await import('../../src/routes/social/index.js');
     app2.use('/api/social', socialRouter);
 
     const res = await supertest(app2).get('/api/social/connections');

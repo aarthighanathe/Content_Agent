@@ -218,6 +218,30 @@ describe('POST /api/content/repurpose', () => {
     expect(jobsMemoryMock.size).toBe(0);
   });
 
+  it('rejects a redirect to a private/metadata address instead of following it (SSRF-via-redirect)', async () => {
+    // The initial URL is public and passes assertUrlIsPublic(); the server
+    // responds with a redirect straight to the AWS metadata endpoint. Without
+    // per-hop revalidation, fetch()'s default redirect-following would sail
+    // right through this and return the metadata endpoint's response as if
+    // it were the article. fetchWithSsrfGuard must re-check the Location
+    // header and refuse to follow it.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 302,
+      headers: new Headers({ location: 'http://169.254.169.254/latest/meta-data/iam/security-credentials/' }),
+      text: async () => '',
+    }) as unknown as typeof fetch;
+    const app = await buildApp(OWNER);
+    const res = await supertest(app).post('/api/content/repurpose').send({
+      url: 'https://example.com/redirector', platform: 'linkedin_post', tone: 'professional', targetAudience: 'founders',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('VALIDATION_ERROR');
+    // Only the first hop (to the public redirector URL) should ever be fetched.
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(jobsMemoryMock.size).toBe(0);
+  });
+
   it('rejects more than 5 platforms (schema cap)', async () => {
     const app = await buildApp(OWNER);
     const res = await supertest(app).post('/api/content/repurpose').send({

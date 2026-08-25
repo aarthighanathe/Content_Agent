@@ -3,7 +3,7 @@ import { TemplateLayout } from '../layouts/TemplateLayout';
 import type { CarouselTemplateProps } from './templateProps';
 import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
-import { stablePointKeys } from '../types';
+import { usePointKeys } from '../types';
 
 /**
  * Bold Statement Template
@@ -23,6 +23,7 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
   template,
 }, ref) {
   const { typography, spacing, layout } = template;
+  const pointKeys = usePointKeys(slide.points);
 
   const isSplit = layout.coverStyle === 'split';
 
@@ -160,7 +161,7 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
             >
               {slide.points.map((point, i) => (
                 <div
-                  key={stablePointKeys(slide.points!)[i]}
+                  key={pointKeys[i]}
                   style={{
                     display: 'flex',
                     alignItems: 'center',

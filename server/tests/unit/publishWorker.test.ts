@@ -22,7 +22,7 @@ vi.mock('../../src/lib/logger.js', () => ({
 }));
 
 const dbGetToken = vi.fn();
-vi.mock('../../src/routes/social.js', () => ({
+vi.mock('../../src/lib/socialTokens.js', () => ({
   dbGetToken: (...args: unknown[]) => dbGetToken(...args),
   PLATFORM_LABELS: { linkedin: 'LinkedIn', twitter: 'Twitter/X' },
 }));

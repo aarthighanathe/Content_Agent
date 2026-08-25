@@ -3109,7 +3109,7 @@ var require_react_dom_server_legacy_node_production = __commonJS({
       );
       return [workInProgressHook.memoizedState, reducer];
     }
-    function useMemo(nextCreate, deps) {
+    function useMemo2(nextCreate, deps) {
       currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
       workInProgressHook = createWorkInProgressHook();
       deps = void 0 === deps ? null : deps;
@@ -3225,7 +3225,7 @@ var require_react_dom_server_legacy_node_production = __commonJS({
         resolveCurrentlyRenderingComponent();
         return context._currentValue2;
       },
-      useMemo,
+      useMemo: useMemo2,
       useReducer,
       useRef: function(initialValue) {
         currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
@@ -3239,7 +3239,7 @@ var require_react_dom_server_legacy_node_production = __commonJS({
       useInsertionEffect: noop,
       useLayoutEffect: noop,
       useCallback: function(callback, deps) {
-        return useMemo(function() {
+        return useMemo2(function() {
           return callback;
         }, deps);
       },
@@ -8308,7 +8308,7 @@ var require_react_dom_server_node_production = __commonJS({
       );
       return [workInProgressHook.memoizedState, reducer];
     }
-    function useMemo(nextCreate, deps) {
+    function useMemo2(nextCreate, deps) {
       currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
       workInProgressHook = createWorkInProgressHook();
       deps = void 0 === deps ? null : deps;
@@ -8428,7 +8428,7 @@ var require_react_dom_server_node_production = __commonJS({
         resolveCurrentlyRenderingComponent();
         return context._currentValue;
       },
-      useMemo,
+      useMemo: useMemo2,
       useReducer,
       useRef: function(initialValue) {
         currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
@@ -8442,7 +8442,7 @@ var require_react_dom_server_node_production = __commonJS({
       useInsertionEffect: noop,
       useLayoutEffect: noop,
       useCallback: function(callback, deps) {
-        return useMemo(function() {
+        return useMemo2(function() {
           return callback;
         }, deps);
       },
@@ -11515,7 +11515,7 @@ var require_jsx_runtime = __commonJS({
 var import_server = __toESM(require_server_node(), 1);
 
 // src/pages/Result/components/content/carousel/IGSlide.tsx
-var import_react12 = __toESM(require_react(), 1);
+var import_react13 = __toESM(require_react(), 1);
 
 // src/lib/colorSystem.ts
 function hexToRgb(hex) {
@@ -12370,6 +12370,7 @@ function CoverLayout({ slide, index, colors, brandName, handle, preset }) {
 }
 
 // src/pages/Result/components/content/carousel/igslide/types.ts
+var import_react = __toESM(require_react(), 1);
 function stablePointKeys(points) {
   const seen = /* @__PURE__ */ new Map();
   return points.map((pt) => {
@@ -12378,6 +12379,9 @@ function stablePointKeys(points) {
     seen.set(base, occurrence + 1);
     return `${base}#${occurrence}`;
   });
+}
+function usePointKeys(points) {
+  return (0, import_react.useMemo)(() => points ? stablePointKeys(points) : [], [points]);
 }
 
 // src/pages/Result/components/content/carousel/igslide/layouts/ContentLayout.tsx
@@ -13338,12 +13342,12 @@ function getPalette(templateId, paletteId) {
 }
 
 // src/pages/Result/components/content/carousel/igslide/templates/ModernMinimalTemplate.tsx
-var import_react2 = __toESM(require_react(), 1);
+var import_react3 = __toESM(require_react(), 1);
 
 // src/pages/Result/components/content/carousel/igslide/layouts/TemplateLayout.tsx
-var import_react = __toESM(require_react(), 1);
+var import_react2 = __toESM(require_react(), 1);
 var import_jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
-var TemplateLayout = import_react.default.forwardRef(
+var TemplateLayout = import_react2.default.forwardRef(
   function TemplateLayout2({ width, height, template, children }, ref) {
     return (
       // WHY no padding/background here: every *Template.tsx component already
@@ -13396,7 +13400,7 @@ function resolveTemplateFont(font) {
 
 // src/pages/Result/components/content/carousel/igslide/templates/ModernMinimalTemplate.tsx
 var import_jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
-var ModernMinimalTemplate = import_react2.default.forwardRef(
+var ModernMinimalTemplate = import_react3.default.forwardRef(
   function ModernMinimalTemplate2({
     slide,
     index,
@@ -13409,6 +13413,7 @@ var ModernMinimalTemplate = import_react2.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
       TemplateLayout,
       {
@@ -13523,7 +13528,7 @@ var ModernMinimalTemplate = import_react2.default.forwardRef(
                         ] })
                       ]
                     },
-                    stablePointKeys(slide.points)[i]
+                    pointKeys[i]
                   ))
                 }
               ),
@@ -13556,9 +13561,9 @@ var ModernMinimalTemplate = import_react2.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/BoldStatementTemplate.tsx
-var import_react3 = __toESM(require_react(), 1);
+var import_react4 = __toESM(require_react(), 1);
 var import_jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
-var BoldStatementTemplate = import_react3.default.forwardRef(
+var BoldStatementTemplate = import_react4.default.forwardRef(
   function BoldStatementTemplate2({
     slide,
     index,
@@ -13571,6 +13576,7 @@ var BoldStatementTemplate = import_react3.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing, layout } = template;
+    const pointKeys = usePointKeys(slide.points);
     const isSplit = layout.coverStyle === "split";
     return /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
       TemplateLayout,
@@ -13719,7 +13725,7 @@ var BoldStatementTemplate = import_react3.default.forwardRef(
                                 /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { children: point.label })
                               ]
                             },
-                            stablePointKeys(slide.points)[i]
+                            pointKeys[i]
                           ))
                         }
                       )
@@ -13758,9 +13764,9 @@ var BoldStatementTemplate = import_react3.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/EditorialClassicTemplate.tsx
-var import_react4 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
 var import_jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
-var EditorialClassicTemplate = import_react4.default.forwardRef(
+var EditorialClassicTemplate = import_react5.default.forwardRef(
   function EditorialClassicTemplate2({
     slide,
     index,
@@ -13773,6 +13779,7 @@ var EditorialClassicTemplate = import_react4.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
       TemplateLayout,
       {
@@ -13909,7 +13916,7 @@ var EditorialClassicTemplate = import_react4.default.forwardRef(
                         ] })
                       ]
                     },
-                    stablePointKeys(slide.points)[i]
+                    pointKeys[i]
                   ))
                 }
               ),
@@ -13933,9 +13940,9 @@ var EditorialClassicTemplate = import_react4.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/TechModernTemplate.tsx
-var import_react5 = __toESM(require_react(), 1);
+var import_react6 = __toESM(require_react(), 1);
 var import_jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
-var TechModernTemplate = import_react5.default.forwardRef(
+var TechModernTemplate = import_react6.default.forwardRef(
   function TechModernTemplate2({
     slide,
     index,
@@ -13948,6 +13955,7 @@ var TechModernTemplate = import_react5.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
       TemplateLayout,
       {
@@ -14101,7 +14109,7 @@ var TechModernTemplate = import_react5.default.forwardRef(
                               /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { children: point.label })
                             ]
                           },
-                          stablePointKeys(slide.points)[i]
+                          pointKeys[i]
                         ))
                       }
                     )
@@ -14139,9 +14147,9 @@ var TechModernTemplate = import_react5.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/VibrantPopTemplate.tsx
-var import_react6 = __toESM(require_react(), 1);
+var import_react7 = __toESM(require_react(), 1);
 var import_jsx_runtime18 = __toESM(require_jsx_runtime(), 1);
-var VibrantPopTemplate = import_react6.default.forwardRef(
+var VibrantPopTemplate = import_react7.default.forwardRef(
   function VibrantPopTemplate2({
     slide,
     index,
@@ -14154,6 +14162,7 @@ var VibrantPopTemplate = import_react6.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
       TemplateLayout,
       {
@@ -14297,7 +14306,7 @@ var VibrantPopTemplate = import_react6.default.forwardRef(
                         /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { style: { fontWeight: 600 }, children: point.label })
                       ]
                     },
-                    stablePointKeys(slide.points)[i]
+                    pointKeys[i]
                   ))
                 }
               ),
@@ -14351,9 +14360,9 @@ var VibrantPopTemplate = import_react6.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/LuxuryDarkTemplate.tsx
-var import_react7 = __toESM(require_react(), 1);
+var import_react8 = __toESM(require_react(), 1);
 var import_jsx_runtime19 = __toESM(require_jsx_runtime(), 1);
-var LuxuryDarkTemplate = import_react7.default.forwardRef(
+var LuxuryDarkTemplate = import_react8.default.forwardRef(
   function LuxuryDarkTemplate2({
     slide,
     index,
@@ -14366,6 +14375,7 @@ var LuxuryDarkTemplate = import_react7.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
       TemplateLayout,
       {
@@ -14566,7 +14576,7 @@ var LuxuryDarkTemplate = import_react7.default.forwardRef(
                         /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { style: { opacity: 0.9 }, children: point.label })
                       ]
                     },
-                    stablePointKeys(slide.points)[i]
+                    pointKeys[i]
                   ))
                 }
               ),
@@ -14597,9 +14607,9 @@ var LuxuryDarkTemplate = import_react7.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/CleanCorporateTemplate.tsx
-var import_react8 = __toESM(require_react(), 1);
+var import_react9 = __toESM(require_react(), 1);
 var import_jsx_runtime20 = __toESM(require_jsx_runtime(), 1);
-var CleanCorporateTemplate = import_react8.default.forwardRef(
+var CleanCorporateTemplate = import_react9.default.forwardRef(
   function CleanCorporateTemplate2({
     slide,
     index,
@@ -14612,6 +14622,7 @@ var CleanCorporateTemplate = import_react8.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
       TemplateLayout,
       {
@@ -14768,7 +14779,7 @@ var CleanCorporateTemplate = import_react8.default.forwardRef(
                         )
                       ]
                     },
-                    stablePointKeys(slide.points)[i]
+                    pointKeys[i]
                   ))
                 }
               ),
@@ -14803,9 +14814,9 @@ var CleanCorporateTemplate = import_react8.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/CreativeAbstractTemplate.tsx
-var import_react9 = __toESM(require_react(), 1);
+var import_react10 = __toESM(require_react(), 1);
 var import_jsx_runtime21 = __toESM(require_jsx_runtime(), 1);
-var CreativeAbstractTemplate = import_react9.default.forwardRef(
+var CreativeAbstractTemplate = import_react10.default.forwardRef(
   function CreativeAbstractTemplate2({
     slide,
     index,
@@ -14818,6 +14829,7 @@ var CreativeAbstractTemplate = import_react9.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
       TemplateLayout,
       {
@@ -14954,7 +14966,7 @@ var CreativeAbstractTemplate = import_react9.default.forwardRef(
                               /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { children: point.label })
                             ]
                           },
-                          stablePointKeys(slide.points)[i]
+                          pointKeys[i]
                         ))
                       }
                     )
@@ -14970,9 +14982,9 @@ var CreativeAbstractTemplate = import_react9.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/StorytellerTemplate.tsx
-var import_react10 = __toESM(require_react(), 1);
+var import_react11 = __toESM(require_react(), 1);
 var import_jsx_runtime22 = __toESM(require_jsx_runtime(), 1);
-var StorytellerTemplate = import_react10.default.forwardRef(
+var StorytellerTemplate = import_react11.default.forwardRef(
   function StorytellerTemplate2({
     slide,
     index,
@@ -14985,6 +14997,7 @@ var StorytellerTemplate = import_react10.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
       TemplateLayout,
       {
@@ -15114,7 +15127,7 @@ var StorytellerTemplate = import_react10.default.forwardRef(
                         ] })
                       ]
                     },
-                    stablePointKeys(slide.points)[i]
+                    pointKeys[i]
                   ))
                 }
               ),
@@ -15170,9 +15183,9 @@ var StorytellerTemplate = import_react10.default.forwardRef(
 );
 
 // src/pages/Result/components/content/carousel/igslide/templates/SocialMediaTemplate.tsx
-var import_react11 = __toESM(require_react(), 1);
+var import_react12 = __toESM(require_react(), 1);
 var import_jsx_runtime23 = __toESM(require_jsx_runtime(), 1);
-var SocialMediaTemplate = import_react11.default.forwardRef(
+var SocialMediaTemplate = import_react12.default.forwardRef(
   function SocialMediaTemplate2({
     slide,
     index,
@@ -15185,6 +15198,7 @@ var SocialMediaTemplate = import_react11.default.forwardRef(
     template
   }, ref) {
     const { typography, spacing } = template;
+    const pointKeys = usePointKeys(slide.points);
     return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
       TemplateLayout,
       {
@@ -15336,7 +15350,7 @@ var SocialMediaTemplate = import_react11.default.forwardRef(
                         ] })
                       ]
                     },
-                    stablePointKeys(slide.points)[i]
+                    pointKeys[i]
                   ))
                 }
               ),
@@ -15387,8 +15401,8 @@ var TEMPLATE_COMPONENTS = {
 
 // src/pages/Result/components/content/carousel/IGSlide.tsx
 var import_jsx_runtime24 = __toESM(require_jsx_runtime(), 1);
-var IGSlide = import_react12.default.memo(
-  import_react12.default.forwardRef(
+var IGSlide = import_react13.default.memo(
+  import_react13.default.forwardRef(
     // NOTE: isLast stays in IGSlideProps (callers pass it) but is no longer consumed here —
     // it only ever fed the now-removed SwipeArrow.
     function IGSlide2({ slide, index, total, colors, brandName, handle, width = 420, height = 525, designPreset = 0, templateId, paletteId }, ref) {

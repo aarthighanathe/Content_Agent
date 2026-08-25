@@ -111,6 +111,14 @@ export async function renderSlideWithPuppeteer(
   const entry = await acquireBrowser();
   let page: Awaited<ReturnType<Browser['newPage']>> | null = null;
 
+  // NOTE: acquireBrowser() only ever returns an entry once its `browser` is
+  // resolved (both the free-slot and reserve-then-spawn paths guarantee
+  // this) — `browser` is nullable on PoolEntry only during the brief window
+  // a reservation is in flight, which callers here never observe.
+  if (!entry.browser) {
+    throw new Error('Browser pool returned an entry with no browser instance');
+  }
+
   try {
     page = await entry.browser.newPage();
     await page.setViewport({

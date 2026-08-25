@@ -3,7 +3,7 @@ import { TemplateLayout } from '../layouts/TemplateLayout';
 import type { CarouselTemplateProps } from './templateProps';
 import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor } from '../../../../../../../lib/colorSystem';
-import { stablePointKeys } from '../types';
+import { usePointKeys } from '../types';
 
 /**
  * Vibrant Pop Template
@@ -23,6 +23,7 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
   template,
 }, ref) {
   const { typography, spacing } = template;
+  const pointKeys = usePointKeys(slide.points);
 
   return (
     <TemplateLayout
@@ -140,7 +141,7 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           >
             {slide.points.map((point, i) => (
               <div
-                key={stablePointKeys(slide.points!)[i]}
+                key={pointKeys[i]}
                 style={{
                   display: 'flex',
                   alignItems: 'center',

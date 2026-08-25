@@ -3,7 +3,7 @@ import { TemplateLayout } from '../layouts/TemplateLayout';
 import type { CarouselTemplateProps } from './templateProps';
 import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
-import { stablePointKeys } from '../types';
+import { usePointKeys } from '../types';
 
 /**
  * Clean Corporate Template
@@ -23,6 +23,7 @@ export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselT
   template,
 }, ref) {
   const { typography, spacing } = template;
+  const pointKeys = usePointKeys(slide.points);
 
   return (
     <TemplateLayout
@@ -127,7 +128,7 @@ export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselT
           >
             {slide.points.map((point, i) => (
               <div
-                key={stablePointKeys(slide.points!)[i]}
+                key={pointKeys[i]}
                 style={{
                   padding: spacing.gap,
                   background: getContrastRgba(colors.LIGHT_BG, 0.04),
