@@ -98,21 +98,35 @@ function formatCarousel(slides: WriterCarouselResponse): FormattedCarouselRespon
 function formatLinkedIn(post: WriterLinkedInResponse): WriterLinkedInResponse {
   if (!post || typeof post !== 'object') return post;
 
+  // WHY spread keeps hookAlt: the A/B hook toggle on Result reads hookAlt;
+  // reformatting must not drop it.
   const formatted: WriterLinkedInResponse = { ...post };
 
-  // Ensure hook is in first 2 lines
-  if (formatted.hook && !formatted.hook.includes('\n')) {
+  if (formatted.hook) {
     formatted.hook = formatted.hook.trim();
   }
+  if (formatted.hookAlt) {
+    formatted.hookAlt = formatted.hookAlt.trim();
+  }
 
-  // Add line breaks every 2-3 sentences in body
+  // WHY skip re-split when writer already used \\n\\n: forced every-2-sentence
+  // chunking flattened intentional rhythm (tension / proof / list / takeaway).
   if (formatted.body) {
-    const sentences = formatted.body.split(/(?<=[.!?])\s+/);
-    const paragraphs: string[] = [];
-    for (let i = 0; i < sentences.length; i += 2) {
-      paragraphs.push(sentences.slice(i, i + 2).join(' '));
+    const body = formatted.body.trim();
+    if (body.includes('\n\n')) {
+      formatted.body = body
+        .split(/\n\n+/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .join('\n\n');
+    } else {
+      const sentences = body.split(/(?<=[.!?])\s+/);
+      const paragraphs: string[] = [];
+      for (let i = 0; i < sentences.length; i += 2) {
+        paragraphs.push(sentences.slice(i, i + 2).join(' '));
+      }
+      formatted.body = paragraphs.join('\n\n');
     }
-    formatted.body = paragraphs.join('\n\n');
   }
 
   // Limit to 5 hashtags

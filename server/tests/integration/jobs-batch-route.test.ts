@@ -46,7 +46,21 @@ vi.mock('../../src/db/index.js', () => ({ db: null }));
 vi.mock('../../src/db/schema.js', () => ({ competitorAnalyses: {} }));
 vi.mock('../../src/lib/sse.js', () => ({ sseManager: { sendEvent: vi.fn() } }));
 vi.mock('../../src/lib/pipeline.js', () => ({ runAndPersistPipeline: vi.fn() }));
-vi.mock('../../src/workers/contentWorker.js', () => ({ setJobInStore: vi.fn() }));
+const jobsMemoryMock = vi.hoisted(() => new Map());
+vi.mock('../../src/routes/jobs/ownership.js', () => ({
+  setJobInStore: (jobId: string, data: unknown) => {
+    if (data === undefined) jobsMemoryMock.delete(jobId);
+    else jobsMemoryMock.set(jobId, data);
+  },
+  getJobFromStore: (jobId: string) => jobsMemoryMock.get(jobId),
+  jobsMemory: jobsMemoryMock,
+}));
+vi.mock('../../src/middleware/rateLimit.js', () => ({
+  authJobRateLimit: [(req: unknown, res: unknown, next: () => void) => next(), (req: unknown, res: unknown, next: () => void) => next()],
+  // WHY: batch charges N-1 extra generation hits after validation; without this
+  // the mock throws and the route returns 500 instead of exercising create.
+  chargeGenerationBudget: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('../../src/routes/users.js', () => ({
   getUserProfile: vi.fn().mockResolvedValue({ brandVoice: 'professional', phrasesUse: '', phrasesAvoid: '', contentDna: null }),
 }));

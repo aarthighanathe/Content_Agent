@@ -6,11 +6,30 @@
 // since that's the single largest, most self-contained chunk of the original file.
 import { Router, Request, Response } from 'express';
 import type { NextFunction } from 'express';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { AuthRequest } from '../../middleware/auth.js';
 import { env } from '../../config.js';
 import { socialRateLimit } from '../../middleware/rateLimit.js';
 import { dbUpsertToken } from '../../lib/socialTokens.js';
+import { getRedisClient } from '../../lib/redisClient.js';
+
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+function pkceS256Challenge(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url');
+}
+
+async function consumeOAuthNonce(nonce: string): Promise<boolean> {
+  const client = getRedisClient();
+  if (!client) return true;
+  try {
+    const key = `oauth:nonce:${nonce}`;
+    const set = await client.set(key, '1', 'EX', 600, 'NX');
+    return set === 'OK';
+  } catch {
+    return true;
+  }
+}
 
 // ── OAuth state HMAC signing ───────────────────────────────────────────────────
 
@@ -42,7 +61,12 @@ function verifyOAuthState(state: string): Record<string, unknown> | null {
   if (expectedBuf.length !== sigBuf.length) return null;
   if (!timingSafeEqual(expectedBuf, sigBuf)) return null;
   try {
-    return JSON.parse(Buffer.from(b64, 'base64url').toString()) as Record<string, unknown>;
+    const payload = JSON.parse(Buffer.from(b64, 'base64url').toString()) as Record<string, unknown>;
+    const issuedAt = payload.issuedAt;
+    if (typeof issuedAt !== 'number' || Date.now() - issuedAt > OAUTH_STATE_TTL_MS) {
+      return null;
+    }
+    return payload;
   } catch {
     return null;
   }
@@ -58,12 +82,15 @@ interface LinkedInTokenResponse {
 }
 interface LinkedInProfileResponse {
   id?: string;
-  localizedFirstName?: string;
-  localizedLastName?: string;
+  sub?: string;
+  name?: string;
+  given_name?: string;
+  family_name?: string;
 }
 interface TwitterTokenResponse {
   access_token?: string;
   refresh_token?: string;
+  expires_in?: number;
 }
 interface TwitterProfileResponse {
   data?: { username?: string };
@@ -88,8 +115,8 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
         res.status(501).json({ error: 'LinkedIn OAuth not configured. Set LINKEDIN_CLIENT_ID in .env', code: 'NOT_CONFIGURED', retryable: false });
         return;
       }
-      const scopes = ['r_liteprofile', 'r_emailaddress', 'w_member_social'].join('%20');
-      const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID() });
+      const scopes = ['openid', 'profile', 'email', 'w_member_social'].join('%20');
+      const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID(), issuedAt: Date.now() });
       const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}`;
       res.redirect(url);
       return;
@@ -106,9 +133,12 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
       // at token exchange. The verifier must be generated once here and carried through
       // to the callback verbatim (via the signed state param) — recomputing it at
       // callback time with a fresh value would never match.
-      const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
-      const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID(), codeVerifier });
-      const url = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${codeVerifier}&code_challenge_method=plain`;
+      const codeVerifier = randomBytes(32).toString('base64url');
+      const codeChallenge = pkceS256Challenge(codeVerifier);
+      const state = signOAuthState({
+        userId, platform, nonce: crypto.randomUUID(), codeVerifier, issuedAt: Date.now(),
+      });
+      const url = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
       res.redirect(url);
       return;
     }
@@ -166,6 +196,11 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
     // userId string, so this typeof check is a defensive backstop against a
     // future call-site change that omits it, not a currently-reachable gap.
     const userId = typeof decoded.userId === 'string' ? decoded.userId : 'demo';
+    const nonce = typeof decoded.nonce === 'string' ? decoded.nonce : '';
+    if (!nonce || !(await consumeOAuthNonce(nonce))) {
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('OAuth session expired or already used')}`);
+      return;
+    }
 
     const callbackUrl = `${env.APP_URL}/api/social/callback/${platform}`;
 
@@ -185,15 +220,20 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
       if (!tokenData.access_token) throw new Error('No access token');
 
       let displayName = 'LinkedIn User';
+      let platformUserId: string | undefined;
       try {
-        const profileRes = await fetch('https://api.linkedin.com/v2/me', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+        const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
         const profile = await profileRes.json() as LinkedInProfileResponse;
-        displayName = `${profile.localizedFirstName || ''} ${profile.localizedLastName || ''}`.trim() || displayName;
+        platformUserId = profile.sub || profile.id;
+        displayName = profile.name?.trim()
+          || `${profile.given_name || ''} ${profile.family_name || ''}`.trim()
+          || displayName;
       } catch { /* ignore */ }
 
       await dbUpsertToken(userId, platform, {
         accessToken: tokenData.access_token,
         displayName,
+        platformUserId,
         expiresAt: Date.now() + (tokenData.expires_in || 3600) * 1000,
       });
     }
@@ -227,6 +267,7 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token,
         displayName,
+        expiresAt: tokenData.expires_in ? Date.now() + tokenData.expires_in * 1000 : Date.now() + 7200 * 1000,
       });
     }
 

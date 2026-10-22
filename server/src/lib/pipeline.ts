@@ -87,14 +87,18 @@ export async function runContentPipeline(
 
   if (opts?.skipResearch) {
     // FLOW: Content Multiplier path — research/task-plan/platform-rules come
-    // from the source job's cached outputs, so no orchestrator/researcher log
-    // or output entries are pushed (no orchestrator/researcher work happened).
+    // from the source job's cached outputs (no Tavily/orchestrator LLM call).
+    // WHY still push research+orchestrator outputs: Adapt-of-Adapt used to fail
+    // with "No cached research" because multiply jobs persisted none. Copying
+    // the reused bundle onto this job keeps the lineage self-contained.
     researchResult = opts.skipResearch.researchResult;
     orchestratorResult = {
       taskPlan: opts.skipResearch.taskPlan,
       platformRules: opts.skipResearch.platformRules,
       searchQueries: [],
     };
+    outputs.push({ agentName: 'orchestrator', outputType: 'research', content: orchestratorResult });
+    outputs.push({ agentName: 'researcher', outputType: 'research', content: researchResult });
     emitProgress('writing', 10, 'system', `Adapting to ${job.platform.replace(/_/g, ' ')}…`);
   } else {
     // Stage 1: Planning
@@ -367,7 +371,7 @@ export async function runAndPersistPipeline(
       stage: 'failed',
       progress: 0,
       agent: 'system',
-      message: `Job failed: ${errorMessage}`,
+      message: 'Content generation failed. Please try again or start a new job.',
     });
     throw error;
   }

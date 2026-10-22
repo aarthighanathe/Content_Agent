@@ -63,6 +63,18 @@ vi.mock('../../src/routes/jobs/index.js', () => ({
   jobsMemory: jobsMemoryMock,
   runPipelineDirect: (...args: unknown[]) => { runPipelineDirectMock(...args); return Promise.resolve(); },
 }));
+vi.mock('../../src/routes/jobs/ownership.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/routes/jobs/ownership.js')>();
+  return {
+    ...actual,
+    setJobInStore: (jobId: string, data: unknown) => {
+      if (data === undefined) jobsMemoryMock.delete(jobId);
+      else jobsMemoryMock.set(jobId, data);
+    },
+    getJobFromStore: (jobId: string) => jobsMemoryMock.get(jobId),
+    jobsMemory: jobsMemoryMock,
+  };
+});
 
 const addJobToQueueMock = vi.fn().mockResolvedValue(true);
 vi.mock('../../src/lib/queue.js', () => ({

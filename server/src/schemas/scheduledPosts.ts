@@ -55,6 +55,10 @@ export const createScheduledPostSchema = z.object({
   // as before this fix. Range matches every real UTC offset (UTC-12 to
   // UTC+14 inclusive).
   timezoneOffsetMinutes: z.number().int().min(-840).max(720).optional(),
+  // WHY optional 0–23 (L10/F12): defaults to 9 (morning slot) when omitted so
+  // older clients keep working. Paired with timezoneOffsetMinutes to fire at
+  // that local hour on scheduledDate.
+  publishHour: z.number().int().min(0).max(23).optional(),
 });
 
 export const listScheduledPostsQuerySchema = z.object({

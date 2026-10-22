@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { AuthRequest, authMiddleware } from '../../middleware/auth.js';
-import { authJobRateLimit } from '../../middleware/rateLimit.js';
+import { jobMutationRateLimit } from '../../middleware/rateLimit.js';
 import createRouter from './create.js';
 import streamRouter from './stream.js';
 import renderRouter from './render.js';
@@ -9,6 +9,7 @@ import versionsRouter from './versions.js';
 import listRouter from './list.js';
 import manageRouter from './manage.js';
 import regenerateRouter from './regenerate.js';
+import relatedRouter from './related.js';
 
 const router = Router();
 
@@ -51,7 +52,7 @@ router.use((req: Request, res: Response, next) => {
   // exemption above needs to short-circuit before the limiter chain runs at all,
   // so the two middlewares in the array are invoked in sequence here, with each
   // one's `next` chaining to the next entry (or to the outer `next` on the last).
-  const [failClosed, limiter] = authJobRateLimit;
+  const [failClosed, limiter] = jobMutationRateLimit;
   return failClosed(req, res, (err?: unknown) => {
     if (err) return next(err);
     return limiter(req, res, next);
@@ -64,6 +65,7 @@ router.use('/', streamRouter);    // GET /:jobId/stream, POST /:jobId/stream-tok
 router.use('/', renderRouter);    // POST /:jobId/export/carousel-png
 router.use('/', insightsRouter);  // GET /audience-defaults — must precede manageRouter's GET /:jobId
 router.use('/', versionsRouter);  // GET /:jobId/versions, POST /:jobId/versions/:versionId/restore
+router.use('/', relatedRouter);   // GET /:jobId/related — Adapt family (must precede manage GET /:jobId)
 router.use('/', listRouter);      // GET / — paginated, searchable, filterable, sortable job list
 router.use('/', manageRouter);    // GET /:jobId, DELETE /:jobId, PATCH /:jobId/tag, /:jobId/carousel-template, /:jobId/content
 router.use('/', regenerateRouter); // POST /:jobId/regenerate, POST /:jobId/multiply

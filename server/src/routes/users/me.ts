@@ -200,14 +200,13 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
             jand(jeq(j.userId, userId), jeq(j.deleted, 0), jeq(j.status, 'done')),
           columns: { id: true, platform: true, createdAt: true },
           with: {
+            // WHY only critique + prediction: aggregateStats never reads final/research
+            // content — loading every output's full jsonb was the M13 cost bug.
             outputs: {
               columns: { outputType: true, qualityScore: true, content: true, createdAt: true },
+              where: (o, { inArray: oIn }) => oIn(o.outputType, ['critique', 'prediction']),
             },
           },
-          // WHY orderBy createdAt asc: dimensionTrend must read chronologically for a
-          // line chart to make sense, and aggregateStats's "latest prediction" tracking
-          // depends on ascending iteration order — sorting once here avoids re-sorting
-          // client-side or re-deriving order downstream.
           orderBy: (j, { asc }) => [asc(j.createdAt)],
         });
 

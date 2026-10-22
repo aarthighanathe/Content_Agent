@@ -207,11 +207,14 @@ function buildRateLimiter(config: RateLimiterConfig): RequestHandler[] {
   return [failClosedMiddleware(config.prefix), limiter];
 }
 
+export const AUTH_JOB_MAX = parseInt(env.RATE_LIMIT_MAX_JOBS, 10);
+
 /**
  * Authenticated users: configurable generation jobs per hour per user ID.
  * Override for local dev by setting RATE_LIMIT_MAX_JOBS=100 in .env
  */
-const AUTH_JOB_MAX = parseInt(env.RATE_LIMIT_MAX_JOBS, 10);
+// WHY exported AUTH_JOB_MAX: batch/repurpose charge extra budget after creating
+// N jobs from one request — they need the same ceiling the limiter uses.
 
 // SECURITY: every keyGenerator below used to call `ipKeyGenerator(req as any)` —
 // passing the whole Express Request where ipKeyGenerator(ip: string, ...)
@@ -236,13 +239,25 @@ export const authJobRateLimit = buildRateLimiter({
   skip: (req) => req.method === 'GET',
 });
 
+/** PATCH/DELETE/restore and other non-generation job mutations — separate from the hourly generation cap. */
+export const jobMutationRateLimit = buildRateLimiter({
+  prefix: 'job-mut',
+  windowMs: 60 * 60 * 1000,
+  max: 120,
+  message: 'Too many job updates. Please slow down and try again shortly.',
+  code: 'RATE_LIMITED',
+  skip: (req) => req.method === 'GET',
+});
+
 /**
- * Demo mode: 3 generation jobs per hour per IP.
+ * Demo mode: 5 generation jobs per hour per IP.
+ * WHY 5: the landing demo offers one sample per platform, and there are 5
+ * platforms. A cap of 3 made two of those buttons fail for every visitor.
  */
 export const demoJobRateLimit = buildRateLimiter({
   prefix: 'demo',
   windowMs: 60 * 60 * 1000,
-  max: 3,
+  max: 5,
   message: 'Demo limit reached. Sign up for free to create up to 10 pieces per hour.',
   code: 'RATE_LIMITED',
   skip: (req) => req.method === 'GET',
@@ -306,4 +321,32 @@ export const socialRateLimit = buildRateLimiter({
   message: 'Too many social connection requests. Please try again later.',
   code: 'RATE_LIMITED',
 });
+
+/**
+ * Charge additional generation-budget hits for batch/fan-out endpoints.
+ * WHY: authJobRateLimit counts 1 request; a batch of 7 would otherwise amplify
+ * past the hourly job cap. Charges (jobCount - 1) extra against the same Redis
+ * prefix the limiter uses. Best-effort — Redis failures don't block the response.
+ */
+export async function chargeGenerationBudget(userKey: string, jobCount: number): Promise<void> {
+  const extra = Math.max(0, Math.floor(jobCount) - 1);
+  if (extra === 0) return;
+  const client = getRedisClient();
+  if (!client) return;
+  try {
+    // rate-limit-redis default key shape: `${prefix}${id}` with prefix `rl:auth:`
+    const key = `rl:auth:${userKey}`;
+    const hits = await client.incrby(key, extra);
+    if (hits === extra) {
+      // First write for this window — mirror the limiter's 1h TTL.
+      await client.expire(key, 60 * 60);
+    }
+  } catch (err: unknown) {
+    logger.warn('Failed to charge generation budget', {
+      userKey,
+      extra,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 

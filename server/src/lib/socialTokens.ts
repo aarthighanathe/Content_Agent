@@ -9,6 +9,8 @@ import { db } from '../db/index.js';
 import { socialTokens } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { encryptTokenOptional, decryptTokenOptional } from './tokenEncryption.js';
+import { env } from '../config.js';
+import { logger } from './logger.js';
 
 // WHY this shape: mirrors exactly what dbUpsertToken already accepted as its
 // `data` parameter before this fix — extracting it as a named type replaces the
@@ -127,4 +129,64 @@ export async function dbDeleteToken(userId: string, platform: string): Promise<v
 export async function dbGetToken(userId: string, platform: string): Promise<SocialTokenData | null> {
   const all = await dbGetTokens(userId);
   return all[platform] || null;
+}
+
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
+async function refreshTwitterToken(userId: string, conn: SocialTokenData): Promise<SocialTokenData | null> {
+  if (!conn.refreshToken) return null;
+  const clientId = env.TWITTER_CLIENT_ID;
+  if (!clientId) return null;
+  const clientSecret = env.TWITTER_CLIENT_SECRET || '';
+  try {
+    const tokenRes = await fetch('https://api.twitter.com/2/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...(clientSecret ? { Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}` } : {}),
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: conn.refreshToken,
+        client_id: clientId,
+      }).toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!tokenRes.ok) return null;
+    const tokenData = await tokenRes.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
+    if (!tokenData.access_token) return null;
+    const refreshed: SocialTokenData = {
+      ...conn,
+      accessToken: tokenData.access_token,
+      refreshToken: tokenData.refresh_token ?? conn.refreshToken,
+      expiresAt: tokenData.expires_in ? Date.now() + tokenData.expires_in * 1000 : conn.expiresAt,
+    };
+    await dbUpsertToken(userId, 'twitter', {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken ?? undefined,
+      expiresAt: refreshed.expiresAt ?? undefined,
+      displayName: refreshed.displayName ?? undefined,
+      platformUserId: refreshed.platformUserId ?? undefined,
+    });
+    return refreshed;
+  } catch (err: unknown) {
+    logger.warn('Twitter token refresh failed', { userId, error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+/** Returns a connection with a fresh access token when refresh is supported and expiry is near. */
+export async function ensureFreshSocialToken(
+  userId: string,
+  platform: string,
+  conn: SocialTokenData,
+): Promise<SocialTokenData> {
+  const expiresAt = conn.expiresAt ?? null;
+  const needsRefresh = expiresAt !== null && expiresAt - Date.now() < TOKEN_REFRESH_BUFFER_MS;
+  if (!needsRefresh) return conn;
+  if (platform === 'twitter') {
+    const refreshed = await refreshTwitterToken(userId, conn);
+    return refreshed ?? conn;
+  }
+  return conn;
 }

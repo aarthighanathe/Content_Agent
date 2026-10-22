@@ -62,6 +62,7 @@ vi.mock('@clerk/express', () => ({
 const passThrough = (_req: any, _res: any, next: any) => next();
 vi.mock('../../src/middleware/rateLimit.js', () => ({
   authJobRateLimit: [passThrough, passThrough],
+  jobMutationRateLimit: [passThrough, passThrough],
   exportRateLimit: passThrough,
 }));
 

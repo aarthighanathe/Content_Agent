@@ -67,7 +67,8 @@ export function buildContentSummary(content: unknown, platform: string): string 
   }
 
   // LinkedIn and any other format
-  return `Hook: ${String(obj.hook || '').slice(0, 150)}\nBody: ${String(obj.body || '').slice(0, 300)}\nCTA: ${String(obj.cta || '').slice(0, 100)}`;
+  const hookAlt = obj.hookAlt ? `\nHookAlt: ${String(obj.hookAlt).slice(0, 150)}` : '';
+  return `Hook: ${String(obj.hook || '').slice(0, 150)}${hookAlt}\nBody: ${String(obj.body || '').slice(0, 400)}\nCTA: ${String(obj.cta || '').slice(0, 100)}`;
 }
 
 export async function runCritic(
@@ -92,13 +93,26 @@ export async function runCritic(
   // their own content's score) gap against that invariant.
   const safeBrandVoice = brandVoice || 'professional';
 
+  // WHY LinkedIn-specific notes: the generic rubric never checked "see more"
+  // hooks, short paragraphs, or soft CTAs — LinkedIn posts scored high while
+  // still feeling corporate and vague. These rules steer retries.
+  const linkedInRubric = job.platform === 'linkedin_post'
+    ? `
+LINKEDIN-SPECIFIC RULES (apply strictly when scoring):
+- Hook strength: Hook must work alone in the feed preview and create a reason to tap "see more" (specific number, contrarian claim, or sharp observation — not a topic label). Cap hookStrength at 12 if it is vague or generic.
+- Platform compliance: Prefer short paragraphs and a clear arc (tension → proof → takeaway → CTA). Cap platformCompliance at 12 if the body is a wall of text or missing that arc.
+- Value delivery: Body must include at least one concrete fact, named example, or data point. Cap valueDelivery at 12 if it is only abstract advice.
+- CTA clarity: CTA must be a specific question or action. Cap ctaClarity at 10 for soft bait like "What do you think?", "Thoughts?", "Agree?", or "Drop a comment".
+`
+    : '';
+
   const prompt = `Score this <platform>${job.platform.replace(/_/g, ' ')}</platform> content for <audience>${job.targetAudience}</audience> with tone "<tone>${job.tone}</tone>".
 
 Content:
 ${contentSummary}
 
 Brand voice: <brand_voice>${safeBrandVoice}</brand_voice>
-
+${linkedInRubric}
 Score each dimension 0-20. Be strict — average content scores 10-13, excellent content scores 17-19. Scores of 19-20 require genuinely outstanding work:
 1. Hook strength (0-20): Does the opening stop the scroll and earn the next swipe/read?
 2. Platform compliance (0-20): Does it follow ${job.platform.replace(/_/g, ' ')} best practices (format, length, structure)?
@@ -164,6 +178,61 @@ Output ONLY valid JSON — no markdown, no explanation:
     ctaClarity:         clampScore(parsed.ctaClarity),
   };
 
+  // WHY deterministic word-count gate (L11): writer targets 45–60 words per
+  // carousel body and formatter soft-caps at 65, but the LLM critic never
+  // re-checked length — long/short slides could still score ≥70 and ship.
+  // Penalize platformCompliance here so retries get concrete length feedback.
+  let feedback = parsed.feedback || '';
+  if (job.platform === 'instagram_carousel' && Array.isArray(content)) {
+    const offenders: string[] = [];
+    for (let i = 0; i < content.length; i++) {
+      const slide = (content[i] && typeof content[i] === 'object' ? content[i] : {}) as Record<string, unknown>;
+      const body = typeof slide.body === 'string' ? slide.body.trim() : '';
+      if (!body) continue;
+      const words = body.split(/\s+/).filter(Boolean).length;
+      if (words < 45 || words > 60) {
+        offenders.push(`slide ${i + 1} (${words} words)`);
+      }
+    }
+    if (offenders.length > 0) {
+      scores.platformCompliance = Math.min(scores.platformCompliance, 12);
+      const lengthNote = `Carousel body length out of 45–60 word range: ${offenders.join(', ')}.`;
+      feedback = feedback ? `${feedback} ${lengthNote}` : lengthNote;
+    }
+  }
+
+  // WHY deterministic LinkedIn gates: the LLM critic often waved through soft
+  // CTAs and topic-label hooks. Cap scores here so retries get concrete feedback.
+  if (job.platform === 'linkedin_post' && content && typeof content === 'object' && !Array.isArray(content)) {
+    const li = content as Record<string, unknown>;
+    const hook = typeof li.hook === 'string' ? li.hook.trim() : '';
+    const body = typeof li.body === 'string' ? li.body.trim() : '';
+    const cta = typeof li.cta === 'string' ? li.cta.trim().toLowerCase() : '';
+    const softCta =
+      /^(what do you think\??|thoughts\??|agree\??|drop a comment.*|let me know in the comments\.?)$/i
+        .test(cta) ||
+      cta === 'what do you think?' ||
+      cta === 'thoughts?' ||
+      cta === 'agree?';
+    const notes: string[] = [];
+    if (hook.length > 0 && hook.length < 20) {
+      scores.hookStrength = Math.min(scores.hookStrength, 12);
+      notes.push('Hook is too short/vague for a LinkedIn feed preview — lead with a specific claim or number.');
+    }
+    if (body.length > 0 && !body.includes('\n')) {
+      scores.platformCompliance = Math.min(scores.platformCompliance, 12);
+      notes.push('Body is a single block — break into short paragraphs (tension → proof → takeaway).');
+    }
+    if (softCta) {
+      scores.ctaClarity = Math.min(scores.ctaClarity, 10);
+      notes.push('CTA is generic engagement bait — ask a specific question or name a concrete action.');
+    }
+    if (notes.length > 0) {
+      const linkedInNote = notes.join(' ');
+      feedback = feedback ? `${feedback} ${linkedInNote}` : linkedInNote;
+    }
+  }
+
   const totalScore =
     scores.hookStrength +
     scores.platformCompliance +
@@ -177,18 +246,12 @@ Output ONLY valid JSON — no markdown, no explanation:
     approved,
     totalScore,
     scores,
-    feedback: parsed.feedback || '',
+    feedback,
   };
 
-  if (approved) {
-    sseManager.sendEvent(job.id, {
-      type: 'progress',
-      stage: 'done',
-      progress: 100,
-      agent: 'critic',
-      message: `Content approved! Quality score: ${totalScore}/100`,
-    });
-  }
+  // WHY no terminal SSE here: runAndPersistPipeline owns the single `stage: 'done'`
+  // event after outputs are persisted — emitting done from the critic let clients
+  // tear down SSE before a `final` output existed.
 
   return criticResult;
 }

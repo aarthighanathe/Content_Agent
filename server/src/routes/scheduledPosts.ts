@@ -35,12 +35,9 @@ import { parseBody, createScheduledPostSchema, listScheduledPostsQuerySchema } f
 import { isValidUUID } from '../lib/uuid.js';
 import { queuePublishJob, cancelPublishJob } from '../lib/publishQueue.js';
 
-// WHY a fixed daily hour, not a user-chosen time-of-day: scheduledDate is a
-// date-only string (see schema.ts's WHY) — adding real time-of-day control
-// would mean a DB column type change and a new SchedulePicker.tsx UI control,
-// a larger change than this pass scopes to (see CHANGELOG's dated entry).
-// 9am is an arbitrary but reasonable "morning" publish slot.
-const PUBLISH_HOUR_UTC = 9;
+// WHY default hour 9: morning slot when the client omits publishHour (older
+// clients / reminder-only schedules). L10/F12 added an optional 0–23 picker.
+const DEFAULT_PUBLISH_HOUR = 9;
 
 // WHY timezoneOffsetMinutes, not just trusting scheduledDate as a UTC day:
 // CalendarGrid.tsx builds scheduledDate from the browser's LOCAL calendar day
@@ -50,13 +47,20 @@ const PUBLISH_HOUR_UTC = 9;
 // from their actual 9am, and near a calendar-day boundary could even publish
 // on the wrong day entirely. timezoneOffsetMinutes (JS Date.getTimezoneOffset()
 // convention: minutes to ADD to local time to reach UTC) lets this compute
-// the real UTC instant of "9am in the user's own timezone, on this calendar
+// the real UTC instant of "N:00 in the user's own timezone, on this calendar
 // day" instead. Optional and defaults to 0 (i.e. the old UTC-day behavior)
 // so an older client or a direct API call still works, just with the
 // original (documented) imprecision rather than a hard failure.
-export function publishDelayMs(scheduledDate: string, timezoneOffsetMinutes = 0): number {
+export function publishDelayMs(
+  scheduledDate: string,
+  timezoneOffsetMinutes = 0,
+  publishHour = DEFAULT_PUBLISH_HOUR,
+): number {
+  const hour = Number.isFinite(publishHour)
+    ? Math.min(23, Math.max(0, Math.floor(publishHour)))
+    : DEFAULT_PUBLISH_HOUR;
   const [y, m, d] = scheduledDate.split('-').map(Number);
-  const publishAtUtc = Date.UTC(y, m - 1, d, PUBLISH_HOUR_UTC, 0, 0);
+  const publishAtUtc = Date.UTC(y, m - 1, d, hour, 0, 0);
   const publishAt = publishAtUtc + timezoneOffsetMinutes * 60_000;
   return publishAt - Date.now();
 }
@@ -123,6 +127,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         scheduledDate: row.scheduledDate,
         createdAt: row.createdAt,
         publishPlatform: row.publishPlatform,
+        publishHour: row.publishHour,
         publishStatus: row.publishStatus,
         publishedAt: row.publishedAt,
         postUrl: row.postUrl,
@@ -153,6 +158,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const ownership = await requireJobOwnership(body.jobId, userId, res);
     if (!ownership) return;
 
+    const publishHour = body.publishHour ?? 9;
+
     // WHY reset publishStatus/publishedAt/postUrl/publishError to their
     // pending/null defaults on every upsert, not just on first insert: moving
     // an already-published or already-failed job to a new date (or changing
@@ -161,12 +168,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // its previous date.
     const [row] = await db!
       .insert(scheduledPosts)
-      .values({ userId, jobId: body.jobId, scheduledDate: body.scheduledDate, publishPlatform: body.publishPlatform ?? null })
+      .values({
+        userId,
+        jobId: body.jobId,
+        scheduledDate: body.scheduledDate,
+        publishPlatform: body.publishPlatform ?? null,
+        publishHour,
+      })
       .onConflictDoUpdate({
         target: scheduledPosts.jobId,
         set: {
           scheduledDate: body.scheduledDate,
           publishPlatform: body.publishPlatform ?? null,
+          publishHour,
           publishStatus: 'pending',
           publishedAt: null,
           postUrl: null,
@@ -176,7 +190,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       .returning();
 
     if (body.publishPlatform) {
-      queuePublishJob(row.id, publishDelayMs(body.scheduledDate, body.timezoneOffsetMinutes)).catch(() => {});
+      queuePublishJob(
+        row.id,
+        publishDelayMs(body.scheduledDate, body.timezoneOffsetMinutes, publishHour),
+      ).catch(() => {});
     } else {
       // WHY cancel unconditionally, not just when downgrading from a platform:
       // cheap and idempotent (cancelPublishJob no-ops if nothing is queued) —

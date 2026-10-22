@@ -11,7 +11,7 @@ import { AuthRequest } from '../../middleware/auth.js';
 import { parseBody, postSocialSchema, scheduleSocialSchema } from '../../schemas/index.js';
 import { socialRateLimit } from '../../middleware/rateLimit.js';
 import { publishToSocialPlatform } from '../../lib/socialPublish.js';
-import { dbGetTokens, dbDeleteToken, dbGetToken, PLATFORM_LABELS } from '../../lib/socialTokens.js';
+import { dbGetTokens, dbDeleteToken, dbGetToken, ensureFreshSocialToken, PLATFORM_LABELS } from '../../lib/socialTokens.js';
 import oauthRoutes from './oauth.js';
 
 const router = Router();
@@ -40,6 +40,9 @@ router.get('/connections', async (req: AuthRequest, res: Response, next: NextFun
 router.delete('/disconnect/:platform', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const platform = req.params.platform as string;
+    if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'instagram') {
+      return res.status(400).json({ error: `Unsupported platform: ${platform}`, code: 'VALIDATION_ERROR', retryable: false });
+    }
     const userId = req.dbUserId || req.userId || 'demo';
     await dbDeleteToken(userId, platform);
     return res.json({ ok: true });
@@ -67,7 +70,8 @@ router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response, ne
     }
 
     try {
-      const { postId, postUrl } = await publishToSocialPlatform(platform, content, conn);
+      const freshConn = await ensureFreshSocialToken(userId, platform, conn);
+      const { postId, postUrl } = await publishToSocialPlatform(platform, content, freshConn);
       res.json({ ok: true, postId, postUrl, platform });
       return;
     } catch (err: unknown) {

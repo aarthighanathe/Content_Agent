@@ -1,6 +1,5 @@
 import { Response } from 'express';
 import { db } from '../../db/index.js';
-import { getJobFromStore } from '../../workers/contentWorker.js';
 import type { PipelineJob, PersistedJobResult, PipelineOutput, PipelineLog } from '../../lib/pipeline.js';
 import type { ContentJob, ContentOutput, AgentLog } from '../../db/schema.js';
 import type { AuthRequest } from '../../middleware/auth.js';
@@ -90,6 +89,24 @@ export interface AssembledJob {
 // Shared in-memory cache: holds active/in-flight jobs before they are persisted to DB.
 // Also populated briefly after completion (TTL: 10 min) so polling clients can still read the result.
 export const jobsMemory = new Map<string, MemoryJob>();
+
+// BullMQ worker store — kept in sync with jobsMemory on every write so ownership
+// and SSE never read a stale jobsMemory row after the worker evicts jobStore alone.
+const jobStore = new Map<string, MemoryJob>();
+
+export function getJobFromStore(jobId: string): MemoryJob | undefined {
+  return jobStore.get(jobId);
+}
+
+export function setJobInStore(jobId: string, data: MemoryJob | undefined): void {
+  if (data === undefined) {
+    jobStore.delete(jobId);
+    jobsMemory.delete(jobId);
+  } else {
+    jobStore.set(jobId, data);
+    jobsMemory.set(jobId, data);
+  }
+}
 
 // WHY Pick, not the full ContentOutput/AgentLog: callers of assembleJobFromDB
 // query relations with different column subsets (manage.ts's list endpoint

@@ -16,22 +16,9 @@ import { logger } from '../lib/logger.js';
 // which itself imports getJobFromStore from this file — a value-level import
 // here would create a real runtime require() cycle. `import type` is erased
 // at compile time, so the type is available with no such cycle.
-import type { MemoryJob } from '../routes/jobs/ownership.js';
+import { getJobFromStore, setJobInStore } from '../routes/jobs/ownership.js';
 
-// In-memory job store for when DB is not available
-const jobStore = new Map<string, MemoryJob>();
-
-export function getJobFromStore(jobId: string): MemoryJob | undefined {
-  return jobStore.get(jobId);
-}
-
-export function setJobInStore(jobId: string, data: MemoryJob | undefined): void {
-  if (data === undefined) {
-    jobStore.delete(jobId);
-  } else {
-    jobStore.set(jobId, data);
-  }
-}
+export { getJobFromStore, setJobInStore };
 
 // WHY unknown, not a typed interface: job.data is whatever the producer
 // (routes/jobs/create.ts's addJobToQueue call) serialized into BullMQ — this

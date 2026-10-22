@@ -58,6 +58,10 @@ vi.mock('../../src/middleware/rateLimit.js', () => ({
   socialRateLimit: (_req: any, _res: any, next: any) => next(),
 }));
 
+vi.mock('../../src/lib/redisClient.js', () => ({
+  getRedisClient: () => null,
+}));
+
 vi.mock('../../src/db/schema.js', () => ({
   socialTokens: { userId: 'userId', platform: 'platform' },
 }));
@@ -169,8 +173,8 @@ beforeEach(() => {
     if (url.includes('accessToken')) {
       return { json: async () => ({ access_token: 'token-abc', expires_in: 3600 }) } as Response;
     }
-    if (url.includes('api.linkedin.com/v2/me')) {
-      return { json: async () => ({ localizedFirstName: 'Ada', localizedLastName: 'Lovelace' }) } as Response;
+    if (url.includes('api.linkedin.com/v2/userinfo')) {
+      return { json: async () => ({ sub: 'abc123', name: 'Ada Lovelace' }) } as Response;
     }
     throw new Error(`Unexpected fetch: ${url}`);
   }));
@@ -179,7 +183,7 @@ beforeEach(() => {
 describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
   it('creates exactly one row on first connect', async () => {
     const app = await buildApp();
-    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1' });
+    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1', issuedAt: Date.now() });
 
     const res = await supertest(app).get('/api/social/callback/linkedin').query({ code: 'code1', state });
 
@@ -192,7 +196,7 @@ describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
 
   it('a second callback for the same user+platform updates in place — no duplicate row', async () => {
     const app = await buildApp();
-    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1' });
+    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1', issuedAt: Date.now() });
 
     await supertest(app).get('/api/social/callback/linkedin').query({ code: 'code1', state });
     expect(rows).toHaveLength(1);
@@ -209,7 +213,7 @@ describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
 
   it('concurrent callbacks for the same user+platform resolve to one row, not two', async () => {
     const app = await buildApp();
-    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1' });
+    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1', issuedAt: Date.now() });
 
     // WHY Promise.all, not sequential awaits: this is the exact race the fix
     // closes — two upserts for the same (userId, platform) landing
@@ -228,7 +232,7 @@ describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
 
   it('GET /connections reflects the upserted row via the real db.select() path', async () => {
     const app = await buildApp();
-    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1' });
+    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1', issuedAt: Date.now() });
     await supertest(app).get('/api/social/callback/linkedin').query({ code: 'code1', state });
 
     const app2 = express();

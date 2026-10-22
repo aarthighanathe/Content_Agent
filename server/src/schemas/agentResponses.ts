@@ -153,6 +153,9 @@ export const writerCarouselResponseSchema = z
 
 export const writerLinkedInResponseSchema = z.object({
   hook: CS().optional(),
+  // WHY optional hookAlt: Result LinkedInContent already exposes an A/B hook
+  // toggle; without this field zod stripped the writer's second hook.
+  hookAlt: CS().optional(),
   body: CS().optional(),
   cta: CS().optional(),
   hashtags: z.array(CS()).catch([]).optional(),

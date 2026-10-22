@@ -208,19 +208,38 @@ ALL 8 slides must have actual content, not placeholder descriptions.`,
 
     linkedin_post: `Generate a LinkedIn post for a <audience>${job.targetAudience}</audience> audience. Write in a <tone>${job.tone}</tone> voice.
 
-QUALITY BAR — this post must be worth saving. Every sentence must earn its place.
-- Hook: 1-2 lines, max 25 words. Bold claim, counterintuitive insight, or specific data point from the research. Must work as a standalone statement without the rest of the post.
-- Body: 150-200 words. Use short paragraphs (2-3 sentences max each). Include at least 1 concrete example or data point. End with energy and conviction.
-- CTA: 1 sentence. Ask a specific question that drives comments, or invite a specific action. Never use "What do you think?" or "Drop a comment below."
-- Banned phrases: "In today's world", "Game-changer", "Leverage", "Navigate", "Unlock your potential", "At the end of the day".
+QUALITY BAR — this post must feel human, specific, and worth the "see more" tap. Every sentence earns its place.
+
+STRUCTURE (follow this arc — short paragraphs, blank line between them via \\n\\n):
+1. Hook (field "hook"): 1–2 lines, ≤210 characters so it wins the feed preview before "see more". Use a specific number, contrarian claim, or sharp observation grounded in the research — never a bland topic label ("Thoughts on X…").
+2. Body (150–220 words total across these beats):
+   - Context / tension: one short paragraph that names who this hurts or why it matters now.
+   - Insight + proof: at least ONE concrete fact, named example, or data point from the research (no vague "studies show").
+   - Optional list: 3–5 single-idea lines (one insight each), not essay bullets.
+   - Takeaway: one clear line the reader can act on or remember.
+3. CTA (field "cta"): one specific question or action that invites a real reply. Ban: "What do you think?", "Thoughts?", "Agree?", "Drop a comment below.", "Let me know in the comments."
+4. hookAlt: a second hook with a DIFFERENT angle (e.g. if hook is data-led, hookAlt is curiosity/story-led, or vice versa). Same ≤210 char limit. Used for A/B testing in the UI.
+
+VOICE:
+- Sound like a practitioner talking to peers, not a brand deck. Prefer concrete "I / we / teams" over abstract "organizations must…".
+- Match <tone>${job.tone}</tone>. No empty hype emoji spam.
+
+BANNED / CLICHÉ (never use):
+"In today's world", "In today's fast-paced…", "Game-changer", "Leverage", "Navigate", "Unlock your potential", "At the end of the day", "Here's the thing:", "Let that sink in", "Hot take:", "This changes everything", "The future of work", generic #linkedin #success #motivation #leadership.
 
 Return ONLY this JSON (no markdown, no code fences):
 {
-  "hook": "<1-2 attention-grabbing lines — max 25 words>",
-  "body": "<150-200 word body — use \\n\\n between paragraphs>",
-  "cta": "<1 specific call-to-action line>",
-  "hashtags": ["<3-5 niche topic-specific hashtags — NOT #linkedin #success #motivation>"]
-}`,
+  "hook": "<1–2 line scroll-stopper — ≤210 chars, research-grounded>",
+  "hookAlt": "<alternate hook, different angle — ≤210 chars>",
+  "body": "<150–220 words: tension → proof → optional list → takeaway — use \\n\\n between paragraphs>",
+  "cta": "<1 specific question or action — not generic engagement bait>",
+  "hashtags": ["<3–5 niche topic-specific hashtags with # — NOT generic career spam>"]
+}
+
+SELF-CHECK before responding: Scan hook, hookAlt, body, and cta.
+If ANY field still contains angle-bracket instructions like <1–2 line…> or template-style text, replace it with real topic-specific content.
+Body MUST include at least one specific research-backed fact or named example.
+CTA MUST NOT be a banned soft prompt.`,
 
     twitter_thread: `Generate a Twitter/X thread for a <audience>${job.targetAudience}</audience> audience. Write in a <tone>${job.tone}</tone> voice.
 

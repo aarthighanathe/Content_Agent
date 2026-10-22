@@ -1,14 +1,14 @@
 import * as Sentry from '@sentry/node';
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { eq, and } from 'drizzle-orm';
 import { AuthRequest } from '../../middleware/auth.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { sseManager } from '../../lib/sse.js';
-import { setJobInStore } from '../../workers/contentWorker.js';
+import { getJobFromStore, setJobInStore, jobsMemory } from './ownership.js';
+import { authJobRateLimit, chargeGenerationBudget } from '../../middleware/rateLimit.js';
 import { runAndPersistPipeline, type PipelineJob } from '../../lib/pipeline.js';
 import { getUserProfile } from '../users.js';
-import { jobsMemory } from './ownership.js';
 import { parseBody, createJobSchema, VALID_PLATFORMS, toneEnum, competitorResponseSchema, TOPIC_MAX_LENGTH } from '../../schemas/index.js';
 import { logger } from '../../lib/logger.js';
 import { db } from '../../db/index.js';
@@ -85,20 +85,20 @@ function releasePipelineSlot(): void {
 
 async function _runPipelineDirect(jobId: string, job: PipelineJob) {
   function emitProgress(stage: string, progress: number, agent: string, message: string, durationMs?: number) {
-    const current = jobsMemory.get(jobId);
+    const current = getJobFromStore(jobId) ?? jobsMemory.get(jobId);
     if (current) {
       current.status = stage === 'done' ? 'done' : 'processing';
       current.stage = stage;
       current.progress = progress;
-      jobsMemory.set(jobId, current);
+      setJobInStore(jobId, { ...current });
     }
     sseManager.sendEvent(jobId, { type: 'progress', stage, progress, agent, message, durationMs });
   }
 
   try {
     await runAndPersistPipeline(job, emitProgress, {
-      set: (id, data) => { jobsMemory.set(id, data); setJobInStore(id, data); },
-      evict: (id) => { jobsMemory.delete(id); setJobInStore(id, undefined); },
+      set: (id, data) => { setJobInStore(id, data); },
+      evict: (id) => { setJobInStore(id, undefined); },
     });
   } catch {
     // runAndPersistPipeline already persisted the failure and emitted the SSE
@@ -116,8 +116,16 @@ export async function runPipelineDirect(jobId: string, job: PipelineJob) {
   }
 }
 
+function applyGenerationRateLimit(req: AuthRequest, res: Response, next: NextFunction): void {
+  const [failClosed, limiter] = authJobRateLimit;
+  failClosed(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    limiter(req, res, next);
+  });
+}
+
 // POST /create
-router.post('/create', async (req: AuthRequest, res: Response) => {
+router.post('/create', applyGenerationRateLimit, async (req: AuthRequest, res: Response) => {
   try {
     const body = parseBody(createJobSchema, req.body, res);
     if (!body) return;
@@ -162,7 +170,7 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
 
     // FLOW: job goes into jobsMemory first so SSE /stream can find it immediately
     // even before BullMQ picks it up (~100-500ms queue lag).
-    jobsMemory.set(jobId, job);
+    setJobInStore(jobId, job);
 
     const queued = await addJobToQueue(jobId, {
       userId, topic, platform, tone, targetAudience,
@@ -196,7 +204,7 @@ router.post('/create', async (req: AuthRequest, res: Response) => {
 });
 
 // POST /batch — create up to 7 jobs in parallel
-router.post('/batch', async (req: AuthRequest, res: Response) => {
+router.post('/batch', applyGenerationRateLimit, async (req: AuthRequest, res: Response) => {
   try {
     const { z } = await import('zod');
     // WHY toneEnum, not z.string(): matches the single-topic createJobSchema's
@@ -212,11 +220,13 @@ router.post('/batch', async (req: AuthRequest, res: Response) => {
       })).min(1).max(7),
       tone: toneEnum.optional(),
       targetAudience: z.string().optional(),
+      templateId: z.string().optional(),
+      paletteId: z.string().optional(),
     });
     const body = parseBody(batchSchema, req.body, res);
     if (!body) return;
 
-    const { items, tone, targetAudience } = body;
+    const { items, tone, targetAudience, templateId, paletteId } = body;
     const userId = req.dbUserId || req.userId || 'demo';
     const userProfile = await getUserProfile(userId);
 
@@ -253,11 +263,13 @@ router.post('/batch', async (req: AuthRequest, res: Response) => {
           brandVoice: userProfile.brandVoice || 'professional',
           phrasesUse: userProfile.phrasesUse || '', phrasesAvoid: userProfile.phrasesAvoid || '',
           contentDna: userProfile.contentDna || null,
+          templateId: item.platform === 'instagram_carousel' ? (templateId || null) : null,
+          paletteId: item.platform === 'instagram_carousel' ? (paletteId || null) : null,
           status: 'pending', retryCount: 0, deleted: 0,
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         };
 
-        jobsMemory.set(jobId, job);
+        setJobInStore(jobId, job);
         const queued = await addJobToQueue(jobId, {
           userId, topic, platform: item.platform, tone: jobTone, targetAudience: jobAudience,
           brandVoice: job.brandVoice, phrasesUse: job.phrasesUse, phrasesAvoid: job.phrasesAvoid,
@@ -303,6 +315,10 @@ router.post('/batch', async (req: AuthRequest, res: Response) => {
     if (createdJobs.length === 0) {
       return res.status(422).json({ error: 'All items in the batch failed to process', code: 'BATCH_ALL_FAILED', retryable: true, failedItems });
     }
+
+    // WHY charge N-1 extra: authJobRateLimit already counted this request as 1;
+    // without this, a 7-item batch would amplify past the hourly generation cap.
+    await chargeGenerationBudget(userId, createdJobs.length);
 
     return res.status(201).json({ jobs: createdJobs, failedItems });
   } catch (error: unknown) {

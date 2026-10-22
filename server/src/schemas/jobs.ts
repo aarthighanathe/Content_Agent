@@ -134,6 +134,9 @@ export const slideDataSchema = z.object({
   body: z.string().max(1000).optional(),
   visual_hint: z.string().max(32).optional(),
   imagePrompt: z.string().max(500).optional(),
+  // WHY optional data URL (F2): AI-generated slide images from EditSlideModal —
+  // capped so a hostile payload can't balloon export/SSR. Prefer data:image/*.
+  imageDataUrl: z.string().max(2_000_000).optional(),
   bg_suggestion: z.enum(['accent', 'dark', 'light']).optional(),
   points: z.array(slidePointSchema).max(8).optional(),
   cta: z

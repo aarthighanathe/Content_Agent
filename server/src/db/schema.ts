@@ -237,6 +237,9 @@ export const scheduledPosts = pgTable('scheduled_posts', {
   jobId: uuid('job_id').notNull().references(() => contentJobs.id).unique(),
   scheduledDate: text('scheduled_date').notNull(),
   publishPlatform: text('publish_platform'),
+  // WHY integer 0–23 (L10/F12): auto-publish used to hardcode 9am user-TZ;
+  // storing the chosen hour lets reschedule/badge survive a reload.
+  publishHour: integer('publish_hour').default(9).notNull(),
   publishStatus: publishStatusEnum('publish_status').default('pending').notNull(),
   publishedAt: timestamp('published_at', { withTimezone: true }),
   postUrl: text('post_url'),

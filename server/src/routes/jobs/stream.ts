@@ -18,7 +18,12 @@ const router = Router({ mergeParams: true });
 // callers can pass the result straight into requireJobOwnership() without a second
 // resolution step. The stored token payload's `dbUserId` is the identity; `clerkId`
 // (if present) is kept only for logging/debugging, never as the resolved identity.
-export async function verifySSEToken(token: string | undefined): Promise<string | null> {
+export interface VerifiedSSEToken {
+  dbUserId: string;
+  jobId?: string;
+}
+
+export async function verifySSEToken(token: string | undefined): Promise<VerifiedSSEToken | null> {
   if (!token) return null;
 
   // First, check for a short-lived Redis-issued SSE token
@@ -29,8 +34,12 @@ export async function verifySSEToken(token: string | undefined): Promise<string 
       const val = await client.get(key);
       if (val) {
         try {
-          const parsed = JSON.parse(val);
-          return typeof parsed.dbUserId === 'string' ? parsed.dbUserId : null;
+          const parsed = JSON.parse(val) as { dbUserId?: unknown; jobId?: unknown };
+          if (typeof parsed.dbUserId !== 'string') return null;
+          return {
+            dbUserId: parsed.dbUserId,
+            jobId: typeof parsed.jobId === 'string' ? parsed.jobId : undefined,
+          };
         } catch {
           return null;
         }
@@ -52,7 +61,7 @@ export async function verifySSEToken(token: string | undefined): Promise<string 
       .from(users)
       .where(eq(users.clerkId, clerkUserId))
       .limit(1);
-    return dbUser?.id || null;
+    return dbUser?.id ? { dbUserId: dbUser.id } : null;
   } catch {
     return null;
   }
@@ -66,17 +75,24 @@ router.get('/:jobId/stream', async (req: Request, res: Response) => {
   // NOTE: verifySSEToken now always returns the DB UUID directly (never a Clerk
   // ID), so it can be passed straight into requireJobOwnership() — no separate
   // clerkId → dbUserId re-resolution step needed here anymore.
-  const dbUserId = await verifySSEToken(token);
-  if (!dbUserId) {
+  const verified = await verifySSEToken(token);
+  if (!verified) {
     res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
     return;
   }
+  if (verified.jobId && verified.jobId !== jobId) {
+    res.status(403).json({ error: 'Stream token does not match this job', code: 'FORBIDDEN', retryable: false });
+    return;
+  }
 
-  const job = await requireJobOwnership(jobId, dbUserId, res);
+  const job = await requireJobOwnership(jobId, verified.dbUserId, res);
   if (!job) return;
 
   const clientId = uuidv4();
-  sseManager.addClient(jobId, clientId, res);
+  if (!sseManager.addClient(jobId, clientId, res)) {
+    res.status(429).json({ error: 'Too many live streams for this job', code: 'RATE_LIMITED', retryable: true });
+    return;
+  }
 
   // Send current state if available
   const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);

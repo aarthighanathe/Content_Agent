@@ -11,7 +11,7 @@ import { logger } from '../lib/logger.js';
 import { db } from '../db/index.js';
 import { scheduledPosts, contentJobs } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { dbGetToken, PLATFORM_LABELS } from '../lib/socialTokens.js';
+import { dbGetToken, ensureFreshSocialToken, PLATFORM_LABELS } from '../lib/socialTokens.js';
 import { publishToSocialPlatform } from '../lib/socialPublish.js';
 import { readOutputs } from '../routes/content/shared.js';
 import { assembleJobFromDB } from '../routes/jobs/ownership.js';
@@ -51,7 +51,8 @@ export async function processPublishJob(job: Job): Promise<void> {
       throw new Error(`Not connected to ${PLATFORM_LABELS[platform] || platform}`);
     }
 
-    const { postUrl } = await publishToSocialPlatform(platform as 'linkedin' | 'twitter', finalOutput.content, conn);
+    const freshConn = await ensureFreshSocialToken(jobRow.userId, platform, conn);
+    const { postUrl } = await publishToSocialPlatform(platform as 'linkedin' | 'twitter', finalOutput.content, freshConn);
 
     await db.update(scheduledPosts)
       .set({ publishStatus: 'posted', publishedAt: new Date(), postUrl, publishError: null })

@@ -77,14 +77,16 @@ describe('sseManager (real module)', () => {
     sseManager.removeClient('job-2', 'client-1');
   });
 
-  it('registers a 15s keepAlive interval that pings the client and is cleared on close', async () => {
+  // WHY 20s: SSE_PING_MS is 20_000 so proxies with ~60s idle timeouts still
+  // see traffic during active streams (was 15s; idle drop is a separate 5 min).
+  it('registers a 20s keepAlive interval that pings the client and is cleared on close', async () => {
     const { sseManager } = await import('../../src/lib/sse.js');
     const res = createMockResponse();
 
     sseManager.addClient('job-3', 'client-1', res);
     const writesAfterConnect = res.write.mock.calls.length;
 
-    vi.advanceTimersByTime(15_000);
+    vi.advanceTimersByTime(20_000);
     expect(res.write).toHaveBeenCalledWith(': ping\n\n');
     expect(res.write.mock.calls.length).toBe(writesAfterConnect + 1);
 
@@ -92,7 +94,7 @@ describe('sseManager (real module)', () => {
     // must stop firing afterward, or it leaks forever on every disconnected client.
     res.__triggerClose();
     const writesAfterClose = res.write.mock.calls.length;
-    vi.advanceTimersByTime(30_000);
+    vi.advanceTimersByTime(40_000);
     expect(res.write.mock.calls.length).toBe(writesAfterClose);
   });
 

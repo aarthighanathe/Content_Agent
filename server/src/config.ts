@@ -10,7 +10,16 @@
  * used).  Variables marked .min(1) are required at runtime.
  */
 
+import { config as loadDotenv } from 'dotenv';
+import { resolve } from 'path';
 import { z } from 'zod';
+
+// WHY before schema parse: index.ts used to call dotenv AFTER importing this
+// module, so `npm start` (without Node --env-file) never saw root/server .env
+// values. Platform-injected env (Render/Vercel) already populates process.env
+// before boot — loadDotenv is a no-op for keys that are already set.
+loadDotenv({ path: resolve(process.cwd(), '.env') });
+loadDotenv({ path: resolve(process.cwd(), '../.env') });
 
 const envSchema = z.object({
   // ── Server ──────────────────────────────────────────────────────────────────

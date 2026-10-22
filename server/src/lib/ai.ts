@@ -71,15 +71,14 @@ function isRateLimitError(error: unknown): boolean {
 
 function isAuthError(error: unknown): boolean {
   const status = getErrorStatus(error);
-  const message = getErrorMessage(error);
+  const message = getErrorMessage(error).toLowerCase();
   return Boolean(
-    status === 400 ||
     status === 401 ||
     status === 403 ||
-    message.includes('API key not valid') ||
-    message.includes('API_KEY_INVALID') ||
-    message.includes('invalid') ||
-    message.includes('unauthorized')
+    message.includes('api key not valid') ||
+    message.includes('api_key_invalid') ||
+    message.includes('permission denied') ||
+    message.includes('unauthenticated')
   );
 }
 
@@ -129,6 +128,9 @@ export async function generateWithAI(
 
   // Skip Gemini if circuit breaker is open
   if (Date.now() < geminiCircuitOpenUntil) {
+    if (!env.GROQ_API_KEY) {
+      throw new Error('Gemini circuit is open and GROQ_API_KEY is not configured — no fallback provider');
+    }
     logger.warn('[Circuit Breaker] Gemini circuit open — routing directly to Groq');
     return generateWithGroq(prompt, systemPrompt, { temperature, timeoutMs });
   }
@@ -141,7 +143,9 @@ export async function generateWithAI(
       // in the system role and the user prompt as the creative brief — this
       // prevents long system prompts from drowning out shorter user prompts.
       const model = ai.getGenerativeModel({
-        model: 'gemini-2.0-flash',
+        // WHY 3.5 Flash: 2.0 Flash is retired. 3.5 Flash is available on this
+        // key and answers promptly, so demo and pipeline calls stay reliable.
+        model: 'gemini-3.5-flash',
         ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
         generationConfig: { temperature, topP: 0.95 },
       });
@@ -201,6 +205,10 @@ export async function generateWithAI(
     }
   }
 
+  if (!env.GROQ_API_KEY) {
+    throw new Error('Gemini unavailable and GROQ_API_KEY is not configured — no fallback provider');
+  }
+
   // Groq fallback
   try {
     return await generateWithGroq(prompt, systemPrompt, { temperature, timeoutMs });
@@ -228,8 +236,11 @@ async function generateWithGroq(
       // AbortController is what actually cancels the outbound HTTP request
       // on timeout, not just the local wait for it.
       const abortController = new AbortController();
+      // WHY openai/gpt-oss-120b: Groq retired llama-3.3-70b-versatile for free/
+      // developer tiers on 2026-08-16 (model_not_found). Their recommended
+      // replacement for that slot — see console.groq.com/docs/deprecations.
       const groqCall = client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
         messages,
         temperature,
         max_tokens: 8192,
@@ -280,6 +291,7 @@ export async function searchTavily(query: string): Promise<TavilySearchResponse>
         search_depth: 'basic',
         max_results: 5,
       }),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {

@@ -29,6 +29,26 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+const MAX_IMAGE_DOWNLOAD_BYTES = 8 * 1024 * 1024;
+
+async function readCappedArrayBuffer(
+  res: { headers: { get(name: string): string | null }; arrayBuffer(): Promise<ArrayBuffer> },
+  maxBytes = MAX_IMAGE_DOWNLOAD_BYTES,
+): Promise<ArrayBuffer> {
+  const lenHeader = res.headers.get('content-length');
+  if (lenHeader) {
+    const len = Number(lenHeader);
+    if (Number.isFinite(len) && len > maxBytes) {
+      throw new Error(`Image download exceeds ${maxBytes} byte cap`);
+    }
+  }
+  const buffer = await res.arrayBuffer();
+  if (buffer.byteLength > maxBytes) {
+    throw new Error(`Image download exceeds ${maxBytes} byte cap`);
+  }
+  return buffer;
+}
+
 const router = Router();
 
 router.post('/generate', async (req, res: Response, next: NextFunction) => {
@@ -113,7 +133,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
             const dl = await fetch(imageUrl, { signal: dlCtrl.signal });
             clearTimeout(dlTimer);
             const contentType = dl.headers.get('content-type') || 'image/png';
-            const buffer = await dl.arrayBuffer();
+            const buffer = await readCappedArrayBuffer(dl);
             const base64 = Buffer.from(buffer).toString('base64');
             logger.info('[imageGen] DALL-E 3 succeeded');
             return res.json({ image: `data:${contentType};base64,${base64}`, source: 'dalle3' });
@@ -159,11 +179,11 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
       }
     }
 
-    // ── Attempt 4: Gemini image generation (direct REST, bypasses SDK model mangling) ─
+    // ── Attempt 4: Gemini image generation (current image-capable Flash models) ─
     if (geminiKey) {
       for (const modelId of [
+        'gemini-2.5-flash-image',
         'gemini-2.0-flash-preview-image-generation',
-        'gemini-2.0-flash-exp-image-generation',
       ]) {
         try {
           const ctrl = new AbortController();
@@ -219,7 +239,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
 
       if (r.ok) {
         const contentType = r.headers.get('content-type') || 'image/jpeg';
-        const buffer = await r.arrayBuffer();
+        const buffer = await readCappedArrayBuffer(r);
         const base64 = Buffer.from(buffer).toString('base64');
         logger.info('[imageGen] Pollinations.AI succeeded');
         return res.json({ image: `data:${contentType};base64,${base64}`, source: 'pollinations' });

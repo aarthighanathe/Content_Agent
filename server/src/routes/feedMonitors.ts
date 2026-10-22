@@ -19,6 +19,7 @@ import { logger } from '../lib/logger.js';
 import { requireDbUser, isValidUUID } from './jobs/ownership.js';
 
 const router = Router();
+const MAX_FEED_MONITORS_PER_USER = 5;
 
 // GET /api/feed-monitors
 router.get('/', async (req: AuthRequest, res: Response) => {
@@ -41,6 +42,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   if (!body) return;
 
   try {
+    const existing = await db!.select({ id: feedMonitors.id }).from(feedMonitors).where(eq(feedMonitors.userId, userId));
+    if (existing.length >= MAX_FEED_MONITORS_PER_USER) {
+      return res.status(400).json({
+        error: `You can subscribe to at most ${MAX_FEED_MONITORS_PER_USER} feed monitors`,
+        code: 'VALIDATION_ERROR',
+        retryable: false,
+      });
+    }
     const [row] = await db!.insert(feedMonitors).values({
       userId,
       feedUrl: body.feedUrl,
@@ -138,6 +147,9 @@ router.post('/:id/check', contentRateLimit, async (req: AuthRequest, res: Respon
       .where(and(eq(feedMonitors.id, id), eq(feedMonitors.userId, userId)))
       .limit(1);
     if (!row) return res.status(404).json({ error: 'Monitor not found', code: 'NOT_FOUND', retryable: false });
+    if (!row.active) {
+      return res.status(400).json({ error: 'Monitor is paused — re-enable it before running a check', code: 'VALIDATION_ERROR', retryable: false });
+    }
 
     // WHY fire-and-forget with a 202: the feed fetch + AI extraction can take
     // 5–15 s (same latency as a single-URL repurpose) — returning 202

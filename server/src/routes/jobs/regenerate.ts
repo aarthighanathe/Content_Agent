@@ -5,27 +5,39 @@
 // this once (list.ts/versions.ts were extracted from it previously) and
 // regrew past the cap; these two handlers were the heaviest remaining ones.
 import * as Sentry from '@sentry/node';
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../../middleware/auth.js';
 import { sseManager } from '../../lib/sse.js';
-import { setJobInStore } from '../../workers/contentWorker.js';
+import { setJobInStore } from './ownership.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { getUserProfile } from '../users.js';
 import { db } from '../../db/index.js';
 import { jobOutputVersions } from '../../db/schema.js';
-import { jobsMemory, requireJobOwnership } from './ownership.js';
+import { getJobFromStore, requireJobOwnership } from './ownership.js';
+import type { AssembledJob, MemoryJob } from './ownership.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
 import { runPipelineDirect } from './create.js';
 import { runAndPersistPipeline } from '../../lib/pipeline.js';
 import type { ResearchResult } from '../../agents/researcher.js';
 import type { OrchestratorResult } from '../../agents/orchestrator.js';
+import { z } from 'zod';
 import { parseBody, regenerateJobSchema, multiplyJobSchema } from '../../schemas/index.js';
+import { authJobRateLimit } from '../../middleware/rateLimit.js';
 import { isValidTone } from '../../lib/persistJob.js';
 import { logger } from '../../lib/logger.js';
 import { readOutputs } from '../content/shared.js';
+import { collectRelatedVariants, pickVariantForPlatform } from './related.js';
 
 const router = Router({ mergeParams: true });
+
+function applyGenerationRateLimit(req: AuthRequest, res: Response, next: NextFunction): void {
+  const [failClosed, limiter] = authJobRateLimit;
+  failClosed(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    limiter(req, res, next);
+  });
+}
 
 // WHY shared by both /regenerate and /multiply: both carry a source job's
 // tone/targetAudience straight into a fresh pipeline run with no schema
@@ -41,8 +53,84 @@ function hasStaleJobData(job: { tone?: string | null; targetAudience?: string | 
   return !job.tone || !isValidTone(job.tone) || !job.targetAudience;
 }
 
+const cachedResearchSchema = z.object({
+  trendingAngles: z.array(z.string()),
+  keyFacts: z.array(z.string()),
+  suggestedHashtags: z.array(z.string()),
+  competitorHooks: z.array(z.string()),
+  sourceUrls: z.array(z.string()),
+  rawResults: z.array(z.object({
+    title: z.string().optional(),
+    url: z.string().optional(),
+    content: z.string().optional(),
+    score: z.number().optional(),
+  })).optional(),
+});
+
+interface CachedResearchBundle {
+  research: ResearchResult;
+  orchestrator: OrchestratorResult | undefined;
+}
+
+function parseCachedResearch(raw: unknown): ResearchResult | undefined {
+  const parsed = cachedResearchSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  return { ...parsed.data, rawResults: parsed.data.rawResults ?? [] };
+}
+
+function isOrchestratorResult(value: unknown): value is OrchestratorResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.taskPlan === 'string' && typeof v.platformRules === 'object';
+}
+
+function readCachedFromOutputs(outputs: ReturnType<typeof readOutputs>): CachedResearchBundle | null {
+  const research = parseCachedResearch(
+    outputs.find((o) => o.agentName === 'researcher' && o.outputType === 'research')?.content,
+  );
+  if (!research) return null;
+  const orchRaw = outputs.find((o) => o.agentName === 'orchestrator')?.content;
+  return {
+    research,
+    orchestrator: isOrchestratorResult(orchRaw) ? orchRaw : undefined,
+  };
+}
+
+function jobSourceId(job: MemoryJob | AssembledJob): string | null {
+  return typeof job.sourceJobId === 'string' ? job.sourceJobId : null;
+}
+
+// WHY walk sourceJobId: Adapt (multiply) jobs skip orchestrator+researcher and
+// used to persist no research row — multiplying from an adapted LinkedIn/Twitter
+// job then failed with "No cached research". Follow the lineage back to the
+// original Create/Repurpose job that still has the researcher output (cap the
+// walk so a corrupt cycle can't hang the request).
+async function loadCachedResearchBundle(
+  startJob: MemoryJob | AssembledJob,
+  userId: string,
+  res: Response,
+): Promise<CachedResearchBundle | null> {
+  const visited = new Set<string>([startJob.id]);
+  let outputs = readOutputs(startJob);
+  let nextSourceId = jobSourceId(startJob);
+
+  for (let depth = 0; depth < 5; depth++) {
+    const found = readCachedFromOutputs(outputs);
+    if (found) return found;
+    if (!nextSourceId || visited.has(nextSourceId)) break;
+    visited.add(nextSourceId);
+    // SECURITY: never read another user's research via a forged sourceJobId
+    // chain — requireJobOwnership returns 404 on mismatch (same as any :jobId).
+    const ancestor = await requireJobOwnership(nextSourceId, userId, res);
+    if (!ancestor) return null;
+    outputs = readOutputs(ancestor);
+    nextSourceId = jobSourceId(ancestor);
+  }
+  return null;
+}
+
 // POST /:jobId/regenerate
-router.post('/:jobId/regenerate', async (req: AuthRequest, res: Response) => {
+router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
     const body = parseBody(regenerateJobSchema, req.body, res);
@@ -110,7 +198,6 @@ router.post('/:jobId/regenerate', async (req: AuthRequest, res: Response) => {
       updatedAt: new Date().toISOString(),
     };
 
-    jobsMemory.set(jobId, job);
     setJobInStore(jobId, job);
 
     sseManager.sendEvent(jobId, { type: 'progress', stage: 'planning', progress: 2, agent: 'system', message: 'Regeneration started…' });
@@ -131,7 +218,7 @@ router.post('/:jobId/regenerate', async (req: AuthRequest, res: Response) => {
 });
 
 // POST /:jobId/multiply — adapt content to another platform using cached research
-router.post('/:jobId/multiply', async (req: AuthRequest, res: Response) => {
+router.post('/:jobId/multiply', applyGenerationRateLimit, async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
     const body = parseBody(multiplyJobSchema, req.body, res);
@@ -150,14 +237,32 @@ router.post('/:jobId/multiply', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const sourceOutputs = readOutputs(sourceJob);
-    const cachedResearch = sourceOutputs.find((o) => o.agentName === 'researcher' && o.outputType === 'research')
-      ?.content as ResearchResult | undefined;
-    const cachedOrchestrator = sourceOutputs.find((o) => o.agentName === 'orchestrator')
-      ?.content as OrchestratorResult | undefined;
+    const cached = await loadCachedResearchBundle(sourceJob, userId, res);
+    // WHY null after ownership 404: loadCachedResearchBundle already sent the
+    // response — bail without a second write.
+    if (res.headersSent) return;
+    if (!cached) {
+      return res.status(400).json({
+        error: 'No cached research found on source job',
+        code: 'VALIDATION_ERROR',
+        retryable: false,
+      });
+    }
+    const cachedResearch = cached.research;
+    const cachedOrchestrator = cached.orchestrator;
 
-    if (!cachedResearch) {
-      return res.status(400).json({ error: 'No cached research found on source job', code: 'VALIDATION_ERROR', retryable: false });
+    // WHY reuse a done sibling: Adapt LinkedIn → Carousel → Caption used to
+    // create a second Caption when opening Adapt from Carousel, so the family
+    // had duplicates and Open only worked for session-local multiplyJobs. If
+    // this research tree already has a finished job for targetPlatform, return
+    // that id so every Result page shares the same Open links.
+    const family = await collectRelatedVariants(sourceJob, userId, res);
+    if (res.headersSent) return;
+    if (family) {
+      const existing = pickVariantForPlatform(family.variants, targetPlatform, jobId);
+      if (existing && existing.status === 'done') {
+        return res.status(200).json({ jobId: existing.jobId, reused: true });
+      }
     }
 
     const newJobId = uuidv4();
@@ -174,7 +279,6 @@ router.post('/:jobId/multiply', async (req: AuthRequest, res: Response) => {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     };
 
-    jobsMemory.set(newJobId, newJob);
     setJobInStore(newJobId, newJob);
 
     // FLOW: Content Multiplier skips orchestrator+researcher — it reuses the
@@ -192,13 +296,18 @@ router.post('/:jobId/multiply', async (req: AuthRequest, res: Response) => {
     runAndPersistPipeline(
       newJob,
       (stage, progress, agent, message, durationMs) => {
-        const current = jobsMemory.get(newJobId);
-        if (current) { current.status = stage === 'done' ? 'done' : 'processing'; current.stage = stage; current.progress = progress; jobsMemory.set(newJobId, current); }
+        const current = getJobFromStore(newJobId);
+        if (current) {
+          current.status = stage === 'done' ? 'done' : 'processing';
+          current.stage = stage;
+          current.progress = progress;
+          setJobInStore(newJobId, { ...current });
+        }
         sseManager.sendEvent(newJobId, { type: 'progress', stage, progress, agent, message, durationMs });
       },
       {
-        set: (id, data) => { jobsMemory.set(id, data); setJobInStore(id, data); },
-        evict: (id) => { jobsMemory.delete(id); setJobInStore(id, undefined); },
+        set: (id, data) => { setJobInStore(id, data); },
+        evict: (id) => { setJobInStore(id, undefined); },
       },
       {
         skipResearch: {

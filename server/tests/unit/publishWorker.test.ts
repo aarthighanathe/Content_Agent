@@ -24,6 +24,7 @@ vi.mock('../../src/lib/logger.js', () => ({
 const dbGetToken = vi.fn();
 vi.mock('../../src/lib/socialTokens.js', () => ({
   dbGetToken: (...args: unknown[]) => dbGetToken(...args),
+  ensureFreshSocialToken: async (_userId: string, _platform: string, conn: unknown) => conn,
   PLATFORM_LABELS: { linkedin: 'LinkedIn', twitter: 'Twitter/X' },
 }));
 

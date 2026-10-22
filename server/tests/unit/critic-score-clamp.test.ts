@@ -25,7 +25,14 @@ const baseJob = {
   targetAudience: 'marketers',
 } as any;
 
-const content = { hook: 'H', body: 'B', cta: 'C' };
+// WHY rich LinkedIn shape: deterministic LinkedIn gates cap short hooks,
+// single-block bodies, and soft CTAs — clamp tests must use content that
+// passes those gates so they measure clampScore() alone, not the LI caps.
+const content = {
+  hook: 'Most founders still treat LinkedIn like a personal blog dump.',
+  body: 'Here is the tension.\n\nOne named example from research.\n\nTakeaway next.\n\nAsk for the action.',
+  cta: 'Which metric do you track in the first 30 days?',
+};
 
 describe('runCritic — score clamping', () => {
   beforeEach(() => {

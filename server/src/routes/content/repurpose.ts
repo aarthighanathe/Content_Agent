@@ -2,7 +2,8 @@ import * as Sentry from '@sentry/node';
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../../middleware/auth.js';
-import { jobsMemory, runPipelineDirect } from '../jobs/index.js';
+import { runPipelineDirect } from '../jobs/index.js';
+import { setJobInStore } from '../jobs/ownership.js';
 import { generateWithAI } from '../../lib/ai.js';
 import { getUserProfile } from '../users.js';
 import { addJobToQueue } from '../../lib/queue.js';
@@ -12,6 +13,7 @@ import { sanitizeSearchText } from '../../lib/sanitizeSearchText.js';
 import { parseBody, repurposeSchema, repurposeBatchSchema } from '../../schemas/index.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
 import { logger } from '../../lib/logger.js';
+import { chargeGenerationBudget } from '../../middleware/rateLimit.js';
 
 const router = Router();
 
@@ -166,7 +168,7 @@ router.post('/repurpose', async (req: AuthRequest, res: Response) => {
           updatedAt: new Date().toISOString(),
         };
 
-        jobsMemory.set(jobId, job);
+        setJobInStore(jobId, job);
 
         const queued = await addJobToQueue(jobId, { ...job });
         if (!queued) {
@@ -190,6 +192,9 @@ router.post('/repurpose', async (req: AuthRequest, res: Response) => {
     if (jobs.length === 0) {
       return res.status(500).json({ error: 'Failed to start repurpose job for any platform', code: 'SERVER_ERROR', retryable: true });
     }
+
+    // WHY charge N-1: multi-platform fan-out creates N jobs from one request.
+    await chargeGenerationBudget(userId, jobs.length);
 
     // WHY jobId/topic kept at the top level (not just inside jobs[]): every
     // existing caller (Repurpose.tsx's single-platform submit) reads
@@ -243,7 +248,7 @@ export async function createJobsForPlatforms(
         updatedAt: new Date().toISOString(),
       };
 
-      jobsMemory.set(jobId, job);
+      setJobInStore(jobId, job);
       const queued = await addJobToQueue(jobId, { ...job });
       if (!queued) {
         runPipelineDirect(jobId, job).catch((err: unknown) => {
@@ -311,6 +316,8 @@ router.post('/repurpose/batch', async (req: AuthRequest, res: Response) => {
     if (allJobs.length === 0) {
       return res.status(422).json({ error: 'All URLs in the batch failed to process', code: 'BATCH_ALL_FAILED', retryable: true, failedItems });
     }
+
+    await chargeGenerationBudget(userId, allJobs.length);
 
     return res.status(201).json({ jobs: allJobs, failedItems });
   } catch (error: unknown) {

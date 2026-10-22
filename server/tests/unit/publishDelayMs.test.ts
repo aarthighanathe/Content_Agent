@@ -59,6 +59,13 @@ describe('publishDelayMs', () => {
     expect(delay).toBe(expectedPublishAt - Date.now());
   });
 
+  it('uses a custom publishHour instead of the default 9', async () => {
+    const { publishDelayMs } = await import('../../src/routes/scheduledPosts.js');
+    const delay = publishDelayMs('2026-08-15', 0, 14);
+    const expectedPublishAt = Date.UTC(2026, 7, 15, 14, 0, 0);
+    expect(delay).toBe(expectedPublishAt - Date.now());
+  });
+
   it('shifts the publish instant later for a positive offset (behind UTC, e.g. US Eastern UTC-5 = +300)', async () => {
     const { publishDelayMs } = await import('../../src/routes/scheduledPosts.js');
     const utcDelay = publishDelayMs('2026-08-15', 0);

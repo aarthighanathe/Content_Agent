@@ -32,9 +32,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const limit = 10;
     const userId = req.dbUserId || req.userId || 'demo';
     const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 500) : '';
+    // SECURITY: escape ILIKE wildcards so a user typing % or _ can't broaden the match set.
+    const searchPattern = search ? `%${search.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%` : '';
     const platformFilter = typeof req.query.platform === 'string' && (VALID_PLATFORMS as readonly string[]).includes(req.query.platform)
       ? req.query.platform
       : undefined;
+    const tagFilter = typeof req.query.tag === 'string' ? req.query.tag.trim().slice(0, 30) : '';
     const sort: JobSortKey = req.query.sort === 'score' || req.query.sort === 'platform' ? req.query.sort : 'date';
     // WHY opt-out (`counts=0`): the platformCounts GROUP BY below costs a second
     // aggregate scan of the user's jobs on every list fetch, but Calendar (which
@@ -55,7 +58,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // trimming the combined list down to `limit` after prepending (below)
     // keeps offsets simple and consistent across all pages.
     const runningMemJobs: MemoryJob[] =
-      page === 1 && !search && !platformFilter
+      page === 1 && !search && !platformFilter && !tagFilter
         ? Array.from(jobsMemory.values()).filter(
             (j) => j.userId === userId && j.deleted !== 1 && j.status !== 'done' && j.status !== 'failed',
           )
@@ -64,8 +67,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (db && isValidUUID(userId)) {
       try {
         const whereClauses = [eq(contentJobs.userId, userId), eq(contentJobs.deleted, 0)];
-        if (search) whereClauses.push(ilike(contentJobs.topic, `%${search}%`));
+        if (searchPattern) whereClauses.push(ilike(contentJobs.topic, searchPattern));
         if (platformFilter) whereClauses.push(eq(contentJobs.platform, platformFilter as (typeof VALID_PLATFORMS)[number]));
+        if (tagFilter) whereClauses.push(eq(contentJobs.tag, tagFilter));
         const whereClause = and(...whereClauses);
 
         const [{ total: totalCount }] = await db
@@ -74,6 +78,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .where(whereClause);
 
         let platformCounts: Record<string, number> | undefined;
+        let tagCounts: Record<string, number> | undefined;
         if (includePlatformCounts) {
           // WHY a separate grouped query, ignoring platformFilter: this backs the
           // toolbar's per-platform pill badges (e.g. "LinkedIn 23"), which need the
@@ -81,7 +86,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           // selected — computing counts from only the already-platform-filtered
           // page would make every pill except the active one always read 0.
           const countWhereClauses = [eq(contentJobs.userId, userId), eq(contentJobs.deleted, 0)];
-          if (search) countWhereClauses.push(ilike(contentJobs.topic, `%${search}%`));
+          if (searchPattern) countWhereClauses.push(ilike(contentJobs.topic, searchPattern));
+          if (tagFilter) countWhereClauses.push(eq(contentJobs.tag, tagFilter));
           const platformCountRows = await db
             .select({ platform: contentJobs.platform, count: sql<number>`cast(count(*) as int)` })
             .from(contentJobs)
@@ -89,6 +95,23 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             .groupBy(contentJobs.platform);
           platformCounts = {};
           for (const row of platformCountRows) platformCounts[row.platform] = row.count;
+
+          // WHY ignore the active tagFilter here (same as platformCounts ignoring
+          // platformFilter): pill badges need the full tag vocabulary for the
+          // current search/platform scope so users can switch tags without the
+          // other pills disappearing.
+          const tagCountWhere = [eq(contentJobs.userId, userId), eq(contentJobs.deleted, 0)];
+          if (searchPattern) tagCountWhere.push(ilike(contentJobs.topic, searchPattern));
+          if (platformFilter) tagCountWhere.push(eq(contentJobs.platform, platformFilter as (typeof VALID_PLATFORMS)[number]));
+          const tagCountRows = await db
+            .select({ tag: contentJobs.tag, count: sql<number>`cast(count(*) as int)` })
+            .from(contentJobs)
+            .where(and(...tagCountWhere, sql`${contentJobs.tag} is not null`, sql`${contentJobs.tag} <> ''`))
+            .groupBy(contentJobs.tag);
+          tagCounts = {};
+          for (const row of tagCountRows) {
+            if (row.tag) tagCounts[row.tag] = row.count;
+          }
         }
 
         // WHY two-step for sort=score: qualityScore lives on contentOutputs
@@ -168,7 +191,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         // inconsistent — they'd appear regardless of whether they actually match.
         // They still show up in the default (no search/filter) page-1 view, same
         // as before this fix.
-        if (page === 1 && !search && !platformFilter) {
+        if (page === 1 && !search && !platformFilter && !tagFilter) {
           // WHY filter out overlaps here instead of re-scanning jobsMemory: this
           // reuses the single scan already taken above (runningMemJobs) rather
           // than iterating the whole cross-user Map a second time with a nearly
@@ -192,7 +215,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           finalJobs = [...finalJobs].sort((a, b) => getJobScore(b) - getJobScore(a));
         }
 
-        return res.json({ jobs: finalJobs, total: finalTotal, page, totalPages: Math.ceil(finalTotal / limit), platformCounts });
+        return res.json({
+          jobs: finalJobs,
+          total: finalTotal,
+          page,
+          totalPages: Math.ceil(finalTotal / limit),
+          platformCounts,
+          tagCounts,
+        });
       } catch (dbErr) {
         console.error('[DB] GET /jobs failed, falling back to memory:', dbErr);
       }
@@ -204,9 +234,17 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       allJobs = allJobs.filter((j) => (j.topic || '').toLowerCase().includes(needle));
     }
     const memPlatformCounts: Record<string, number> = {};
-    for (const j of allJobs) memPlatformCounts[j.platform] = (memPlatformCounts[j.platform] || 0) + 1;
+    const memTagCounts: Record<string, number> = {};
+    for (const j of allJobs) {
+      memPlatformCounts[j.platform] = (memPlatformCounts[j.platform] || 0) + 1;
+      const t = typeof j.tag === 'string' ? j.tag : '';
+      if (t) memTagCounts[t] = (memTagCounts[t] || 0) + 1;
+    }
     if (platformFilter) {
       allJobs = allJobs.filter((j) => j.platform === platformFilter);
+    }
+    if (tagFilter) {
+      allJobs = allJobs.filter((j) => j.tag === tagFilter);
     }
     // WHY new Date(j.createdAt ?? 0): a running in-memory job's createdAt is
     // always set by create.ts (see job construction there), but the field is
@@ -222,7 +260,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     const total = allJobs.length;
     const jobs = allJobs.slice((page - 1) * limit, page * limit);
-    return res.json({ jobs, total, page, totalPages: Math.ceil(total / limit), platformCounts: memPlatformCounts });
+    return res.json({
+      jobs,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      platformCounts: memPlatformCounts,
+      tagCounts: memTagCounts,
+    });
   } catch (error) {
     console.error('[GET /jobs] Unhandled error:', error instanceof Error ? error.message : error);
     return res.status(500).json({ error: 'Failed to fetch jobs', code: 'SERVER_ERROR', retryable: true });

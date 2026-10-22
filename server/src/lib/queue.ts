@@ -25,6 +25,12 @@ function getQueue(): Queue | null {
       contentQueue = new Queue('content-generation', {
         connection: createRedisConnection(),
         defaultJobOptions: {
+          // NOTE (L8): attempts: 3 is for worker *crashes* / stalled jobs (BullMQ
+          // stalledInterval), not for pipeline business failures. contentWorker
+          // deliberately swallows errors after runAndPersistPipeline has already
+          // written status:'failed' + terminal SSE — rethrowing would retry an
+          // already-terminal job and burn provider quota. Do not "fix" the
+          // swallow without also making the catch distinguish crash vs persist.
           attempts: 3,
           backoff: {
             type: 'exponential',

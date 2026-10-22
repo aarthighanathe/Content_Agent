@@ -168,8 +168,12 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   }
 
   try {
-    const userProfile = await getUserProfile(userId);
-    const extracted = await fetchAndExtractArticle(itemUrl);
+    // WHY parallel profile + article fetch (O4): they don't depend on each other;
+    // sequential awaits added ~network RTT before createJobsForPlatforms every tick.
+    const [userProfile, extracted] = await Promise.all([
+      getUserProfile(userId),
+      fetchAndExtractArticle(itemUrl),
+    ]);
     if (!extracted.ok) {
       logger.warn('[FeedMonitor] Failed to extract article from new item', { feedUrl, itemUrl, error: extracted.error });
     } else {
