@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ImageIcon, Sparkles, Video } from 'lucide-react';
 import { Instagram, Linkedin, XTwitter } from '../../components/BrandIcons';
@@ -78,11 +78,21 @@ export function LiveDemo() {
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoResult, setDemoResult] = useState<DemoResult | null>(null);
   const [demoError, setDemoError] = useState('');
+  const [showSignUpCta, setShowSignUpCta] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   async function runDemo(): Promise<void> {
     if (!demoTopic.trim() || demoLoading) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setDemoLoading(true);
     setDemoError('');
+    setShowSignUpCta(false);
     setDemoResult(null);
     try {
       // WHY raw fetch() instead of the shared api.ts axios instance: the demo endpoint
@@ -97,26 +107,59 @@ export function LiveDemo() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: demoTopic.trim(), platform: demoPlatform }),
+        signal: controller.signal,
       });
       // WHY unknown then guard: fetch's .json() is typed `any` by lib.dom.d.ts; treat the
       // response as unknown and confirm shape before trusting it as DemoResult or an error
       // envelope, since it's server data the client doesn't compile-time verify.
-      const data: unknown = await res.json();
+      const data: unknown = await res.json().catch(() => null);
       if (!res.ok) {
         const message = (typeof data === 'object' && data !== null && 'error' in data && typeof (data as { error?: unknown }).error === 'string')
           ? (data as { error: string }).error
-          : 'Failed';
-        throw new Error(message);
+          : 'Failed to generate sample';
+        const retryAfterMs = (typeof data === 'object' && data !== null
+          && typeof (data as { retryAfterMs?: unknown }).retryAfterMs === 'number')
+          ? (data as { retryAfterMs: number }).retryAfterMs
+          : undefined;
+        if (res.status === 429) {
+          const wait = retryAfterMs ? ` Try again in ${Math.ceil(retryAfterMs / 1000)}s.` : '';
+          setDemoError(`${message}${wait}`);
+          setShowSignUpCta(true);
+          return;
+        }
+        setDemoError(message);
+        // WHY not every error: network/provider glitches shouldn't always push Sign up —
+        // that CTA is for hitting the free demo wall (rate limit / auth).
+        setShowSignUpCta(res.status === 401 || res.status === 403);
+        return;
       }
       if (!isDemoResult(data)) {
-        throw new Error('Malformed demo response');
+        setDemoError('Malformed demo response');
+        return;
       }
       setDemoResult(data);
+      // WHY localStorage (F6): Clerk sign-up can leave this tab; sessionStorage
+      // draft alone may not survive. Create reads ca_demo_handoff when empty.
+      try {
+        localStorage.setItem(
+          'ca_demo_handoff',
+          JSON.stringify({
+            topic: demoTopic.trim(),
+            platform: data.platform || demoPlatform,
+            savedAt: Date.now(),
+          }),
+        );
+      } catch { /* private mode — Create just won't prefill */ }
     } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
       const message = e instanceof Error ? e.message : 'Something went wrong. Try again.';
-      setDemoError(message);
+      const isNetwork = message.toLowerCase().includes('failed to fetch')
+        || message.toLowerCase().includes('network');
+      setDemoError(isNetwork ? 'Network error — check your connection and try again.' : message);
+      setShowSignUpCta(false);
+    } finally {
+      if (!controller.signal.aborted) setDemoLoading(false);
     }
-    setDemoLoading(false);
   }
 
   return (
@@ -124,7 +167,7 @@ export function LiveDemo() {
       <SectionDivider label="See it live" />
 
       {/* ══════════ LIVE DEMO ══════════ */}
-      <section id="demo" className="rv demo-section" style={{ padding: '80px 72px' }}>
+      <section id="demo" className="rv demo-section" style={{ padding: '80px 32px' }}>
         <div style={{ maxWidth: 700, margin: '0 auto', textAlign: 'center' }}>
           <div className="eyebrow" style={{ margin: '0 auto 24px' }}>
             <span className="eyebrow-dot" />
@@ -185,9 +228,26 @@ export function LiveDemo() {
             </button>
           </div>
 
+          <div aria-live="polite" aria-atomic="true">
           {demoError && (
-            <div style={{ padding: '11px 16px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 9, fontSize: 12.5, color: 'var(--color-error)', marginBottom: 16 }}>
+            <div role="alert" style={{ padding: '11px 16px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 9, fontSize: 12.5, color: 'var(--color-error)', marginBottom: 16 }}>
               {demoError}
+            </div>
+          )}
+
+          {showSignUpCta && (
+            <div style={{ marginBottom: 16 }}>
+              <Link
+                to="/sign-up"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  background: 'linear-gradient(135deg,var(--accent),var(--accent-2))',
+                  color: 'var(--on-accent)', fontWeight: 700, fontSize: 13,
+                  padding: '11px 18px', borderRadius: 10, textDecoration: 'none',
+                }}
+              >
+                Sign up free for more <ArrowRight size={14} />
+              </Link>
             </div>
           )}
 
@@ -293,6 +353,7 @@ export function LiveDemo() {
             </div>
             );
           })()}
+          </div>
         </div>
       </section>
     </>

@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Layers, X } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import { navLinks } from './navLinks';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { BrandMark } from './BrandMark';
 
 export interface MobileMenuProps {
   open: boolean;
@@ -44,21 +45,7 @@ export function MobileMenu({ open, isSignedIn, onClose }: MobileMenuProps) {
           style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}
           onClick={onClose}
         >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              background: 'linear-gradient(135deg,var(--accent),var(--accent-2))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--on-accent)',
-              borderRadius: 8,
-              boxShadow: '0 0 16px var(--accent-glow)',
-            }}
-          >
-            <Layers size={16} />
-          </div>
+          <BrandMark size={32} iconSize={14} radius={8} />
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
             Pensie<span style={{ color: 'var(--accent)' }}>ve</span>
           </span>

@@ -8,25 +8,24 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <title>Pensieve — AI-powered content that converts</title>
     <meta name="description" content="Multi-agent AI system that researches trends, writes platform-optimized content, and self-improves until it meets quality standards." />
-    <meta name="theme-color" content="#080808" />
+    <meta name="theme-color" content="#130F1A" />
 
     <!-- WHY: sets data-theme synchronously before first paint, so a persisted
-         non-default theme never flashes the Aurora default on load. Must stay
+         theme never flashes the Nightshade default on load. Must stay
          inline and run before any stylesheet/app script.
          WHY the allowlist check: store.ts's readStoredTheme() validates the
          stored value against VALID_THEMES before trusting it and falls back
-         to 'aurora' otherwise — this script previously applied any stored
-         value unchecked, so a stale/invalid theme key (removed in a future
-         refactor, or manual tampering) would set a data-theme matching no
-         CSS block, producing exactly the unstyled-content flash this script
-         exists to prevent until React mounts and corrects it. Keep this list
-         in sync with store.ts's VALID_THEMES. -->
+         to 'nightshade' otherwise — applying an unchecked stored value (a
+         theme key removed in a future refactor, or manual tampering) would
+         set a data-theme matching no CSS block. Keep this list and the
+         fallback in sync with store.ts's VALID_THEMES / readStoredTheme(). -->
     <script>
       (function () {
         try {
           var validThemes = ['aurora', 'deep-marine', 'obsidian-ember', 'nightshade', 'ink-verdigris', 'carbon-signal'];
           var t = localStorage.getItem('contentagent-theme');
-          if (t && validThemes.indexOf(t) !== -1) document.documentElement.setAttribute('data-theme', t);
+          if (!t || validThemes.indexOf(t) === -1) t = 'nightshade';
+          document.documentElement.setAttribute('data-theme', t);
         } catch (e) {}
       })();
     </script>

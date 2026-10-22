@@ -25,7 +25,7 @@ export function Hero({ isSignedIn }: HeroProps) {
       {/* ══════════ HERO ══════════ */}
       <section
         className="hero-section"
-        style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '130px 72px 88px', position: 'relative', overflow: 'hidden' }}
+        style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '130px 32px 88px', position: 'relative', overflow: 'hidden' }}
       >
         <div className="aurora-orb orb-float-a" style={{ width: '750px', height: '750px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent-2) 16%, transparent) 0%,transparent 70%)', top: '-250px', left: '-200px' }} />
         <div className="aurora-orb orb-float-b" style={{ width: '580px', height: '580px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent) 10%, transparent) 0%,transparent 70%)', top: '3%', right: '-120px' }} />
@@ -39,14 +39,29 @@ export function Hero({ isSignedIn }: HeroProps) {
           5 AI agents — live now
         </div>
 
+        {/* Brand — hero-level, not just nav chrome */}
+        <div
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 'clamp(18px,2.4vw,22px)',
+            fontWeight: 700,
+            letterSpacing: '-0.4px',
+            color: 'var(--text-primary)',
+            marginBottom: 18,
+            animation: 'fadeUp .8s ease both',
+          }}
+        >
+          Pensie<span style={{ color: 'var(--accent)' }}>ve</span>
+        </div>
+
         {/* Headline */}
         <h1
           style={{
             fontFamily: 'var(--font-heading)',
-            fontSize: 'clamp(44px,7.5vw,94px)',
+            fontSize: 'clamp(40px,6.8vw,84px)',
             fontWeight: 900,
             lineHeight: 1.02,
-            letterSpacing: -3,
+            letterSpacing: -2.5,
             marginBottom: 28,
             animation: 'fadeUp .8s .1s ease both',
             maxWidth: 900,
@@ -87,12 +102,12 @@ export function Hero({ isSignedIn }: HeroProps) {
             Get started <ArrowRight size={15} />
           </Link>
           <a
-            href="#how"
+            href="#demo"
             style={{ background: 'color-mix(in srgb, var(--text-primary) 4%, transparent)', color: 'var(--text-muted)', fontSize: 15, fontWeight: 500, padding: '17px 34px', border: '1px solid var(--rule)', borderRadius: 11, textDecoration: 'none', transition: 'all .2s', display: 'inline-flex', alignItems: 'center', gap: 8 }}
             onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 7%, transparent)'; e.currentTarget.style.color = 'color-mix(in srgb, var(--text-primary) 82%, transparent)'; e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--text-primary) 14%, transparent)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text-primary) 4%, transparent)'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--rule)'; }}
           >
-            See how it works
+            Try a free sample
           </a>
         </div>
 
@@ -109,7 +124,7 @@ export function Hero({ isSignedIn }: HeroProps) {
       </section>
 
       {/* ══════════ MOCKUP ══════════ */}
-      <div className="rv mockup-section" style={{ maxWidth: 980, margin: '72px auto', width: '100%', padding: '0 72px' }}>
+      <div className="rv mockup-section" style={{ maxWidth: 980, margin: '72px auto', width: '100%', padding: '0 32px' }}>
         <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 22%, transparent)', borderRadius: 18, overflow: 'hidden', boxShadow: '0 48px 96px rgba(0,0,0,0.65), 0 0 0 1px color-mix(in srgb, var(--accent-2) 8%, transparent)' }}>
           {/* Browser chrome */}
           <div style={{ background: 'var(--bg-base)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid color-mix(in srgb, var(--accent-2) 12%, transparent)' }}>
@@ -128,20 +143,16 @@ export function Hero({ isSignedIn }: HeroProps) {
             {/* Card 1: Content */}
             <div style={{ background: 'var(--bg-raised)', padding: '24px 22px', display: 'flex', flexDirection: 'column', gap: 11 }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 4 }}>
-                Instagram Carousel · 1/5
+                Instagram Carousel · cover
               </div>
-              <div style={{ fontFamily: 'var(--font-heading)', fontSize: 14, fontWeight: 700, color: 'color-mix(in srgb, var(--text-primary) 90%, transparent)', lineHeight: 1.3 }}>
-                The algorithm rewards consistency over virality
+              <div style={{ fontFamily: 'var(--font-heading)', fontSize: 15, fontWeight: 700, color: 'color-mix(in srgb, var(--text-primary) 90%, transparent)', lineHeight: 1.3 }}>
+                Consistency beats virality
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 2 }}>
-                {[80, 65, 90, 55].map((w, i) => (
-                  <div key={w} style={{ height: 5, background: 'var(--rule)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', background: i === 0 ? 'color-mix(in srgb, var(--accent) 30%, transparent)' : 'color-mix(in srgb, var(--text-primary) 7%, transparent)', width: `${w}%`, borderRadius: 2 }} />
-                  </div>
-                ))}
+              <div style={{ fontSize: 12, color: 'color-mix(in srgb, var(--text-primary) 48%, transparent)', lineHeight: 1.55, marginTop: 4 }}>
+                Three posts a week for 90 days compounds faster than one lucky spike — here is the system.
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                {['← ●●●●● →', 'Edit', 'Copy'].map((t) => (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                {['Slide 1/8', 'Edit', 'Export'].map((t) => (
                   <div key={t} style={{ background: 'color-mix(in srgb, var(--text-primary) 4%, transparent)', border: '1px solid var(--rule)', borderRadius: 5, padding: '3px 8px', fontFamily: 'var(--font-mono)', fontSize: 8, color: 'color-mix(in srgb, var(--text-primary) 28%, transparent)', whiteSpace: 'nowrap' }}>{t}</div>
                 ))}
               </div>
@@ -171,11 +182,12 @@ export function Hero({ isSignedIn }: HeroProps) {
                 ))}
               </div>
               <div style={{ marginTop: 4, background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.16)', borderRadius: 8, padding: '8px 10px' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'color-mix(in srgb, var(--text-primary) 26%, transparent)', marginBottom: 4 }}>PERFORMANCE FORECAST (SAMPLE)</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 8, background: 'rgba(16,185,129,0.15)', color: '#34D399', borderRadius: 4, padding: '2px 6px', fontFamily: 'var(--font-mono)' }}>▲ HIGH</span>
-                  <span style={{ fontSize: 9, color: '#34D399', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>2.4× avg</span>
-                  <span style={{ fontSize: 8, color: 'color-mix(in srgb, var(--text-primary) 18%, transparent)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>91% conf.</span>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'color-mix(in srgb, var(--text-primary) 26%, transparent)', marginBottom: 4 }}>PERFORMANCE FORECAST</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 8, background: 'rgba(16,185,129,0.15)', color: '#34D399', borderRadius: 4, padding: '2px 6px', fontFamily: 'var(--font-mono)' }}>HIGH</span>
+                  <span style={{ fontSize: 9, color: 'color-mix(in srgb, var(--text-primary) 55%, transparent)', fontFamily: 'var(--font-mono)', lineHeight: 1.35 }}>
+                    Strong data hook in cover slide
+                  </span>
                 </div>
               </div>
             </div>

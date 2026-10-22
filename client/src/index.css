@@ -11,6 +11,24 @@
    See CLAUDE.md "UI Theme System" for the full token list and how to add a 7th.
 ══════════════════════════════════════════ */
 :root,
+[data-theme="nightshade"] {
+  --bg-base: #130F1A;
+  --bg-raised: #1A1424;
+  --bg-card: #262030;
+  --text-primary: #EDE8F5;
+  --text-secondary: rgba(237, 232, 245, 0.60);
+  --text-muted: rgba(237, 232, 245, 0.36);
+  --rule: rgba(237, 232, 245, 0.12);
+  --accent: #C6FF3D;
+  --accent-2: #9A7FE0;
+  --accent-glow: rgba(198, 255, 61, 0.4);
+  --on-accent: #130F1A;
+  --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
+  --font-body: "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+}
+
 [data-theme="aurora"] {
   --bg-base: #030310;
   --bg-raised: #07071C;
@@ -59,24 +77,6 @@
   --accent-2: #E0A64E;
   --accent-glow: rgba(255, 122, 26, 0.42);
   --on-accent: #161311;
-  --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
-  --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
-  --font-body: "Segoe UI", system-ui, sans-serif;
-  --font-mono: ui-monospace, Consolas, monospace;
-}
-
-[data-theme="nightshade"] {
-  --bg-base: #130F1A;
-  --bg-raised: #1A1424;
-  --bg-card: #262030;
-  --text-primary: #EDE8F5;
-  --text-secondary: rgba(237, 232, 245, 0.60);
-  --text-muted: rgba(237, 232, 245, 0.36);
-  --rule: rgba(237, 232, 245, 0.12);
-  --accent: #C6FF3D;
-  --accent-2: #9A7FE0;
-  --accent-glow: rgba(198, 255, 61, 0.4);
-  --on-accent: #130F1A;
   --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
   --font-heading: "Bahnschrift SemiCondensed", "Arial Narrow", "Segoe UI Semibold", sans-serif;
   --font-body: "Segoe UI", system-ui, sans-serif;
@@ -209,8 +209,7 @@ body {
    with no ambient glow (confirmed against the original design artifact) — leaving the
    orbs on for every theme made all 6 look visually similar instead of each having its
    own distinct flat-background identity. */
-html[data-theme="aurora"] body::before,
-html:not([data-theme]) body::before {
+html[data-theme="aurora"] body::before {
   content: '';
   position: fixed;
   inset: 0;
@@ -226,8 +225,7 @@ html:not([data-theme]) body::before {
 /* WHY scoped to Aurora only: same reasoning as the orb glow above — the film-grain
    texture is part of Aurora's own textured look; the artifact's other 5 themes are
    clean flat surfaces with no grain overlay. */
-html[data-theme="aurora"] body::after,
-html:not([data-theme]) body::after {
+html[data-theme="aurora"] body::after {
   content: '';
   position: fixed;
   inset: 0;
@@ -486,9 +484,13 @@ html:not([data-theme]) body::after {
 .main-content {
   margin-left: 208px;
   min-height: 100vh;
+  min-width: 0;
   transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   z-index: 1;
+  /* WHY: page grids with large minmax() used to spill past the viewport and
+     force document-level horizontal scroll even with body overflow-x:hidden. */
+  overflow-x: clip;
 }
 
 .sidebar-collapsed-layout .main-content {
@@ -520,10 +522,15 @@ html:not([data-theme]) body::after {
 }
 
 /* ── Main inner wrapper ── */
+/* WHY 36px: this is the Content Library inset (shell plus the 20px that
+   page used to add itself). Every authenticated page uses this one value. */
 .main-inner {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 40px 32px 30px;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 24px 36px 28px;
 }
 
 /* ── Mobile top bar ── */
@@ -592,7 +599,7 @@ html:not([data-theme]) body::after {
 ══════════════════════════════════════════ */
 @media (max-width: 1100px) {
   .main-inner {
-    padding: 32px 24px 64px;
+    padding: 20px 28px 40px;
   }
 }
 
@@ -607,7 +614,7 @@ html:not([data-theme]) body::after {
     margin-left: 64px;
   }
   .main-inner {
-    padding: 28px 20px 56px;
+    padding: 18px 24px 36px;
   }
 }
 
@@ -806,7 +813,7 @@ html:not([data-theme]) body::after {
   }
 
   .main-inner {
-    padding: 22px 16px 28px;
+    padding: 16px 20px 24px;
   }
 
   /* ── Grid responsive overrides ── */
@@ -866,7 +873,7 @@ html:not([data-theme]) body::after {
 
 @media (max-width: 480px) {
   .main-inner {
-    padding: 16px 12px 24px;
+    padding: 14px 16px 24px;
   }
 
   .btn-primary {
@@ -909,6 +916,12 @@ html:not([data-theme]) body::after {
   input, textarea, select {
     max-width: 100%;
     box-sizing: border-box;
+  }
+}
+
+@media (max-width: 375px) {
+  .main-inner {
+    padding: 12px 14px 20px;
   }
 }
 

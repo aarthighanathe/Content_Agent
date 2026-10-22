@@ -10,8 +10,13 @@ export function LandingStyles() {
       .rv.rv-visible { opacity:1; transform:translateY(0); }
 
       /* ── Sticky nav ── */
-      .lnav { display:flex; justify-content:space-between; align-items:center; padding:18px 72px; position:fixed; top:0; left:0; right:0; z-index:500; transition:all .4s; }
+      /* WHY: the signed-in banner and the nav share one fixed shell. The nav used to be
+         position:fixed;top:0 on its own, so the banner (also pinned to the top) painted
+         through the transparent bar and collided with the links. */
+      .lnav-shell { position:fixed; top:0; left:0; right:0; z-index:500; display:flex; flex-direction:column; }
+      .lnav { display:flex; justify-content:space-between; align-items:center; padding:18px 32px; position:relative; transition:background .4s, border-color .4s, backdrop-filter .4s; }
       .lnav.scrolled { background:color-mix(in srgb, var(--bg-base) 96%, transparent); backdrop-filter:blur(28px); -webkit-backdrop-filter:blur(28px); border-bottom:1px solid color-mix(in srgb, var(--accent-2) 18%, transparent); }
+      .has-signed-banner .hero-section { padding-top:176px !important; }
 
       /* ── Nav links ── */
       /* WHY raised from 0.4 (#42): nav link text at rgba(255,255,255,0.4) on a near-black
@@ -47,6 +52,22 @@ export function LandingStyles() {
       .orb-float-b { animation:floatB 14s ease-in-out infinite 2.5s; }
       .orb-float-c { animation:floatA 18s ease-in-out infinite 6s; }
 
+      @media (prefers-reduced-motion: reduce) {
+        .rv { opacity:1; transform:none; transition:none; }
+        .rv.rv-visible { opacity:1; transform:none; }
+        .orb-float-a, .orb-float-b, .orb-float-c { animation:none !important; }
+        .eyebrow { animation:none !important; }
+        .eyebrow-dot { animation:none !important; }
+        .q-bar-fill { transition:none; transform:scaleX(1); }
+        .demo-box, .feat-new, .how-step { animation:none !important; }
+        @keyframes demo-fadeUp { from{opacity:1;transform:none} to{opacity:1;transform:none} }
+        @keyframes fadeUp { from{opacity:1;transform:none} to{opacity:1;transform:none} }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:1} }
+        @keyframes floatA { 0%,100%{transform:none} 50%{transform:none} }
+        @keyframes floatB { 0%,100%{transform:none} 50%{transform:none} }
+        @keyframes spin { to{transform:none} }
+      }
+
       /* ── Eyebrow pill ── */
       .eyebrow { display:inline-flex; align-items:center; gap:10px; font-family:var(--font-mono); font-size:10.5px; color:var(--accent); letter-spacing:2.5px; text-transform:uppercase; border:1px solid color-mix(in srgb, var(--accent) 22%, transparent); background:color-mix(in srgb, var(--accent) 7%, transparent); padding:8px 18px; border-radius:30px; margin-bottom:36px; animation:fadeUp .8s ease both; }
       .eyebrow-dot { width:5px; height:5px; background:var(--accent); border-radius:50%; animation:blink 2s infinite; box-shadow:0 0 8px var(--accent-glow); }
@@ -65,6 +86,10 @@ export function LandingStyles() {
       .demo-input::placeholder { color:color-mix(in srgb, var(--text-primary) 20%, transparent); }
       .demo-plat-btn { background:color-mix(in srgb, var(--text-primary) 4%, transparent); border:1px solid var(--rule); border-radius:8px; padding:8px 14px; color:color-mix(in srgb, var(--text-primary) 42%, transparent); font-size:12px; font-family:var(--font-sans); cursor:pointer; transition:all .18s; display:flex; align-items:center; gap:6px; }
       .demo-plat-btn.active { background:color-mix(in srgb, var(--accent) 10%, transparent); border-color:color-mix(in srgb, var(--accent) 35%, transparent); color:var(--accent); }
+      .demo-topic-chip { background:color-mix(in srgb, var(--text-primary) 4%, transparent); border:1px solid var(--rule); border-radius:20px; padding:7px 12px; color:color-mix(in srgb, var(--text-primary) 48%, transparent); font-size:11.5px; font-family:var(--font-sans); cursor:pointer; transition:all .18s; line-height:1.3; text-align:left; }
+      .demo-topic-chip:hover:not(:disabled) { border-color:color-mix(in srgb, var(--accent) 30%, transparent); color:var(--accent); }
+      .demo-topic-chip.active { background:color-mix(in srgb, var(--accent) 10%, transparent); border-color:color-mix(in srgb, var(--accent) 35%, transparent); color:var(--accent); }
+      .demo-topic-chip:disabled { opacity:0.5; cursor:not-allowed; }
       @keyframes demo-fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
 
       /* ── Feature icons ── */
@@ -94,8 +119,11 @@ export function LandingStyles() {
       .hero-shimmer { background:linear-gradient(90deg,var(--accent),color-mix(in srgb, var(--accent) 70%, white) 32%,var(--accent-2) 60%,var(--accent)); background-size:200% auto; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:shimmer 5s linear infinite; font-style:italic; }
 
       /* ── Responsive ── */
-      @media (max-width:1280px) { .lnav{padding:16px 48px} }
-      @media (max-width:1100px) { .hero-section{padding:100px 48px 70px !important} }
+      @media (max-width:1280px) { .lnav{padding:16px 28px} }
+      @media (max-width:1100px) {
+        .hero-section{padding:100px 24px 70px !important}
+        .has-signed-banner .hero-section{padding-top:148px !important}
+      }
 
       /* Tablet & small laptop — switch to hamburger */
       @media (max-width:1024px) {
@@ -109,11 +137,13 @@ export function LandingStyles() {
       @media (max-width:768px) {
         .lnav{padding:14px 20px}
         .hero-section{padding:88px 22px 56px !important}
+        .has-signed-banner .hero-section{padding-top:140px !important}
         .hero-section h1{font-size:2.4rem !important; line-height:1.05 !important}
         .hero-section p{font-size:14px !important}
         .hero-actions{flex-direction:column; width:100%; gap:10px !important}
         .hero-actions a,.hero-actions button{width:100%; justify-content:center; font-size:13px !important; padding:13px 20px !important}
         .features-grid{grid-template-columns:1fr 1fr !important; gap:1px}
+        .samples-grid{grid-template-columns:1fr !important; gap:12px !important}
         .steps-row{grid-template-columns:1fr 1fr !important; gap:10px !important; background:transparent !important}
         .step-item{border-left:none !important; border:1px solid color-mix(in srgb, var(--accent-2) 14%, transparent) !important; border-radius:14px !important; background:var(--bg-raised) !important; padding:22px 18px !important; transition:none !important}
         .hero-section h1{letter-spacing:-1.5px !important}
@@ -144,9 +174,11 @@ export function LandingStyles() {
       @media (max-width:480px) {
         .lnav{padding:12px 16px}
         .hero-section{padding:76px 18px 44px !important}
+        .has-signed-banner .hero-section{padding-top:156px !important}
         .hero-section h1{font-size:2rem !important; margin-bottom:16px !important}
         .section{padding:56px 18px !important}
         .features-grid{grid-template-columns:1fr !important}
+        .samples-grid{grid-template-columns:1fr !important}
         .steps-row{grid-template-columns:1fr !important; gap:8px !important}
         .step-item{padding:16px !important; display:flex !important; flex-direction:row !important; align-items:flex-start !important; gap:14px !important}
         .step-badge-wrap{margin-bottom:0 !important}

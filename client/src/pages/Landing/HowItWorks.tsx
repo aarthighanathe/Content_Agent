@@ -9,10 +9,10 @@ interface Step {
 
 const steps: Step[] = [
   { num: '01', accent: 'var(--accent)', title: 'Enter your topic', desc: 'Choose platform, tone, audience — describe your topic in plain language.' },
-  { num: '02', accent: 'var(--accent-2)', title: 'Agents research', desc: 'AI searches real-time trends, hashtags, and competitor content automatically.' },
-  { num: '03', accent: 'var(--accent)', title: 'Write & critique', desc: 'Writer drafts, Critic scores across five dimensions — loop repeats until approved.' },
-  { num: '04', accent: 'var(--color-success)', title: 'Predict engagement', desc: 'Performance Predictor forecasts reach tier and gives one actionable tip.' },
-  { num: '05', accent: 'var(--accent-2)', title: 'Multiply & ship', desc: 'Adapt to every platform with one click, then export PDF or copy text.' },
+  { num: '02', accent: 'var(--accent-2)', title: 'Agents research', desc: 'AI searches live trends, facts, and hashtags before drafting.' },
+  { num: '03', accent: 'var(--accent)', title: 'Write & critique', desc: 'Writer drafts. Critic scores five dimensions and can request up to two rewrites.' },
+  { num: '04', accent: 'var(--color-success)', title: 'Predict engagement', desc: 'Performance Predictor forecasts an engagement tier, a confidence score, and one tip.' },
+  { num: '05', accent: 'var(--accent-2)', title: 'Multiply & ship', desc: 'Adapt the piece to another format with the same research, then export or copy it.' },
 ];
 
 export function HowItWorks() {
@@ -21,7 +21,7 @@ export function HowItWorks() {
       <SectionDivider label="The process" />
 
       {/* ══════════ HOW IT WORKS ══════════ */}
-      <section className="section" id="how" style={{ padding: '100px 72px' }}>
+      <section className="section" id="how" style={{ padding: '100px 32px' }}>
         <div className="rv" style={{ marginBottom: 56 }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: 3, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ width: 22, height: 1, background: 'linear-gradient(90deg,var(--accent),transparent)', display: 'inline-block' }} />

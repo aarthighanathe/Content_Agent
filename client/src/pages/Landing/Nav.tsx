@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Layers, Menu } from 'lucide-react';
+import { ArrowRight, Menu } from 'lucide-react';
 import { navLinks } from './navLinks';
 import { ThemeSwitcher } from '../../components/ThemeSwitcher';
+import { BrandMark } from './BrandMark';
 
 export interface NavProps {
   isSignedIn: boolean | undefined;
@@ -12,21 +13,7 @@ export function Nav({ isSignedIn, onOpenMobileMenu }: NavProps) {
   return (
     <nav className="lnav" id="lnav">
       <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-        <div
-          style={{
-            width: 34,
-            height: 34,
-            background: 'linear-gradient(135deg,var(--accent),var(--accent-2))',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--on-accent)',
-            borderRadius: 9,
-            boxShadow: '0 0 20px var(--accent-glow)',
-          }}
-        >
-          <Layers size={17} />
-        </div>
+        <BrandMark />
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 15.5, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>
           Pensie<span style={{ color: 'var(--accent)' }}>ve</span>
         </span>

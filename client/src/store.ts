@@ -69,7 +69,7 @@ function readStoredTheme(): ThemeName {
   } catch {
     // WHY: localStorage can throw in private-browsing/disabled-storage contexts — fall through to default
   }
-  return 'aurora';
+  return 'nightshade';
 }
 
 const IDEATED_IDEAS_STORAGE_KEY = 'contentagent-ideated-ideas';
@@ -282,15 +282,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       onError?.();
     };
 
+    const prev = get().currentJob;
+    const sameJobReconnect = prev?.jobId === jobId;
     set({
       sseConnection: eventSource,
-      currentJob: {
-        jobId,
-        status: 'pending',
-        progress: 0,
-        stage: 'pending',
-        agentLogs: [],
-      },
+      currentJob: sameJobReconnect
+        ? prev
+        : {
+            jobId,
+            status: 'pending',
+            progress: 0,
+            stage: 'pending',
+            agentLogs: [],
+          },
     });
   },
 

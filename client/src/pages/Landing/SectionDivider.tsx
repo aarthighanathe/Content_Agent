@@ -5,7 +5,7 @@ export interface SectionDividerProps {
   padding?: string;
 }
 
-export function SectionDivider({ label, padding = '0 72px' }: SectionDividerProps) {
+export function SectionDivider({ label, padding = '0 32px' }: SectionDividerProps) {
   return (
     <div className="rv divider-line" style={{ display: 'flex', alignItems: 'center', gap: 28, padding }}>
       <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,transparent,var(--rule) 60%,transparent)' }} />
