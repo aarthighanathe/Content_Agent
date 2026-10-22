@@ -15,6 +15,349 @@
 
 ---
 
+## 2026-10-21 — Library insights: compact strip redesign
+
+Replaced tall KPI boxes + multi-row bar charts with a short strip: inline KPI
+chips, one stacked quality bar + legend, platform pills, and a 36px weekly
+sparkline — keeps Analytics useful without crowding the feed.
+
+## 2026-10-21 — Library weekly score: real area chart
+
+Avg-score-by-week was a near-invisible 36px bar strip (CSS override). Replaced
+with `ScoreTrendChart`: SVG area + line, zoomed Y band, week date labels,
+latest-avg + delta badge. Avg score KPI highlighted in the insights header.
+
+## 2026-10-21 — Library analytics panel visual refresh
+
+Sparse A/B/C/D bars replaced with a header of page metrics (avg score,
+scored %, platforms), tier labels aligned to QualityTierBadge, platform
+icons, thicker gradient bars, and a trend chart only when enough weeks exist.
+
+## 2026-10-21 — Library action menu: portal above cards
+
+⋯ menu was painted under the next Library card (entrance-animation
+transform stacking). It now portals to `document.body` with fixed
+positioning so it always sits on top.
+
+## 2026-10-21 — Library card actions: compact popover
+
+⋯ on family chips and solo cards opens a small dropdown (tag / folder /
+delete) instead of expanding a full-width action strip under the card.
+
+## 2026-10-21 — Library: folders off the empty rail + denser family chips
+
+Folders are useful for campaigns/clients but an empty "Folders / All jobs /
++ New" rail was permanent chrome. Collections now live in a toolbar Folders
+dropdown (create still available). Family clusters use a single chip row
+(platform + score + ⋯) instead of tall tiles; solo job cards are slightly
+tighter.
+
+## 2026-10-21 — Library family groups: compact tiles
+
+Adapt/same-topic clusters no longer repeat each variant as a full-width row
+under already-clickable chips. `LibraryFamilyCard` shows the topic once and a
+dense tile grid (platform, quality tier, time, ⋯ menu); Manage mode selects
+via the same tiles.
+
+## 2026-10-21 — Content Library visual polish
+
+Library felt like stacked controls and flat cards. The page now has a clearer
+header (icon + subtitle), a Folders rail, a unified search/filter control
+surface, richer job/family cards (hover accent bar, family chip badges), and
+cleaner pagination.
+
+## 2026-10-21 — Adapt panel visual refresh
+
+Content Multiplier’s Adapt list was a flat icon + text + outline button. It’s now
+tiled rows with brand-tinted icon wells, status copy, a progress bar while
+working, a linked-count badge, and stronger Open / Adapt CTAs.
+
+## 2026-10-21 — Library groups same-topic / Adapt variants
+
+Content Library listed every Adapt as a flat row, so LinkedIn + Carousel + Caption
+for one topic looked unrelated. Jobs on the current page are now clustered by
+`sourceJobId` lineage and matching topic into a family card (topic header +
+platform chips + nested rows).
+
+## 2026-10-21 — Adapt family stays linked across Result pages
+
+Adapt Open links lived only in session state, so LinkedIn → Carousel → Caption left
+siblings invisible on other Result pages. `GET /jobs/:jobId/related` walks
+`sourceJobId` to the root and BFS descendants; Content Multiplier seeds Open/View
+from that family. Multiply reuses an existing done sibling for the same platform
+instead of creating a duplicate.
+
+## 2026-10-21 — Adapt works from an already-adapted job
+
+`POST /:jobId/multiply` only looked for researcher output on the job itself. Adapt
+jobs skip research and used to persist none, so adapting a LinkedIn post that was
+itself adapted from a carousel returned `No cached research found on source job`.
+Multiply now walks `sourceJobId` (ownership-checked) to the original research, and
+new Adapt runs copy research+orchestrator onto the new job so the chain stays
+self-contained.
+
+## 2026-10-21 — LinkedIn Hook A/B stays on the chosen variant
+
+Picking hook B saved the swap for Copy/Export/Post, then cleared the “B selected”
+flag so the pills snapped back to A after “Saving…”. Selection now stays on the
+chosen pill (stable A/B texts); padding under the pills keeps them clear of the
+divider line.
+
+## 2026-10-21 — App-wide responsive UI (content-width Result layout)
+
+Result stacked Content | Quality and Slide | Template/Adapt using **viewport** `@media`, so a
+wide window with sidebar + docked DevTools still forced a 2-col desktop grid and crushed the
+carousel preview to ~180px. `.rp` is now a size container: Quality sits beside content only
+when the Result workspace is ≥1100px (`@container rp`); Template/Adapt sit beside the slide
+when `.rp-main` is ≥640px (must stay under the ~794px content-column cap so laptops keep
+slide | tools side-by-side — a brief 900px threshold had always stacked tools under the
+slide on large screens). The one-screen `overflow:hidden` lock applies only with
+`.rp-layout-wide` (ResizeObserver when `.rp` ≥1100px). Preview shrink floor raised to ~280px.
+Shell: tighter `.main-inner` padding at mid/mobile widths + `overflow-x: clip` / `min-width: 0`
+on `.main-content`. Ideate/Create platform grids use `minmax(min(100%, 240–260px), 1fr)`;
+Repurpose/Competitor mid breakpoints aligned to 900px.
+
+## 2026-10-21 — Groq fallback model updated
+
+`llama-3.3-70b-versatile` was retired on Groq’s free/developer tiers (404 `model_not_found`), so after Gemini rate-limit exhaustion the pipeline always failed. Fallback now uses `openai/gpt-oss-120b`.
+
+## 2026-10-21 — Result UI edge-case fixes
+
+Full Result-page UI/UX pass after the Oct 20–21 dialog/toolbar work. Schedule from Post now receives `jobId` (it silently no-op’d without it). The quality card scrolls again under the one-screen lock instead of clipping feedback. Action / Export / Edit-slide modals lock body scroll. LinkedIn Hook B promotes into the saved `hook` so Copy/Export/Post match the card. Insights “Fix with AI” prefills Rewrite. Empty hashtag results, out-of-range slide index after regen, missing export `jobId`, tablet half-width Insights, and disabled footer styling are covered too.
+
+## 2026-10-21 — LinkedIn posts aim higher
+
+LinkedIn generation used a thin hook/body/CTA prompt, so drafts felt corporate and vague. The writer now follows a LinkedIn-native arc (scroll-stopping hook, proof from research, short paragraphs, specific CTA) and emits an A/B `hookAlt`. The critic applies LinkedIn-specific caps for soft CTAs and wall-of-text bodies; the formatter keeps intentional paragraph breaks.
+
+## 2026-10-21 — Result tool panels open as focused dialogs
+
+Clicking Rewrite / Post / Hashtags / History used to open a plain side drawer with nested cards and duplicate titles. Those tools now open a centered dialog (bottom sheet on mobile) with an icon header and subtitle. Rewrite has quick suggestion chips; Hashtags and History drop the nested chrome; Post account rows match the same card language. The active tool stays highlighted in the header strip.
+
+## 2026-10-21 — Result actions no longer duplicate the drawer tabs
+
+Rewrite, Post, Hashtags, and History appeared both as header buttons and as drawer tabs, which felt cluttered. The header now splits immediate actions (Copy / Export / Regen) from a quieter tool strip; each tool opens one focused panel. Mobile More opens an action list first. The drawer no longer shows a second tab bar.
+
+## 2026-10-21 — Caption matches Adapt’s full column width
+
+On non-carousel results, the caption/thread card was capped at 720px while Adapt used the full content column, so the right edges didn’t line up. The copy stage is now full width (same as Adapt); both live in one column.
+
+## 2026-10-21 — Twitter thread cards are visible again
+
+The Result page’s one-screen lock used `overflow: hidden` on the main column for every platform. Tall Twitter threads (and other copy layouts) clipped early tweets; scroll anchoring kept Adapt in view so only the last cards showed, with no way to scroll up. The copy column now scrolls inside `.rp-main`, while carousels stay one-screen.
+
+## 2026-10-20 — Tall slides keep the same padding
+
+A slide with a point grid was scaled down from the center, so its inset was larger than a short slide in the same template. The template padding now stays on the card, and only the copy shrinks.
+
+## 2026-10-20 — Clean Corporate drops the Professional Content label
+
+Every Clean Corporate slide printed “Professional Content” in the footer. That line is gone; the handle stays.
+
+## 2026-10-20 — Adapt platforms stay open
+
+The platform list was closed behind a Hide platforms control. Those rows now stay on the page, and Adapt in the header moves to that list.
+
+## 2026-10-20 — Result page fits one screen
+
+The slide, template column, and quality panel each grew past the window, so the page scrolled. On a desktop window they now share the space under the header, and the slide shrinks, still at the Instagram ratio, when the window is shorter.
+
+## 2026-10-20 — Quality panel takes the spare width
+
+The template column was growing into every free pixel, and AI Quality Analysis stayed at 300px. The template column now stops at 300px, and the quality panel uses the width that remains.
+
+## 2026-10-20 — Creative Abstract copy and a wider template column
+
+Creative Abstract laid its copy out as a row with no width, so the headline and body wrapped to one word per line. The text now uses the full card. The slide stays on the left at the Instagram width, and Template and Adapt take the space that used to sit empty beside it.
+
+## 2026-10-20 — Result cards share one padding
+
+The template card, Adapt card, and quality card each used a different inset, and the template rows added a second inset of their own. Those cards now use the same 24px padding on every side.
+
+## 2026-10-20 — Template and Adapt fit beside the slide
+
+The template picker and the content multiplier were wide banners dropped into a 280px column, so the pills wrapped into a tall stack and each platform became a large card. The template list is now one row per look, with colors underneath, and Adapt is a short row per platform.
+
+## 2026-10-20 — Carousel copy sits in the middle of every theme
+
+Short slides were pinned to the top of the card, and a long one was scaled from the top so the card looked cut off along the bottom. The copy now centers in the card for every theme, and the card itself stays full size. Vibrant Pop keeps its corner shapes on that full card.
+
+## 2026-10-20 — A tall carousel slide no longer clips at the bottom
+
+Fitting a long slide widened the card to measure it, then snapped the width back. The lines reflowed taller than the frame and the last row was cut off. The scale now stays on that slide so the bottom padding and the last line remain inside the card.
+
+## 2026-10-20 — Result details read as a sentence
+
+Platform, audience, and tone were three colored pills with no labels, so they didn't say what the page was. They now read as one line under the title, such as "Instagram Carousel · for marketers · professional tone".
+
+## 2026-10-20 — Carousel copy stays inside an Instagram-sized card
+
+Point lines were laid out as wide as the full sentence, so the right side of the card cut them off. Those lines now wrap inside the template padding, and the preview card is a 4:5 Instagram portrait post at the 470px feed width.
+
+## 2026-10-20 — Result page is a simpler workspace
+
+The carousel sat in a fake Instagram frame in the middle of a wide empty column, and Rewrite, Post, Hashtags, and History were hidden behind one Actions button. The slide now fills its column, with template and Adapt beside it. The header lists those actions by name, and the title is the same size as the other pages.
+
+## 2026-10-20 — App pages share the Library inset
+
+Content Library looked right because it added 20px on top of the shell, so the other pages sat tighter. The shell now uses that combined inset (36px, stepping down to 32px, 28px, and 24px on smaller screens), and Library and Create no longer add a second padding of their own.
+
+## 2026-10-20 — Rewrite field uses a single thin border
+
+The feedback textarea autofocuses, so its border, focus glow, and focus outline stacked into a thick double edge. That field now keeps one 1px border, which tints when it is focused.
+
+## 2026-10-20 — Page gutters are a single smaller inset
+
+Authenticated pages sat in a 1280px column with 32px of side padding, so wide screens showed a large empty margin. That cap is gone and the app inset is 16px (12px on small screens). The marketing page’s 72px side padding is 32px. Create no longer adds a second inset on top of the shell.
+
+## 2026-10-20 — Dashboard sections appear together
+
+Stats, the schedule strip, recent jobs, and the charts each finished on their own request, and the feed row drew a skeleton that then disappeared when there were no monitors. The page now keeps one skeleton until jobs, profile, schedule, and feeds have all settled, then paints those sections together. While Clerk is still starting, disabled queries no longer flash zeros and an empty list (that state is `isPending`, which `isLoading` does not cover).
+
+## 2026-10-20 — Result page: carousel copy stays in the card
+
+Carousel prev/next sat on top of the slide text as small translucent circles, long point lists were sliced at the card edge, and the template switcher was collapsed under the preview. Arrows are now solid buttons beside the art, the preview grows with the content column (up to 520px), and long slides scale to fit the frame. The same scale is written into the export markup, because the PNG screenshot runs with JavaScript disabled. The template picker opens above the preview. LinkedIn, thread, caption, and video script drafts sit in a centered reading column so they don’t stretch across the whole page.
+
+## 2026-10-20 — Result actions drawer fits the viewport
+
+Feedback was a one-line field in a tall empty panel, and the History tab was clipped off the right edge because the four tab labels refused to shrink inside a 340px drawer. The drawer is wider, tabs shrink instead of overflowing, Feedback is a full-height rewrite form, and History uses the panel width instead of a floating card.
+
+## 2026-10-20 — Generation progress track no longer overlaps or resets
+
+The handoff pill was absolutely positioned on each step, so its text crossed the agent names whenever the stage changed. That pill is gone; the activity feed still shows the messages, and step labels stay inside their own column. After Critic, the pipeline stage `predicting` was missing from the step list, so `indexOf` returned -1 and every node snapped back to idle at 95%. `predicting` and `done` now keep the five agents marked complete.
+
+## 2026-10-20 — Ideate count dropdown matches the focus-topic field height
+
+The “N ideas” control used the compact dropdown padding, so it sat shorter than the focus-topic input on the same row. The trigger now stretches to that field’s height.
+
+## 2026-10-20 — Ideate cards: title no longer shares a row with tier/platform pills
+
+High/Medium and LinkedIn/Carousel pills sat beside the idea title and stole its width, so titles wrapped into a narrow column and the angle/body started at a different height on every card. Pills now sit on their own compact row under a full-width title, and cards stretch to the same height in the grid.
+
+## 2026-10-20 — Landing signed-in banner no longer overlaps the nav
+
+The dismissible “You’re signed in” strip was `position: sticky` at the top of the page while `.lnav` was `position: fixed; top: 0` with a transparent background, so the banner text painted through the link row. Banner and nav now share one fixed shell (banner on its own row above the links). Hero top padding grows while the banner is open so the headline stays clear of the taller header.
+
+## 2026-10-02 — TEMP audit fix batch 4 (remaining Low + Features)
+
+Finished the last open `TEMP_AUDIT_FIXLIST.md` items and deleted that temp file:
+
+- **L10 / F12:** Calendar + PostPanel time-of-day — `publishHour` (0–23) on `scheduled_posts` (migration `0016_publish_hour`), schema, `publishDelayMs`, DayDetailPanel hour select.
+- **F2:** EditSlideModal image prompt + `generateSlideImage`; stores `imageDataUrl` on the slide; TemplateLayout renders it as a backdrop.
+- **F6:** LiveDemo writes `ca_demo_handoff` to localStorage; Create `useDraft` seeds from it after sign-up.
+- **F8:** HashtagPanel “Add to post” merges tags into LinkedIn/Instagram caption and saves via PATCH.
+- **F9:** Dashboard `FeedHealthCard` shows monitor health / errors with link to Repurpose.
+- **F13:** Content Multiplier shows research age from `job.createdAt` (stale ≥7 days).
+- **L9:** Staging `kill -9` checklist added under `CLAUDE.md` §9 (cannot verify without staging Redis/worker).
+
+## 2026-10-02 — TEMP audit fix batch 3 (M1 + Low/opt + F5)
+
+Continued `TEMP_AUDIT_FIXLIST.md`:
+
+- **M1 / O1:** Result progress UI reads only `jobData` (SSE merges there); Zustand keeps the socket.
+- **O2:** Result poll uses slim `getJobStatus` until terminal, then full `getJob`.
+- **L2:** Onboarding POST requires a real DB UUID and fails closed if the write fails.
+- **L4:** Zod `details: flatten()` omitted in production.
+- **L6:** `db` is a nullable instance (not an always-truthy Proxy).
+- **L7:** `config.ts` loads dotenv before schema parse (fixes `npm start` without `--env-file`).
+- **L8:** Documented that BullMQ `attempts: 3` is for crashes/stalls; worker still swallows after persist.
+- **L11:** Critic re-checks carousel 45–60 word bodies and penalizes `platformCompliance`.
+- **L12:** BatchResult recovers job list from `sessionStorage` after hard refresh.
+- **L13 / F14:** Signed-in Landing shows a dismissible banner instead of hard redirect.
+- **O4:** Feed monitor parallelizes profile + article fetch.
+- **O5:** SSE idle timeout (5 min) + close shortly after terminal events.
+- **F5:** Result header “vN · Restore” opens version History when snapshots exist.
+- Marked already-shipped feature aliases: **F1≈M17, F3≈M4, F7≈M5, F10≈M18, F11≈M3**.
+
+Parked (need product time / staging): L9 kill-9 verify, L10/F12 time picker, F2/F6/F8/F9/F13.
+
+## 2026-10-02 — TEMP audit fix batch 2 (Medium + Low)
+
+Continued `TEMP_AUDIT_FIXLIST.md`:
+
+- **M4:** Library collection view can remove a job from the active collection.
+- **M5 / L3:** GET `/jobs` supports `tag` + `tagCounts`; ILIKE search escapes `%`/`_`.
+- **M6:** Create/batch Generate disabled while rate-limit countdown is active.
+- **M7:** Ideate single-card regenerate uses `getState()` to avoid stale idea snapshots.
+- **M8:** Export format renamed to “Slide Outline (HTML)” with honest description.
+- **M12:** Batch/repurpose fan-out charges extra generation budget via Redis (`chargeGenerationBudget`).
+- **M13 / O3:** `GET /users/me` only loads critique/prediction outputs (not full content jsonb).
+- **M16 / O6:** Image-gen prefers `gemini-2.5-flash-image`; downloads capped at 8MB.
+- **M17 / F1:** Result PostPanel schedule writes Calendar `scheduledPosts` with auto-publish platform.
+- **M18 / F10:** LiveDemo AbortController, 429 vs network mapping, `aria-live`, Sign-up CTA on rate limit.
+- **M19:** Landing `prefers-reduced-motion` disables orb/shimmer/blink; `.rv` visible immediately.
+- **M21:** Decorative SVG colors validated before `dangerouslySetInnerHTML` interpolate.
+- **L5:** Social disconnect platform enum-validated.
+- **L14:** Result template PATCH failure surfaces a toast via `saveError`.
+
+## 2026-10-02 — TEMP audit fix batch (Critical + High + selected Medium)
+
+Addressed items from `TEMP_AUDIT_FIXLIST.md` (priority order):
+
+- **C1:** BullMQ worker `jobStore` and `jobsMemory` stay in sync via shared `setJobInStore()` in `routes/jobs/ownership.ts` (evict/update both maps).
+- **H1 / H12:** Result `useJobData` tracks `loadError`, clears state on `jobId` change, shows `ErrorState` + Library link on 404.
+- **H2:** SSE reconnect preserves `currentJob` progress when reconnecting the same job.
+- **H3:** Removed critic’s premature `stage: 'done'` SSE (pipeline owns terminal events).
+- **H4:** Result no longer falls back to Create `localStorage` for template/palette on jobs without `templateId`.
+- **H5:** Export modal surfaces partial PNG export via `X-Export-Warning` as an error (not silent success).
+- **H6:** Generation rate limit applies only to create/batch/regenerate/multiply; other job mutations use `jobMutationRateLimit`.
+- **H7:** SSE caps live clients per job (5); excess connections get 429.
+- **H8–H10:** OAuth state TTL + nonce consumption; Twitter PKCE S256; LinkedIn OIDC userinfo + `platformUserId`; Twitter token refresh on use (`ensureFreshSocialToken`).
+- **H11:** Feed monitors capped at 5/user; manual check rejected when monitor is paused.
+- **M2 / M3 / M9 / M10 / M11 / M14 / M15 / M20:** Batch carousel template/palette; multiplier video script UI; social publish `response.ok`; narrower Gemini auth errors; Tavily 10s timeout; multiply research zod parse; generic failed-job SSE message; skip Groq when key missing.
+
+## 2026-10-02 — Trim markdown docs for a clean GitHub push
+
+Removed root/client markdown that is not useful in a public repo:
+
+- `AUDIT_FINDINGS_2026-08-14.md` — point-in-time audit dump (fixes live in `CHANGELOG.md`)
+- `UI_UX_DOCUMENTATION.md` — internal design-system writeup (theme system lives in `CLAUDE.md` §13)
+- `FEATURES.md` — overlapped `README.md` / `CLAUDE.md`
+- `client/README.md` — default Vite template stub
+
+Kept: `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `CLAUDE.md`, `ARCHITECTURE.md`.
+Cross-references in those files were updated to match.
+
+## 2026-10-02 — Landing page conversion + honesty pass
+
+Implemented the landing improvement plan:
+
+- **Order:** Live demo sits directly under the hero; nav lists Live demo first.
+- **Hero:** Pensieve brand mark above the H1; secondary CTA goes to `#demo`; mockup
+  shows real-looking cover copy; forecast shows tier + reason (no fake `2.4×` / `91%`).
+- **Demo UX:** one-tap topic chips, “8–15 seconds” timing copy, `Generating… ~10s`,
+  and a Sign-up CTA on errors/rate limits.
+- **Features:** Critic + Multiplier lead with a Core badge; copy matches product limits.
+- **Social proof:** illustrative sample-output strip (not fake testimonials).
+- **Logo:** landing nav/menu/footer use the same ✦ BrandMark as the app sidebar.
+- **Footer CTA:** secondary “Try the demo first” link.
+
+## 2026-10-02 — Align live-demo preview icon with platform label
+
+The "See the AI in action" result header rendered the Lucide/brand icon and
+`VIDEO · PREVIEW` label as bare inline siblings, so the SVG sat above the text
+baseline. The header is now a flex row with centered alignment.
+
+## 2026-10-02 — Landing claims match the product; demo generation uses Gemini 3.5 Flash
+
+`POST /api/demo/generate` returned 500 for every platform because `gemini-2.0-flash` is no longer
+served. The shared generator now calls `gemini-3.5-flash` (`gemini-3.8-flash` exists but was
+returning 503 under load). The public demo cap is 5 samples per
+hour per IP so a visitor can try each landing-page platform once.
+
+Landing copy that overstated the product was tightened: research is live web search (competitor
+analysis is a separate tool), the critic rewrites at most twice and a sub-70 draft can still be
+shown, Content Multiplier covers carousel, LinkedIn, thread, and caption and reuses research, and
+the live-demo line describes the short sample (3 slides, not 5).
+
+## 2026-10-02 — Nightshade is the default UI theme
+
+First paint and the no-preference fallback used Aurora (`:root` shared Aurora's tokens, and
+`readStoredTheme()` / the `index.html` boot script fell back to `aurora`). Nightshade is now
+the default: `:root` shares `[data-theme="nightshade"]`, an empty or invalid
+`contentagent-theme` value resolves to `nightshade` in both `store.ts` and the pre-paint
+script, and Aurora's ambient orbs and film grain no longer apply when no theme attribute is
+set. A theme already saved in `localStorage` is left as-is.
+
 ## 2026-08-26 — Renamed the product from "ContentAgent" to "Pensieve"
 
 Documentation-and-branding-only rename — no behavior change. Updated every user-visible brand

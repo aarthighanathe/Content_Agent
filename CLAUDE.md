@@ -238,14 +238,10 @@ When adding any new feature, automatically do ALL of these:
 > **Companion documents (also in repo root):**
 > - `ARCHITECTURE.md` — verified current-state data flows; more detail than this file's diagrams, and the first place to check if this file's architecture description ever seems to disagree with the actual code
 > - `CHANGELOG.md` — dated history; **add an entry here for every change you make**, however small
-> - `UI_UX_DOCUMENTATION.md` — full design-system reference + brand differentiation analysis
+> - `README.md` / `CONTRIBUTING.md` — public onboarding and contribution workflow
 >
-> There is no `REVIEW_FINDINGS.md` in this repo (retired 2026-08-10 — every audit in that day's
-> 18-audit run independently confirmed it didn't exist despite being referenced here as a live
-> document; open work is now tracked per-audit-run, e.g. `AUDIT_FINDINGS_2026-08-10.md` +
-> `prompts/FIX_AUDIT_FINDINGS.md`'s checkboxes, with fixes recorded directly in `CHANGELOG.md`).
-> Don't add cross-references to it unless the file is recreated in the same change — same
-> discipline already applied to `docs/`/`ROADMAP.md` on 2026-07-28.
+> Point-in-time audit dumps (`AUDIT_FINDINGS_*.md`, `UI_UX_DOCUMENTATION.md`, `FEATURES.md`)
+> are not kept in the repo — record shipped work in `CHANGELOG.md` instead.
 
 ---
 
@@ -255,7 +251,8 @@ Pensieve is an **AI-powered social media content generation SaaS**. Given a topi
 
 **Target users:** Solo creators, marketers, and small teams who need high-quality, brand-consistent social content at volume.
 
-**Development stage:** Post-Phase-4 — all planned features shipped and security-audited. No formal roadmap document is tracked; see `CHANGELOG.md` for shipped work. Open items live in the most recent audit-run file (e.g. `AUDIT_FINDINGS_2026-08-10.md`) and its companion fix-tracking prompt, not a standing `REVIEW_FINDINGS.md` (retired 2026-08-10 — see §10).
+**Development stage:** Post-Phase-4 — all planned features shipped and security-audited. No formal
+roadmap document is tracked; see `CHANGELOG.md` for shipped work.
 
 **Core value props:**
 - Brand voice learning (persist tone, vocabulary, phrases)
@@ -296,7 +293,7 @@ Pensieve is an **AI-powered social media content generation SaaS**. Given a topi
 ### AI / LLM
 | Provider | Used For |
 |---|---|
-| Google Gemini 2.0 Flash (`@google/generative-ai`) | Primary LLM for all 5 agents |
+| Google Gemini 3.5 Flash (`@google/generative-ai`) | Primary LLM for all 5 agents |
 | Groq (`groq-sdk`) | Fallback LLM when Gemini fails after 3 retries |
 | Tavily REST API | Web research (researcher agent, hashtag research) |
 | OpenAI REST (DALL-E 3, gpt-image-1) | Image generation (primary) |
@@ -391,11 +388,20 @@ All slides render in parallel (Promise.allSettled) → zipped with jszip → dow
 **Live preview is responsive; export is not (deliberately).** `IGCarouselPreview.tsx`'s design
 width/height (420×525) used to be hardcoded pixel constants passed straight through to
 `IGSlide`/`TemplateLayout`, overflowing horizontally below ~452px viewports (fixed 2026-08-10).
-The preview now observes its container via `ResizeObserver` and scales the rendered frame down
-(never up, 4:5 ratio preserved) to fit narrow viewports. The SSR export path
-(`ssr/renderSlideHtml.tsx`'s own `SLIDE_WIDTH`/`SLIDE_HEIGHT`) is intentionally untouched by this
-— PNG export always renders at the fixed 1080×1350 design size regardless of what the live
-preview is currently scaled to.
+The preview now observes its container via `ResizeObserver` and sizes the frame to the
+content column (floor ~280px — prefer page scroll over a postage-stamp card). The card is an
+Instagram portrait post (1080×1350), shown at the desktop feed width of 470px and scaled down
+when the column is narrower. **Result layout stacks by content width, not viewport**
+(`.rp` is a size container; `@container rp` / `@container rp-main` in `Result.css`): Quality
+Analysis sits beside content only when `.rp` is ≥1100px (content column capped at
+slide+tools ≈794px, spare width → Quality). Template/Adapt sit beside the slide when
+`.rp-main` is ≥640px (must stay under the 794px cap so laptops keep the classic
+slide | tools row). Narrower mid-widths stack slide → tools → quality and allow scroll;
+the one-screen lock (`.rp-layout-wide`) only applies when the Result workspace itself
+is wide enough. Mobile ≤768px still uses Content/Insights tabs + footer bar. `FitFrame` (`igslide/layouts/FitFrame.tsx`) scales long copy down
+inside that frame and keeps the template padding on the card. The SSR export path
+(`ssr/renderSlideHtml.tsx`'s own `SLIDE_WIDTH`/`SLIDE_HEIGHT`) is intentionally untouched —
+PNG export always renders at the fixed 1080×1350 design size regardless of preview scale.
 
 ---
 
@@ -477,8 +483,7 @@ e:/AGContentAgent/
 │           │                              mode, not a standalone nav destination
 │           ├── Create/                 ← Sub-components for the Create form
 │           │   ├── AdvancedOptions.tsx    ← Carousel template + color-palette picker (renders CompactTemplatePicker) — see §11a
-│           │   ├── CompactTemplatePicker.tsx ← Pill-chip template/palette picker shared by Create and the Result page's
-│           │   │                                CarouselTemplateSwitcher — see §11a
+│           │   ├── CompactTemplatePicker.tsx ← Pill-chip template/palette picker on the Create form — see §11a
 │           │   ├── PlatformSelector.tsx   ← Full card grid (`PlatformSelector`) + compact chosen-platform row (`PlatformSummary`)
 │           │   ├── platforms.ts           ← Platform metadata + `findPlatform()` (extracted from PlatformSelector.tsx to keep it component-only)
 │           │   ├── ToneSelector.tsx       ← Deselectable pills (click selected pill again to clear)
@@ -538,7 +543,7 @@ e:/AGContentAgent/
 │                       │       ├── IGSlide.tsx         ← Dispatcher: legacy 9-theme layouts (below) OR, when a
 │                       │       │                          templateId is set, one of the 10 igslide/templates/*
 │                       │       │                          components via the module-scoped registry.ts map — see §11a
-│                       │       ├── CarouselTemplateSwitcher.tsx ← Post-generation template switcher (Result page)
+│                       │       ├── CarouselTemplateSwitcher.tsx ← Result-page template list beside the slide
 │                       │       ├── SlideVisual.tsx     ← Legacy theme CSS applied to slide data
 │                       │       └── igslide/            ← IGSlide.tsx's split-out theme/section pieces (was 1157 lines pre-split)
 │                       │           ├── constants.ts
@@ -665,15 +670,10 @@ e:/AGContentAgent/
 
 ```
 
-> **`docs/` and `ROADMAP.md` do not exist in this repo, and nothing should reference them.**
-> The 2026-07-28 review (see `REVIEW_FINDINGS.md` §1.9) found stale cross-references to both
-> in this file, `README.md`, and `CONTRIBUTING.md` — all three have since been corrected to
-> stop pointing at paths that don't exist, rather than inventing placeholder content for them.
-> Root-level docs that DO exist today: `CLAUDE.md` (this file), `README.md`, `CHANGELOG.md`,
-> `CONTRIBUTING.md`, `UI_UX_DOCUMENTATION.md`, `ARCHITECTURE.md`. (`REVIEW_FINDINGS.md` was
-> retired 2026-08-10 — see §10.)
-> If a real roadmap or docs/ tree gets introduced later, update every cross-reference in the
-> same change — don't let this drift happen again.
+> **Root-level docs that exist today:** `CLAUDE.md` (this file), `README.md`, `CHANGELOG.md`,
+> `CONTRIBUTING.md`, `ARCHITECTURE.md`. Do not reintroduce `docs/`, `ROADMAP.md`,
+> `REVIEW_FINDINGS.md`, `UI_UX_DOCUMENTATION.md`, `FEATURES.md`, or `AUDIT_FINDINGS_*.md`
+> unless you create real content for them in the same change.
 
 ---
 
@@ -791,14 +791,27 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   (1s base delay); `workers/contentWorker.ts`'s `Worker` leaves BullMQ's `stalledInterval`/
   `maxStalledCount` at library defaults (30s / 1) — on paper this means a worker process killed
   mid-job should have that job detected as stalled within ~30s and automatically requeued onto
-  another worker, up to 3 total attempts before landing in `failed`. **This has not been
-  confirmed against a real killed process** — `production-readiness-checklist.md` names this the
-  single highest-value live test to run before the next deploy: on staging, `kill -9` the worker
-  process mid-pipeline-run and confirm the job requeues cleanly or fails visibly rather than
-  silently vanishing. Update this entry with the actual outcome once run.
-- Demo: 3 generations/hour per IP
-- Writer enforces 45-60 word limit per carousel slide body; critic does not re-check this
-- Content Multiplication reuses existing research — stale research propagates
+  another worker, up to 3 total attempts before landing in `failed`. **Pipeline business
+  failures are intentionally NOT retried** — `contentWorker` swallows errors after
+  `runAndPersistPipeline` has already persisted `status:'failed'` + terminal SSE (rethrowing
+  would burn quota on an already-terminal job). **Worker-crash / stalled recovery has not been
+  confirmed against a real killed process** — on staging, `kill -9` the worker mid-pipeline and
+  confirm the job requeues cleanly or fails visibly rather than silently vanishing. Update this
+  entry with the actual outcome once run.
+
+  **Staging checklist (L9):**
+  1. Ensure Redis + at least one content worker process are running on staging.
+  2. Submit a Create job and note the jobId while status is still `processing`.
+  3. `kill -9 <worker-pid>` mid-pipeline (before terminal SSE).
+  4. Within ~30–60s, confirm BullMQ requeues (worker log / Redis) or the job ends `failed`
+     with a visible Result error — never stuck forever as `pending` with no SSE.
+  5. Record date + outcome in `CHANGELOG.md` and replace this paragraph with the result.
+- Demo: 5 generations/hour per IP (one sample per landing-page platform)
+- Writer enforces 45-60 word limit per carousel slide body; critic also
+  re-checks carousel body length and caps `platformCompliance` when out of range
+  (L11, 2026-10-02)
+- Content Multiplication reuses existing research — Multiplier shows research age
+  from `job.createdAt` and flags ≥7 days as stale (F13, 2026-10-02)
 - Neon cold starts: first DB call after idle stalls 1-2s
 - On Railway/Render/Fly.io: set `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true` + configure `executablePath`
 - `TOKEN_ENCRYPTION_KEY` must be exactly 32 bytes — generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
@@ -809,30 +822,12 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   On an SSE connection error, the client now re-fetches a fresh stream-token and reopens the
   connection itself (`useJobData.ts`'s `connectToStream(..., onError)`) rather than relying solely
   on the browser's native retry, which kept reusing an eventually-expired token forever.
-- **`POST /api/social/schedule` is still reminder-only** — saves the intent to an in-memory `Map`
-  (`server/src/routes/social.ts`); there is no delivery worker wired up for this specific entry
-  point. The UI (`PostPanel.tsx`) discloses this explicitly rather than implying auto-publishing.
-  This is a deliberately separate, narrower concept from the Calendar's real auto-publish below —
-  see `scheduledPosts.ts`'s WHY comment for why the two weren't unified in the same change.
-- **Calendar's day-schedule now supports real auto-publish (as of 2026-08-05)** — scheduling lives
-  in the `scheduled_posts` table (`server/src/db/schema.ts`, migration `0004_real_exodus.sql`,
-  extended by `0011_great_prima.sql` with `publishPlatform`/`publishStatus`/`publishedAt`/`postUrl`/
-  `publishError`) behind `server/src/routes/scheduledPosts.ts`, and `Calendar/calendarHelpers.ts`'s
-  `useSchedule()` hook reads/writes it via React Query. Placing a job on a date with no publish
-  platform stays exactly the old planning-only behavior. Choosing a platform (via `DayDetailPanel`'s
-  "Auto-publish…" control, only shown when the user has a connected LinkedIn/Twitter account) queues
-  a BullMQ delayed job (`lib/publishQueue.ts`, queue `scheduled-publish`) that fires at a fixed daily
-  hour (9am — `PUBLISH_HOUR_UTC` in `scheduledPosts.ts`; no time-of-day picker yet) **in the
-  scheduling user's own timezone**, not always UTC (fixed 2026-08-10 — `calendarHelpers.ts`'s
-  `useSchedule()` now sends `timezoneOffsetMinutes` alongside `scheduledDate` on every schedule
-  call, since `scheduledDate` itself is built from the browser's *local* calendar day while
-  `publishDelayMs()` used to always interpret it as a UTC day, misfiring auto-publish by hours).
-  `workers/publishWorker.ts` then calls the real platform post API, sharing the exact
-  same posting logic (`lib/socialPublish.ts`) as the interactive `POST /api/social/post` route, and
-  records the outcome back onto the row (`posted` + `postUrl`, or `failed` + `publishError`) so the
-  Calendar can show a status badge. Deliberately NOT unified with `social.ts`'s separate in-memory
-  schedule Map (see that route's own WHY comment) — this only wires the Calendar's existing
-  jobId+date table, not a merge of both scheduling concepts.
+- **Calendar auto-publish** lives in `scheduled_posts` (`publishPlatform` / `publishStatus` /
+  `publishHour` / etc.) behind `routes/scheduledPosts.ts` + BullMQ `scheduled-publish`
+  (`publishWorker.ts` → `socialPublish.ts`). Day-only `scheduledDate` + optional local
+  `publishHour` (0–23, default 9, L10/F12) + `timezoneOffsetMinutes` compute the delay.
+  Reminder-only rows (no platform) skip the worker. Result PostPanel schedules into the
+  same table (not the old in-memory social schedule Map).
 ---
 
 ## 10. Docs Reference
@@ -843,41 +838,24 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 | `README.md` | Public-facing developer onboarding | Yes |
 | `CHANGELOG.md` | History of all fixes and features applied — **update this on every change** | Yes |
 | `CONTRIBUTING.md` | Contribution workflow, commit/PR conventions | Yes |
-| `UI_UX_DOCUMENTATION.md` | Full design-system reference + differentiation analysis | Yes |
-| `ARCHITECTURE.md` | Accurate, current system architecture (companion to this file — see note below) | Yes |
-| `docs/archive/` | Closed-out, point-in-time audit docs kept for historical record (not living docs — see below) | **No — see correction below** |
+| `ARCHITECTURE.md` | Accurate, current system architecture (companion to this file) | Yes |
 
-There is no `ROADMAP.md` in this repo — don't add cross-references to it unless the file is
-created in the same change. This table used to list five planned-but-never-created `docs/*`
-files and a `ROADMAP.md`; the 2026-07-28 review found every reference to them was dangling, so
-they were removed rather than stubbed out. `CHANGELOG.md` records that a `docs/archive/`
-directory was added the same day, with `FUNCTIONAL_AUDIT_2026-07.md` and `UI_UX_AUDIT_2026-07.md`
-moved into it once both had been fully implemented — but a later doc-drift pass found neither
-`docs/` nor either archived file actually present in the repo today, despite that. **Treat
-`docs/archive/` as not existing until someone re-creates it** (either restore the directory and
-the two archived files, or strip the remaining references — see §4 folder listing above, which
-still shows it).
+Do **not** reintroduce `AUDIT_FINDINGS_*.md`, `UI_UX_DOCUMENTATION.md`, `FEATURES.md`,
+`REVIEW_FINDINGS.md`, `ROADMAP.md`, or a `docs/archive/` tree unless you create real content
+for them in the same change. Open work from an audit belongs in that run's fix-tracking notes
+or directly in `CHANGELOG.md` as fixes land — not as standing markdown left in the public repo.
 
 **`REVIEW_FINDINGS.md` was retired 2026-08-10** — it was supposed to be a live open-issues
-tracker updated in place (fixed rows moved to `CHANGELOG.md`, per this table's old row for it),
-but every audit in that day's 18-audit full-codebase run independently confirmed the file itself
-had never actually existed, despite being referenced throughout this file as current. Rather than
-recreate it as a fourth place to track open work, the team decided to retire it: open items from
-an audit run now live in that run's own findings file (e.g. `AUDIT_FINDINGS_2026-08-10.md`) plus
-a companion fix-tracking prompt (e.g. `prompts/FIX_AUDIT_FINDINGS.md`) with per-item checkboxes,
-and fixes are recorded directly in `CHANGELOG.md` as they land — no separate standing tracker
-file. If a future audit round wants a persistent cross-run backlog again, introduce it
-deliberately (new name, real content) rather than resurrecting a reference to a file that was
-dangling for at least two consecutive full-codebase reviews.
+tracker updated in place (fixed rows moved to `CHANGELOG.md`), but every audit in that day's
+18-audit full-codebase run independently confirmed the file itself had never actually existed.
+Open items from an audit run should be tracked outside the public doc set (or as checkboxes in
+a private prompt), with fixes recorded in `CHANGELOG.md`.
 
 **Why this file (CLAUDE.md) can drift from the real codebase:** architecture sections here are
-hand-written and only updated when someone remembers to. The 2026-07-28 review found this file
-describing a carousel-rendering system that had been fully rewritten weeks earlier (see §3
-"Carousel Rendering Sub-Flow" — now corrected) and pointing at docs files under `docs/` that
-were never created (now corrected — see above). **Whenever you finish a change that alters an
-architecture decision, a data flow, or a folder's contents, update the relevant section of this
-file in the same session** — don't defer it, and don't let CHANGELOG.md be the only record of
-what changed.
+hand-written and only updated when someone remembers to. **Whenever you finish a change that
+alters an architecture decision, a data flow, or a folder's contents, update the relevant
+section of this file in the same session** — don't defer it, and don't let CHANGELOG.md be the
+only record of what changed.
 
 ---
 
@@ -897,14 +875,15 @@ color palettes — defined in `client/src/lib/templateSystem.ts` (`TEMPLATES` re
 `getTemplate()`/`getPalette()`/`getDefaultPalette()` helpers). Selection happens on the
 Create form (`Create/AdvancedOptions.tsx`'s `CompactTemplatePicker` — a compact row of pill
 chips for both template and palette, matching `ToneSelector.tsx`'s visual language) and is
-sent with job creation; it's also switchable after generation from the Result page's
-"Carousel template" panel (`CarouselTemplateSwitcher.tsx`, which reuses the same
-`CompactTemplatePicker` inside a collapsible banner), calling `PATCH /:jobId/carousel-template`.
-The two pickers were briefly visually inconsistent — Create used the compact chips while
-Result rendered a separate big-card `TemplateGallery`/`ColorPalettePicker` pair — until
-2026-08-06, when `CarouselTemplateSwitcher.tsx` was switched to reuse `CompactTemplatePicker`
-directly and the now-orphaned `components/TemplateGallery.tsx` + `components/ColorPalettePicker.tsx`
-were deleted.
+sent with job creation. After generation, `CarouselTemplateSwitcher.tsx` lists those
+templates as rows in a 300px column beside the slide, with the three colors under the
+list. The spare width goes to the quality panel. It calls
+`PATCH /:jobId/carousel-template`. Create keeps `CompactTemplatePicker`'s
+wrapping pills. The two pickers were briefly
+visually inconsistent — Create used the compact chips while Result rendered a separate
+big-card `TemplateGallery`/`ColorPalettePicker` pair — until 2026-08-06, when the Result
+page reused `CompactTemplatePicker` and the orphaned gallery files were deleted. The
+result column went back to its own list on 2026-10-20.
 
 | Key | Name | Category |
 |---|---|---|
@@ -1087,13 +1066,13 @@ scripts, not from a Dockerfile).
 > system (`CAROUSEL_THEMES` in `Result/constants.ts`, §11) — that's a separate, unrelated
 > concept for exported Instagram carousel visuals and is untouched by this system.
 
-**The 6 themes** (keys used in `data-theme` / `ThemeName`): `aurora` (default — the
-original gold/violet look), `deep-marine`, `obsidian-ember`, `nightshade`, `ink-verdigris`,
+**The 6 themes** (keys used in `data-theme` / `ThemeName`): `nightshade` (default),
+`aurora` (the original gold/violet look), `deep-marine`, `obsidian-ember`, `ink-verdigris`,
 `carbon-signal`.
 
 **Architecture:**
 - `client/src/index.css` defines all real color/font tokens as CSS custom properties in
-  `:root, [data-theme="aurora"] { ... }` plus one block per other theme (`--bg-base`,
+  `:root, [data-theme="nightshade"] { ... }` plus one block per other theme (`--bg-base`,
   `--bg-raised`, `--bg-card`, `--text-primary/secondary/muted`, `--rule`, `--accent`,
   `--accent-2`, `--accent-glow`, `--on-accent`, `--font-display/heading/body/mono`).
 - The Tailwind 4 `@theme {}` block (further up the same file) no longer hardcodes values —
@@ -1102,7 +1081,8 @@ original gold/violet look), `deep-marine`, `obsidian-ember`, `nightshade`, `ink-
   keep working unchanged while resolving through the active theme at runtime.
 - `data-theme` is set on `<html>`. `client/index.html` has a small inline `<script>` (before
   any stylesheet/app code) that reads `localStorage['contentagent-theme']` and applies it
-  synchronously, preventing a flash of the Aurora default on reload.
+  synchronously (falling back to `nightshade` when nothing valid is stored), preventing a
+  flash of the wrong default on reload.
 - `client/src/store.ts`'s Zustand store owns `themeName`/`setTheme(name)` — `setTheme`
   writes `localStorage`, sets the `data-theme` attribute, and updates state so the switcher
   UI re-renders. No portal usage exists in this codebase (all modals are `position: fixed`

@@ -33,7 +33,7 @@ Supported platforms: Instagram carousels (9 visual themes, Puppeteer-rendered PN
 | Backend | Node.js, Express 5, TypeScript |
 | Queue | BullMQ + Upstash Redis |
 | Database | Neon PostgreSQL (Drizzle ORM) |
-| AI | Gemini 2.0 Flash (primary), Groq (fallback), Tavily (research) |
+| AI | Gemini 3.5 Flash (primary), Groq (fallback), Tavily (research) |
 | Rendering | Puppeteer (carousel PNGs) |
 
 ## Getting Started
@@ -43,7 +43,7 @@ Supported platforms: Instagram carousels (9 visual themes, Puppeteer-rendered PN
 - Node.js 20+
 - A [Clerk](https://clerk.com) project (free tier works)
 - A [Neon](https://neon.tech) PostgreSQL database (free tier works)
-- A [Google AI Studio](https://aistudio.google.com) API key (Gemini 2.0 Flash)
+- A [Google AI Studio](https://aistudio.google.com) API key (Gemini 3.5 Flash)
 
 Everything else (Upstash, Tavily, OpenAI, social OAuth) is optional — the app degrades gracefully without them.
 
@@ -70,7 +70,7 @@ authoritative schema (validated at boot); the table below mirrors it.
 | Variable | Description | Required |
 |---|---|---|
 | `DATABASE_URL` | Neon PostgreSQL connection string | Yes |
-| `GEMINI_API_KEY` | Google Gemini 2.0 Flash API key | Yes |
+| `GEMINI_API_KEY` | Google Gemini 3.5 Flash API key | Yes |
 | `CLERK_SECRET_KEY` | Clerk backend secret | Yes |
 | `VITE_CLERK_PUBLISHABLE_KEY` | Clerk frontend publishable key | Yes |
 | `VITE_API_BASE_URL` | API server URL (e.g. `http://localhost:3001`) | Yes |
@@ -138,7 +138,7 @@ Browser → POST /api/jobs/create → BullMQ queue (or direct pipeline if no Red
 ├── docker-compose.yml    Local-dev-only Postgres/Redis stand-in
 ├── CLAUDE.md             Full dev context (read this first)
 ├── ARCHITECTURE.md       Verified current-state data flows
-├── REVIEW_FINDINGS.md    Open issues from the most recent codebase review
+├── CONTRIBUTING.md       Contribution guidelines
 └── CHANGELOG.md          History of all changes
 ```
 
@@ -183,7 +183,7 @@ Unit tests live in `server/tests/unit/`, integration tests (route-level, mocked 
 
 ## Roadmap
 
-No formal roadmap document is tracked yet. See [CHANGELOG.md](CHANGELOG.md) for shipped work and [REVIEW_FINDINGS.md](REVIEW_FINDINGS.md) for known open items.
+No formal roadmap document is tracked. See [CHANGELOG.md](CHANGELOG.md) for shipped work.
 
 ## License
 

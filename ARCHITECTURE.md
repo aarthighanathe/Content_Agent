@@ -5,7 +5,7 @@
 > architecture reference — every claim in this file was directly confirmed against the code on
 > 2026-07-28. Update this file in the same session as any change that alters a data flow,
 > a shared module's responsibility, or which pipeline a route calls — don't let it go stale
-> the way parts of `CLAUDE.md`'s carousel section did (see `REVIEW_FINDINGS.md` §1.9).
+> the way parts of `CLAUDE.md`'s carousel section did historically.
 
 ---
 
@@ -146,7 +146,7 @@ Two independent multi-provider fallback chains exist — don't confuse them:
 
 **LLM text generation** (`lib/ai.ts`, `generateWithAI()`):
 ```
-Gemini 2.0 Flash (3 retries, exponential backoff 1s/2s/4s, circuit breaker opens for 60s
+Gemini 3.5 Flash (3 retries, exponential backoff 1s/2s/4s, circuit breaker opens for 60s
 after 5 consecutive failures) → Groq llama-3.3-70b-versatile (2 retries)
 ```
 
@@ -164,9 +164,9 @@ mounted behind `authMiddleware` + `imageRateLimit` (20/hour/user) in `index.ts`.
 ## 6. Cross-references
 
 - `CLAUDE.md` — conventions, hard rules, folder map (read this first each session)
-- `REVIEW_FINDINGS.md` — open findings from the 2026-07-28 review; check before assuming something here is bug-free
 - `CHANGELOG.md` — dated history of fixes and features; add an entry whenever something in this file becomes stale due to your change
-- `UI_UX_DOCUMENTATION.md` — full design-system + differentiation reference
+- `README.md` — public developer onboarding
+- `CONTRIBUTING.md` — contribution workflow
 
 ---
 
