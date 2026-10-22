@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getJobs, deleteJob, tagJob,
-  getCollections, createCollection, deleteCollection, getCollectionJobs, addJobToCollection,
+  getCollections, createCollection, deleteCollection, getCollectionJobs,
+  addJobToCollection, removeJobFromCollection,
 } from '../../api';
 import type { GetJobsOptions } from '../../api';
 import { platformMeta } from '../../lib/platformMeta';
@@ -82,11 +83,16 @@ export function useLibraryData() {
   useEffect(() => {
     const t = setTimeout(() => setPage(1), 0);
     return () => clearTimeout(t);
-  }, [debouncedSearch, platformFilter, sort]);
+  }, [debouncedSearch, platformFilter, sort, tagFilter]);
 
-  const jobsQueryOptions: GetJobsOptions = { search: debouncedSearch, platform: platformFilter, sort };
+  const jobsQueryOptions: GetJobsOptions = {
+    search: debouncedSearch,
+    platform: platformFilter,
+    sort,
+    tag: tagFilter || undefined,
+  };
   const jobsQuery = useQuery({
-    queryKey: ['library', 'jobs', page, debouncedSearch, platformFilter, sort],
+    queryKey: ['library', 'jobs', page, debouncedSearch, platformFilter, sort, tagFilter],
     queryFn: () => getJobs(page, jobsQueryOptions),
   });
 
@@ -150,6 +156,17 @@ export function useLibraryData() {
     onError: () => flashToast('Failed to add to collection — please try again.', true),
   });
 
+  const removeFromCollectionMutation = useMutation({
+    mutationFn: ({ collectionId, jobId }: { collectionId: string; jobId: string }) =>
+      removeJobFromCollection(collectionId, jobId),
+    onSuccess: (_data, { collectionId }) => {
+      queryClient.invalidateQueries({ queryKey: ['library', 'collections'] });
+      queryClient.invalidateQueries({ queryKey: ['library', 'collectionJobs', collectionId] });
+      flashToast('Removed from collection');
+    },
+    onError: () => flashToast('Failed to remove from collection — please try again.', true),
+  });
+
   // WHY: memoize with a stable empty-array fallback — `data?.jobs || []` would
   // otherwise create a new [] literal every render, breaking the useMemo
   // hooks below that depend on `jobs` (they'd recompute on every render
@@ -211,6 +228,7 @@ export function useLibraryData() {
       // needs a fresh fetch so the chip updates without a manual reload.
       queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] });
       setEditingTagJobId(null);
+      setOpenJobMenu(null);
       flashToast('Tag saved');
     },
     onError: () => {
@@ -313,36 +331,28 @@ export function useLibraryData() {
     });
   }
 
-  // WHY `jobs` used directly, no re-filter/sort here: search/platform/sort are now
-  // real query params sent to GET /jobs (FUNCTIONAL_AUDIT_2026-07.md finding #4) —
-  // the server already returns exactly the matching, sorted, current page. Re-filtering
-  // client-side would just be redundant (and was the actual bug: it silently hid
-  // everything outside the current page instead of ever asking the server for more).
-  // WHY tagFilter is client-side: tags live on the job row the server already returns;
-  // adding a server-side tag WHERE clause would require the same heavier aggregate path
-  // as sort=score, and tags are a low-cardinality within a page, so slicing client-side
-  // is an acceptable match for the existing sort=score precedent.
-    // WHY memoized: `jobs` is server-data identity-stable across unrelated re-renders
-  // (React Query only swaps it on refetch), but the filter callback still re-ran on
-  // every render when inline — memoizing the sliced array keeps the filtered page
-  // stable for downstream consumers (perf audit nicety; cost is a 10-row slice).
-  const filteredJobs = useMemo(() => tagFilter ? jobs.filter(j => j.tag === tagFilter) : jobs, [jobs, tagFilter]);
+  // WHY `jobs` used directly: search/platform/sort/tag are real GET /jobs query params —
+  // the server already returns the matching page. Collection view still uses its own
+  // membership list (no server-side tag filter on that endpoint).
+  const filteredJobs = useMemo(() => {
+    if (!inCollectionView || !tagFilter) return jobs;
+    return jobs.filter((j) => j.tag === tagFilter);
+  }, [jobs, tagFilter, inCollectionView]);
 
-  // WHY derived from platformMeta, not a hardcoded array: the previous local list
-  // could silently drift from the real set of platforms the app supports (a new
-  // platform added to platformMeta would never show up as a Library filter pill
-  // unless someone remembered to update this array too).
   const platformFilters = ['all', ...Object.keys(platformMeta)];
   const platformCounts = jobsQuery.data?.platformCounts || {};
 
-  // WHY derived from the current page, not the entire library: tags have no server-side
-  // aggregate query (same accepted limitation as sort=score). Collecting unique tags from
-  // whatever page is loaded gives instant, no-extra-fetch filtering within that view.
+  // WHY server tagCounts when not in a collection: filtering only the current page
+  // misssed tagged jobs on other pages. Collection view falls back to page-local tags.
   const pageTags = useMemo(() => {
+    const fromServer = jobsQuery.data?.tagCounts;
+    if (!inCollectionView && fromServer && Object.keys(fromServer).length > 0) {
+      return Object.keys(fromServer).sort();
+    }
     const seen = new Set<string>();
-    jobs.forEach(j => { if (j.tag) seen.add(j.tag); });
+    jobs.forEach((j) => { if (j.tag) seen.add(j.tag); });
     return Array.from(seen).sort();
-  }, [jobs]);
+  }, [jobs, jobsQuery.data?.tagCounts, inCollectionView]);
 
   return {
     navigate,
@@ -365,6 +375,7 @@ export function useLibraryData() {
     collections, collectionsLoading: collectionsQuery.isLoading,
     activeCollectionId, setActiveCollectionId,
     createCollectionMutation, deleteCollectionMutation, addToCollectionMutation,
+    removeFromCollectionMutation,
     deleteCollectionConfirm, setDeleteCollectionConfirm,
   };
 }

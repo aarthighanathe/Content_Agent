@@ -108,6 +108,8 @@ export interface JobListResponse {
   // true per-platform count across the user's whole library (still respecting an
   // active search, but not the platform filter itself) — see GET /jobs.
   platformCounts?: Record<string, number>;
+  // WHY optional: Library tag filter pills; only returned when counts are included.
+  tagCounts?: Record<string, number>;
 }
 
 // WHY a separate slim type (not ContentJob): polling consumers (Batch poll, Content

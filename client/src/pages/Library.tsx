@@ -3,7 +3,6 @@ import { LIBRARY_STYLES } from './Library/libraryHelpers';
 import { LibraryHeader } from './Library/LibraryHeader';
 import { LibraryToolbar } from './Library/LibraryToolbar';
 import { LibraryAnalyticsPanel } from './Library/LibraryAnalyticsPanel';
-import { CollectionsPanel } from './Library/CollectionsPanel';
 import { ContentTab } from './Library/ContentTab';
 import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { useLibraryData } from './Library/useLibraryData';
@@ -12,23 +11,8 @@ export default function LibraryPage() {
   const lib = useLibraryData();
 
   return (
-    <div className="library-page-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+    <div className="lib-page">
       <style>{LIBRARY_STYLES}</style>
-      <style>{`
-        .library-page-container {
-          padding: 0 20px;
-        }
-        @media (max-width: 480px) {
-          .library-page-container {
-            padding: 0 16px !important;
-          }
-        }
-        @media (max-width: 375px) {
-          .library-page-container {
-            padding: 0 12px !important;
-          }
-        }
-      `}</style>
 
       <LibraryHeader
         total={lib.total}
@@ -36,17 +20,6 @@ export default function LibraryPage() {
         onToggleManageMode={() => { lib.setManageMode(p => !p); lib.setSelectedIds(new Set()); }}
         showAnalytics={lib.showAnalytics}
         onToggleAnalytics={() => lib.setShowAnalytics(p => !p)}
-      />
-
-      <CollectionsPanel
-        collections={lib.collections}
-        activeCollectionId={lib.activeCollectionId}
-        onSelectCollection={lib.setActiveCollectionId}
-        onCreateCollection={(name) => lib.createCollectionMutation.mutate(name)}
-        creating={lib.createCollectionMutation.isPending}
-        onRequestDeleteCollection={(id, name) => lib.setDeleteCollectionConfirm({ id, name })}
-        deletingId={lib.deleteCollectionMutation.isPending ? lib.deleteCollectionMutation.variables ?? null : null}
-        loading={lib.collectionsLoading}
       />
 
       <LibraryToolbar
@@ -73,6 +46,18 @@ export default function LibraryPage() {
         pageTags={lib.pageTags}
         tagFilter={lib.tagFilter}
         onTagFilterChange={lib.setTagFilter}
+        collections={lib.collections}
+        activeCollectionId={lib.activeCollectionId}
+        onSelectCollection={lib.setActiveCollectionId}
+        onCreateCollection={(name) => lib.createCollectionMutation.mutate(name)}
+        creatingCollection={lib.createCollectionMutation.isPending}
+        onRequestDeleteCollection={(id, name) => lib.setDeleteCollectionConfirm({ id, name })}
+        deletingCollectionId={
+          lib.deleteCollectionMutation.isPending
+            ? lib.deleteCollectionMutation.variables ?? null
+            : null
+        }
+        collectionsLoading={lib.collectionsLoading}
       />
 
       {lib.showAnalytics && !lib.jobsLoading && !lib.jobsError && (
@@ -101,6 +86,15 @@ export default function LibraryPage() {
         tagSaving={lib.tagJobMutation.isPending}
         collections={lib.collections}
         onAddToCollection={(collectionId, jobId) => lib.addToCollectionMutation.mutate({ collectionId, jobId })}
+        activeCollectionId={lib.activeCollectionId}
+        onRemoveFromCollection={
+          lib.activeCollectionId
+            ? (jobId) => lib.removeFromCollectionMutation.mutate({
+                collectionId: lib.activeCollectionId as string,
+                jobId,
+              })
+            : undefined
+        }
       />
 
       {/* ── Delete Job Confirm Modal ── */}
