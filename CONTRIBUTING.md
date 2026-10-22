@@ -132,8 +132,6 @@ Pensieve/
 ├── CLAUDE.md                 # Full dev context
 ├── ARCHITECTURE.md           # Verified current-state data flows
 ├── CHANGELOG.md              # History of all changes
-├── REVIEW_FINDINGS.md         # Open findings from the most recent full-codebase review
-├── UI_UX_DOCUMENTATION.md     # Design-system reference + brand differentiation analysis
 ├── render.yaml                # Render Blueprint for server deployment
 ├── docker-compose.yml         # Local-dev-only Postgres/Redis stand-ins (not part of production)
 └── ...                       # Other project files
