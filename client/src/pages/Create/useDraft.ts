@@ -8,6 +8,8 @@ export interface CreateDraft {
 }
 
 const DRAFT_KEY = 'ca_create_draft';
+const DEMO_HANDOFF_KEY = 'ca_demo_handoff';
+const DEMO_HANDOFF_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function readDraft(): Partial<CreateDraft> {
   try {
@@ -15,6 +17,37 @@ function readDraft(): Partial<CreateDraft> {
   } catch {
     return {};
   }
+}
+
+// WHY localStorage demo handoff (F6): after LiveDemo → sign-up, Create should
+// seed topic/platform from the last successful demo. Cleared once consumed.
+function readAndConsumeDemoHandoff(): Partial<CreateDraft> {
+  try {
+    const raw = localStorage.getItem(DEMO_HANDOFF_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    localStorage.removeItem(DEMO_HANDOFF_KEY);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const obj = parsed as Record<string, unknown>;
+    const savedAt = typeof obj.savedAt === 'number' ? obj.savedAt : 0;
+    if (savedAt > 0 && Date.now() - savedAt > DEMO_HANDOFF_TTL_MS) return {};
+    const topic = typeof obj.topic === 'string' ? obj.topic.trim() : '';
+    const platform = typeof obj.platform === 'string' ? obj.platform : '';
+    if (!topic && !platform) return {};
+    return {
+      ...(topic ? { topic } : {}),
+      ...(platform ? { platform } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function initialDraft(): Partial<CreateDraft> {
+  const draft = readDraft();
+  // Prefer an existing Create draft over a stale demo handoff.
+  if (draft.topic || draft.platform) return draft;
+  return { ...draft, ...readAndConsumeDemoHandoff() };
 }
 
 // WHY sessionStorage + explicit clearDraft(): the wizard used to lose topic/tone/
@@ -30,7 +63,7 @@ function readDraft(): Partial<CreateDraft> {
 // render it through whatever toast affordance it already uses, instead of this
 // hook inventing its own UI.
 export function useDraft() {
-  const [draft, setDraftState] = useState<Partial<CreateDraft>>(readDraft);
+  const [draft, setDraftState] = useState<Partial<CreateDraft>>(initialDraft);
   const [draftWriteFailed, setDraftWriteFailed] = useState(false);
 
   function setDraft(patch: Partial<CreateDraft>) {

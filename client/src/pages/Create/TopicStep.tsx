@@ -58,19 +58,7 @@ export function TopicStep({
   errorMsg, loading, generateLabel, onSubmit, countdownText,
 }: TopicStepProps) {
   return (
-    <div className="create-topic-step" style={{ marginBottom: 32, padding: '0 16px' }}>
-      <style>{`
-        @media (max-width: 480px) {
-          .create-topic-step {
-            padding: 0 8px !important;
-          }
-        }
-        @media (max-width: 375px) {
-          .create-topic-step {
-            padding: 0 4px !important;
-          }
-        }
-      `}</style>
+    <div className="create-topic-step" style={{ marginBottom: 32 }}>
       {/* Platform — compact summary once chosen, full grid on first arrival or "Change" */}
       <div style={{ marginBottom: 20 }}>
         <SectionLabel>Platform</SectionLabel>
@@ -231,7 +219,7 @@ export function TopicStep({
       <button
         type="button"
         className="btn-primary"
-        disabled={!topic.trim() || loading}
+        disabled={!topic.trim() || loading || !!countdownText}
         onClick={onSubmit}
         style={{
           width: '100%',

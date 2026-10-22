@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { Sparkles } from 'lucide-react';
-import { getJobs, getProfile, deleteJob } from '../api';
+import { getJobs, getProfile, deleteJob, getScheduledPosts, getFeedMonitors } from '../api';
 import { ErrorState } from '../components/ErrorState';
 import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { RecentGenerations } from './Dashboard/RecentGenerations';
@@ -12,6 +12,8 @@ import { StatsOverview } from './Dashboard/StatsOverview';
 import { QualityTrendChart } from './Dashboard/QualityTrendChart';
 import { PredictionInsights } from './Dashboard/PredictionInsights';
 import { NextScheduledCard } from './Dashboard/NextScheduledCard';
+import { FeedHealthCard } from './Dashboard/FeedHealthCard';
+import { DashboardSkeleton } from './Dashboard/DashboardSkeleton';
 import { DASHBOARD_STYLES } from './Dashboard/dashboardStyles';
 import type { DashboardJob } from './Dashboard/dashboardTypes';
 import { getContentScores } from './Dashboard/dashboardTypes';
@@ -55,6 +57,20 @@ export default function Dashboard() {
     queryFn: getProfile,
     enabled: authLoaded && isSignedIn,
   });
+  // WHY the same keys as NextScheduledCard / FeedHealthCard: those cards own
+  // the UI, but the page has to know when they settle so it can reveal every
+  // section in one paint. React Query dedupes the request.
+  const scheduleQuery = useQuery({
+    queryKey: ['dashboard', 'nextScheduled'],
+    queryFn: () => getScheduledPosts(),
+    enabled: authLoaded && isSignedIn,
+  });
+  const feedQuery = useQuery({
+    queryKey: ['dashboard', 'feedMonitors'],
+    queryFn: getFeedMonitors,
+    enabled: authLoaded && isSignedIn,
+    staleTime: 60_000,
+  });
 
   // WHY: memoize on jobsQuery.data — `data?.jobs || []` would otherwise
   // create a new [] literal every render, breaking the useMemo below that
@@ -63,7 +79,14 @@ export default function Dashboard() {
   const stats: ProfileStats = profileQuery.data?.stats || DEFAULT_STATS;
   const contentDna = profileQuery.data?.contentDna || null;
 
-  const loading = jobsQuery.isLoading || profileQuery.isLoading;
+  // WHY isPending, not isLoading: while Clerk is still hydrating these queries
+  // are disabled, and isLoading is false in that state. The page used to paint
+  // zeros and an empty job list, then swap in skeletons, then fill each card
+  // as its own request returned.
+  const pagePending = jobsQuery.isPending
+    || profileQuery.isPending
+    || scheduleQuery.isPending
+    || feedQuery.isPending;
   // WHY per-query, not one combined isError: audit #26 — a single `isError` wiped the
   // entire content area even when only one of the two independent queries failed. Each
   // section below only replaces its own area with ErrorState; the full-page fallback
@@ -133,16 +156,6 @@ export default function Dashboard() {
     <div className="dashboard-page-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <style>{DASHBOARD_STYLES}</style>
       <style>{`
-        @media (max-width: 480px) {
-          .dashboard-page-container {
-            padding: 0 16px !important;
-          }
-        }
-        @media (max-width: 375px) {
-          .dashboard-page-container {
-            padding: 0 12px !important;
-          }
-        }
         /* WHY scoped to .dash-header, not the shared .section-header class: the global
            .section-header mobile rule stacks title-above-button, which Brand/Create rely
            on. Dashboard's title + "New content" button both fit on one line even on
@@ -174,12 +187,14 @@ export default function Dashboard() {
         <ErrorState message="We couldn't load your dashboard data. Please try again." onRetry={handleRetryAll} />
       )}
 
-      {!bothFailed && (
+      {pagePending && <DashboardSkeleton />}
+
+      {!pagePending && !bothFailed && (
         <>
           {/* ── Stats grid + Content DNA bubble (profileQuery-scoped) ── */}
           <StatsOverview
             isError={profileQuery.isError}
-            isLoading={profileQuery.isLoading}
+            isLoading={profileQuery.isPending}
             onRetry={handleRetryProfile}
             totalPosts={stats.totalPosts}
             avgScore={stats.avgScore}
@@ -190,13 +205,16 @@ export default function Dashboard() {
           {/* ── Next scheduled post (Calendar-awareness card) ── */}
           <NextScheduledCard />
 
+          {/* ── Feed monitor health (F9) — hidden when user has zero monitors ── */}
+          <FeedHealthCard />
+
           {/* ── Recent generations (jobsQuery-scoped) ── */}
           {jobsQuery.isError ? (
             <ErrorState message="We couldn't load your recent generations. Please try again." onRetry={handleRetryJobs} />
           ) : (
             <RecentGenerations
               jobs={jobs}
-              loading={jobsQuery.isLoading}
+              loading={jobsQuery.isPending}
               onNavigate={navigate}
               onRequestDelete={setDeleteConfirm}
             />
@@ -205,12 +223,12 @@ export default function Dashboard() {
           {/* ── Quality trend chart + predicted-engagement card (profileQuery-scoped) ── */}
           <div className="grid-halves" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <QualityTrendChart
-              loading={profileQuery.isLoading}
+              loading={profileQuery.isPending}
               dimensionAverages={profileQuery.isError ? null : stats.dimensionAverages}
               dimensionTrend={profileQuery.isError ? [] : stats.dimensionTrend}
             />
             <PredictionInsights
-              loading={profileQuery.isLoading}
+              loading={profileQuery.isPending}
               predictionTierCounts={profileQuery.isError ? undefined : stats.predictionTierCounts}
               latestPredictionTopReason={profileQuery.isError ? null : stats.latestPredictionTopReason}
             />
@@ -220,7 +238,7 @@ export default function Dashboard() {
               breakdown) rather than needing its own ErrorState, since neither half is
               essential to the other rendering usefully. ── */}
           <InsightsCards
-            loading={loading}
+            loading={false}
             platformBreakdown={profileQuery.isError ? undefined : stats.platformBreakdown}
             personalizedTips={personalizedTips}
             hasCritiqueData={jobs.some((j) => j.outputs?.find((o) => o.outputType === 'critique'))}

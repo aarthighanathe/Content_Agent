@@ -62,6 +62,8 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         display: 'flex', alignItems: 'flex-start', gap: 14,
         transition: 'border-color .2s, background .2s',
         position: 'relative',
+        height: '100%',
+        boxSizing: 'border-box',
       }}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLDivElement).style.borderColor = 'color-mix(in srgb, var(--accent) 25%, transparent)';
@@ -83,45 +85,45 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         {index + 1}
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.4, flex: 1 }}>
-            {idea.title}
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            {/* I4: predicted performance tier — same fixed color scheme as
-                Dashboard's PredictionInsights, absent gracefully for ideas
-                generated before this field existed. */}
-            {tierMeta && (
-              <span
-                title={idea.prediction?.topReason || `${tierMeta.label} predicted engagement`}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  background: `${tierMeta.color}18`, border: `1px solid ${tierMeta.color}38`,
-                  borderRadius: 20, padding: '2px 8px',
-                  fontSize: 10, fontWeight: 700, color: tierMeta.color, whiteSpace: 'nowrap',
-                }}
-              >
-                <tierMeta.Icon size={10} /> {tierMeta.label}
-              </span>
-            )}
-            {/* Platform pill */}
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              background: meta.bg, border: `1px solid ${meta.color}28`,
-              borderRadius: 20, padding: '2px 9px',
-              fontSize: 10.5, fontWeight: 600, color: meta.color, whiteSpace: 'nowrap',
-            }}>
-              <meta.Icon size={10} /> {meta.label}
+      {/* Content — title uses the full column. Tier/platform pills used to sit
+          beside the title and shrink it, so longer labels (LinkedIn, Medium)
+          wrapped titles into a narrow column and the angle started at a
+          different height on every card. */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignSelf: 'stretch' }}>
+        <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.35, minHeight: '4.05em' }}>
+          {idea.title}
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, minHeight: 20 }}>
+          {/* I4: predicted performance tier — same fixed color scheme as
+              Dashboard's PredictionInsights, absent gracefully for ideas
+              generated before this field existed. */}
+          {tierMeta && (
+            <span
+              title={idea.prediction?.topReason || `${tierMeta.label} predicted engagement`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                background: `${tierMeta.color}18`, border: `1px solid ${tierMeta.color}38`,
+                borderRadius: 20, padding: '1px 6px',
+                fontSize: 10, fontWeight: 700, color: tierMeta.color, whiteSpace: 'nowrap', lineHeight: 1.5,
+              }}
+            >
+              <tierMeta.Icon size={9} /> {tierMeta.label}
             </span>
-          </div>
+          )}
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            background: meta.bg, border: `1px solid ${meta.color}28`,
+            borderRadius: 20, padding: '1px 6px',
+            fontSize: 10, fontWeight: 600, color: meta.color, whiteSpace: 'nowrap', lineHeight: 1.5,
+          }}>
+            <meta.Icon size={9} /> {meta.label}
+          </span>
         </div>
-        <p style={{ margin: '0 0 4px', fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        <p style={{ margin: '8px 0 0', fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
           <span style={{ color: 'color-mix(in srgb, var(--accent-2) 80%, transparent)', fontWeight: 500 }}>Angle: </span>
           {idea.angle}
         </p>
-        <p style={{ margin: 0, fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+        <p style={{ margin: '4px 0 0', fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, flex: 1 }}>
           {idea.why}
         </p>
         {/* I3: "why now" grounding source — only present when the idea was

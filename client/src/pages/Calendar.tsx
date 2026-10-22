@@ -83,9 +83,14 @@ export default function CalendarPage() {
   // Query itself doesn't roll back an unchanged cache, but without this catch
   // a failed request would fail *silently* since none of these call sites
   // await the promise today.
-  function allocate(dateKey: string, jobId: string, publishPlatform?: PublishPlatform) {
+  function allocate(
+    dateKey: string,
+    jobId: string,
+    publishPlatform?: PublishPlatform,
+    publishHour?: number,
+  ) {
     setScheduleActionError(null);
-    allocateRemote(dateKey, jobId, publishPlatform).catch(() => {
+    allocateRemote(dateKey, jobId, publishPlatform, publishHour).catch(() => {
       setScheduleActionError('Failed to schedule — please try again.');
     });
   }
@@ -194,7 +199,9 @@ export default function CalendarPage() {
             onRemove={removeFromSchedule}
             unscheduled={unscheduled}
             onAddContent={(jobId) => allocate(selectedDay, jobId)}
-            onSetPublishPlatform={(jobId, platform) => allocate(selectedDay, jobId, platform)}
+            onSetPublishPlatform={(jobId, platform, publishHour) =>
+              allocate(selectedDay, jobId, platform, publishHour)
+            }
           />
         )}
       </CalendarGrid>

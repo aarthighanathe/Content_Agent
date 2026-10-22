@@ -16,25 +16,63 @@ interface BatchItem extends BatchJobRef {
   score?: number;
 }
 
-// WHY router state, not URL params (rewritten 2026-08-04): the previous version
-// of this page encoded the job list into a `?jobs=id|platform,...` query string,
-// which meant a hard refresh or shared link could only ever replay stale
-// pending/processing state. Reading `location.state` (the same CreateHandoff-
-// style pattern the rest of the app uses for one-shot navigation payloads) is
-// simpler and avoids re-deriving anything from a compact URL format — the
-// tradeoff is that a hard refresh loses the list, same as any other
-// state-only handoff in this app (e.g. Competitor.tsx's navigateToCreate).
+interface PersistedBatch {
+  jobs: BatchJobRef[];
+  creationFailedCount?: number;
+  savedAt?: number;
+}
+
+const BATCH_STORAGE_KEY = 'ca_batch_result_v1';
+const BATCH_TTL_MS = 24 * 60 * 60 * 1000;
+
+function isBatchJobRef(value: unknown): value is BatchJobRef {
+  if (!value || typeof value !== 'object') return false;
+  const o = value as Record<string, unknown>;
+  return typeof o.jobId === 'string' && typeof o.topic === 'string' && typeof o.platform === 'string';
+}
+
+function readPersistedBatch(): PersistedBatch | null {
+  try {
+    const raw = sessionStorage.getItem(BATCH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const obj = parsed as Record<string, unknown>;
+    if (!Array.isArray(obj.jobs) || obj.jobs.length === 0 || !obj.jobs.every(isBatchJobRef)) {
+      return null;
+    }
+    const savedAt = typeof obj.savedAt === 'number' ? obj.savedAt : 0;
+    if (savedAt > 0 && Date.now() - savedAt > BATCH_TTL_MS) {
+      sessionStorage.removeItem(BATCH_STORAGE_KEY);
+      return null;
+    }
+    return {
+      jobs: obj.jobs,
+      creationFailedCount: typeof obj.creationFailedCount === 'number' ? obj.creationFailedCount : 0,
+      savedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// WHY router state + sessionStorage (L12): Create/Repurpose navigate with
+// location.state for the job list. Hard refresh used to wipe that and show
+// "No batch found" — sessionStorage recovers within the same tab for 24h.
 export default function BatchResultPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const navState = location.state as { jobs?: BatchJobRef[]; creationFailedCount?: number } | null;
-  const initialJobs = navState?.jobs || [];
+  const persisted = (!navState?.jobs || navState.jobs.length === 0) ? readPersistedBatch() : null;
+  const initialJobs = (navState?.jobs && navState.jobs.length > 0)
+    ? navState.jobs
+    : (persisted?.jobs ?? []);
   // WHY a distinct name from the `failedCount` computed below: that one means
   // "jobs that were created but whose generation pipeline later failed" —
   // this is a different concept (items the server rejected before a job was
   // ever created, e.g. an empty-after-trim topic or a queueing error) and
   // previously vanished from the response with zero signal to the user.
-  const creationFailedCount = navState?.creationFailedCount ?? 0;
+  const creationFailedCount = navState?.creationFailedCount ?? persisted?.creationFailedCount ?? 0;
   const [items, setItems] = useState<BatchItem[]>(() =>
     initialJobs.map((j) => ({ ...j, status: 'pending', progress: 0 })),
   );
@@ -100,8 +138,9 @@ export default function BatchResultPage() {
         <AlertTriangle size={36} style={{ color: 'var(--color-error)', opacity: 0.6 }} />
         <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>No batch found</h1>
         <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 360 }}>
-          This page needs a batch submitted from Create's "Plan multiple topics" mode — it doesn't
-          work from a direct link or refresh. Start a new batch or head back to your dashboard.
+          This page needs a batch submitted from Create or Repurpose. A hard refresh
+          within 24 hours should still recover the list; if you opened a fresh tab,
+          start a new batch instead.
         </p>
         <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
           <button className="btn-primary" onClick={() => navigate('/create')}>Create content</button>

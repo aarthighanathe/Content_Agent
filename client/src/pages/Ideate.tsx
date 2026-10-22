@@ -85,13 +85,14 @@ export default function IdeatePage() {
     if (regeneratingIndex !== null) return;
     setRegeneratingIndex(index);
     try {
-      // WHY exclude all titles, not just first 10: prevents duplicates when regenerating
-      // idea #15+ — the old slice(0, 10) only excluded ideas #1-10, so the regenerated
-      // idea could duplicate ideas #11-20 that weren't sent for exclusion.
-      const excludeTitles = ideas.map((i) => i.title);
+      // WHY getState() for exclude titles + map: `ideas` from the render closure can be
+      // stale if another regenerate finished between click and this await — reading the
+      // live store avoids writing an outdated snapshot back over fresher cards.
+      const currentIdeas = useAppStore.getState().ideatedIdeas;
+      const excludeTitles = currentIdeas.map((i) => i.title);
       const activeAnalysisId = useCompetitorGaps ? competitorAnalysisId : undefined;
       const newIdea = await regenerateIdea(focusTopic.trim() || undefined, excludeTitles, activeAnalysisId);
-      setIdeas(ideas.map((idea, i) => (i === index ? newIdea : idea)));
+      setIdeas(useAppStore.getState().ideatedIdeas.map((idea, i) => (i === index ? newIdea : idea)));
     } catch (err) {
       setError(getSubmitError(err, 'Failed to regenerate that idea — please try again.').message);
     }
@@ -172,24 +173,19 @@ export default function IdeatePage() {
 
       {/* Loading skeletons — 2-column grid */}
       {loading && (
-        <div className="ideate-grid-375-fix" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 10 }}>
+        <div className="ideate-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 10 }}>
           {Array.from({ length: count }).map((_, i) => (
             <SkeletonCard key={i} size="lines" />
           ))}
           <style>{`
             @keyframes spin { to { transform: rotate(360deg); } }
-            @media (max-width: 375px) {
-              .ideate-grid-375-fix {
-                grid-template-columns: 1fr !important;
-              }
-            }
           `}</style>
         </div>
       )}
 
       {/* Ideas grid — 2 columns on desktop */}
       {!loading && visibleIdeas.length > 0 && (
-        <div className="ideate-grid-375-fix" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 10 }}>
+        <div className="ideate-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 12, alignItems: 'stretch' }}>
           {visibleIdeas.map((idea) => {
             // WHY the full-array index, not the loop-position index: filtering
             // visibleIdeas by platform reshuffles loop position on every filter

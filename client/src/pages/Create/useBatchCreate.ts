@@ -13,6 +13,8 @@ import type { BatchRow } from './BatchTopicList';
 export function useBatchCreate(
   learnedAudienceDefaults: Partial<Record<string, string>>,
   resolveAudience: (input: string, platform: string, learnedDefaults: Partial<Record<string, string>>) => string,
+  carouselTemplate?: { templateId?: string; paletteId?: string },
+  onRateLimited?: (retryAfterMs: number | null) => void,
 ) {
   const navigate = useNavigate();
   const [batchMode, setBatchMode] = useState(false);
@@ -37,6 +39,7 @@ export function useBatchCreate(
           tone: batchTone.trim() || 'professional',
           targetAudience: resolveAudience(batchAudience, r.platform, learnedAudienceDefaults),
         })),
+        carouselTemplate,
       );
       posthog.capture('batch_content_generated', { count: jobs.length, failedCount: failedItems.length });
       if (failedItems.length > 0) {
@@ -64,19 +67,24 @@ export function useBatchCreate(
         setBatchLoading(false);
         return;
       }
-      // WHY router state, not URL params: BatchResult.tsx reads its job list
-      // from location.state (same CreateHandoff-style pattern already used
-      // elsewhere in this app) instead of encoding it into the URL — simpler,
-      // and avoids re-deriving topic/platform from a compact URL format.
-      // WHY creationFailedCount, not failedCount: BatchResult.tsx already has
-      // its own `failedCount` local variable meaning "jobs that were created
-      // but whose generation pipeline later failed" — a same-named field here
-      // would mean something different (items that never got a job created at
-      // all) and silently collide if someone destructured both without care.
+      // WHY also sessionStorage (L12): BatchResult used to rely only on router
+      // state, so a hard refresh showed "No batch found". Persist the job list
+      // for this tab so refresh recovers; URL stays clean (no job IDs in query).
+      try {
+        sessionStorage.setItem(
+          'ca_batch_result_v1',
+          JSON.stringify({
+            jobs,
+            creationFailedCount: failedItems.length,
+            savedAt: Date.now(),
+          }),
+        );
+      } catch { /* private mode / quota — navigate still works via state */ }
       navigate('/batch-result', { state: { jobs, creationFailedCount: failedItems.length } });
     } catch (err: unknown) {
-      const { message } = getSubmitError(err);
+      const { message, retryAfterMs } = getSubmitError(err);
       setBatchError(message);
+      onRateLimited?.(retryAfterMs ?? null);
       setBatchLoading(false);
     }
   }

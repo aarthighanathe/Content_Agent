@@ -23,6 +23,7 @@ interface BatchTopicListProps {
   onTargetAudienceChange: (audience: string) => void;
   loading: boolean;
   errorMsg: string;
+  countdownText?: string | null;
   onSubmit: () => void;
 }
 
@@ -34,7 +35,7 @@ interface BatchTopicListProps {
 // comparing/editing several rows together before submitting.
 export function BatchTopicList({
   rows, onRowsChange, tone, onToneChange, targetAudience, onTargetAudienceChange,
-  loading, errorMsg, onSubmit,
+  loading, errorMsg, countdownText, onSubmit,
 }: BatchTopicListProps) {
   // WHY a ref map, not a single ref: rows are added/removed dynamically, so each
   // row's input needs its own addressable ref keyed by the row's stable id.
@@ -201,6 +202,7 @@ export function BatchTopicList({
       {errorMsg && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--color-error)' }}>
           <AlertCircle size={13} /> {errorMsg}
+          {countdownText && <span style={{ fontWeight: 600 }}>({countdownText})</span>}
         </div>
       )}
 
@@ -208,7 +210,7 @@ export function BatchTopicList({
         type="button"
         className="btn-primary"
         onClick={handleSubmitWithValidation}
-        disabled={loading || validRowCount === 0}
+        disabled={loading || validRowCount === 0 || !!countdownText}
         style={{ alignSelf: 'flex-start' }}
       >
         {loading ? (

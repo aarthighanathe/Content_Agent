@@ -35,6 +35,8 @@ export interface ScheduledPost {
   // a platform is set. See server/src/db/schema.ts's scheduledPosts WHY
   // comment for the full design rationale.
   publishPlatform: PublishPlatform | null;
+  // WHY: local hour 0–23 for auto-publish (defaults to 9). See L10/F12.
+  publishHour: number;
   publishStatus: PublishStatus;
   publishedAt: string | null;
   postUrl: string | null;
@@ -57,6 +59,8 @@ export interface CreateScheduledPostInput {
   // to reach UTC) — see server/src/routes/scheduledPosts.ts's publishDelayMs
   // WHY comment for how this is used.
   timezoneOffsetMinutes?: number;
+  // WHY optional: omit → server defaults to 9 (morning). 0–23 local hour.
+  publishHour?: number;
 }
 
 export interface CreateScheduledPostResponse {

@@ -70,13 +70,17 @@ export function IdeateControls({
             }}
           />
         </div>
-        <Dropdown
-          value={count}
-          options={COUNT_OPTIONS}
-          onChange={onCountChange}
-          label="Number of ideas to generate"
-          size="sm"
-        />
+        {/* WHY stretch to the focus field: size="sm" padding is shorter than the
+            topic input, so the count control sat visibly shorter on the same row. */}
+        <div className="ideate-count-dropdown">
+          <Dropdown
+            value={count}
+            options={COUNT_OPTIONS}
+            onChange={onCountChange}
+            label="Number of ideas to generate"
+            size="sm"
+          />
+        </div>
       </div>
 
       {/* I5: competitor-gap ideation mode — only shown once the user has at
@@ -161,6 +165,9 @@ export function IdeateControls({
       </div>
 
       <style>{`
+        .ideate-count-dropdown, .ideate-count-dropdown > div { display: flex; align-items: stretch; }
+        .ideate-count-dropdown > div { flex-direction: column; }
+        .ideate-count-dropdown > div > button { flex: 1; }
         @media (max-width: 480px) {
           .ideate-controls { padding: 12px 14px !important; gap: 10px !important; border-radius: 12px !important; }
           .ideate-controls-row1 { gap: 8px !important; }

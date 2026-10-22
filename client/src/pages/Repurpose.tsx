@@ -164,7 +164,13 @@ export default function RepurposePage() {
           setError(`${failedItems.length} URL(s) failed: ${failedItems.map((f) => f.error).slice(0, 2).join('; ')}`);
         }
         if (jobs.length > 0) {
-          navigate('/batch-result', { state: { jobs } });
+          try {
+            sessionStorage.setItem(
+              'ca_batch_result_v1',
+              JSON.stringify({ jobs, creationFailedCount: failedItems.length, savedAt: Date.now() }),
+            );
+          } catch { /* ignore */ }
+          navigate('/batch-result', { state: { jobs, creationFailedCount: failedItems.length } });
         }
       } catch (err: unknown) {
         const msg = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
@@ -200,6 +206,15 @@ export default function RepurposePage() {
         // exactly BatchResult.tsx's shape (built for Create's batch mode) —
         // reusing it here instead of building a second "N jobs, one submission"
         // results page, and it already polls/displays per-job status+score.
+        try {
+          sessionStorage.setItem(
+            'ca_batch_result_v1',
+            JSON.stringify({
+              jobs: jobs.map((j) => ({ ...j, topic })),
+              savedAt: Date.now(),
+            }),
+          );
+        } catch { /* ignore */ }
         navigate('/batch-result', { state: { jobs: jobs.map((j) => ({ ...j, topic })) } });
       } else {
         addEntry({ url: trimmedUrl, platform, outcome: 'success', jobId });
@@ -263,7 +278,7 @@ export default function RepurposePage() {
       </div>
 
       {/* Two-column layout — stacks on tablet via .grid-repurpose */}
-      <div className="grid-repurpose" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 24, alignItems: 'start' }}>
+      <div className="grid-repurpose" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 320px)', gap: 24, alignItems: 'start' }}>
         <style>{`
           @media (max-width: 375px) {
             .grid-repurpose {

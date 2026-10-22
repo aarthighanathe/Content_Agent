@@ -126,12 +126,12 @@ export default function CreatePage() {
   });
   const learnedAudienceDefaults = audienceDefaultsQuery.data?.audienceDefaults || {};
 
+  const { templateId, paletteId, handleTemplateChange, handlePaletteChange } = useCarouselTemplateSelection();
+
   const {
     batchMode, setBatchMode, batchRows, setBatchRows, batchTone, setBatchTone,
     batchAudience, setBatchAudience, batchLoading, batchError, handleBatchSubmit,
-  } = useBatchCreate(learnedAudienceDefaults, resolveAudience);
-
-  const { templateId, paletteId, handleTemplateChange, handlePaletteChange } = useCarouselTemplateSelection();
+  } = useBatchCreate(learnedAudienceDefaults, resolveAudience, { templateId, paletteId }, setRetryAfterMs);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -235,19 +235,7 @@ export default function CreatePage() {
   }
 
   return (
-    <div className="create-page-container">
-      <style>{`
-        @media (max-width: 480px) {
-          .create-page-container {
-            padding: 0 16px !important;
-          }
-        }
-        @media (max-width: 375px) {
-          .create-page-container {
-            padding: 0 12px !important;
-          }
-        }
-      `}</style>
+    <div>
       {/* Page Header */}
       <div className="section-header" style={{ marginBottom: 32, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
@@ -283,6 +271,7 @@ export default function CreatePage() {
           onTargetAudienceChange={setBatchAudience}
           loading={batchLoading}
           errorMsg={batchError}
+          countdownText={countdownText}
           onSubmit={() => { handleBatchSubmit().catch(() => {}); }}
         />
       ) : (

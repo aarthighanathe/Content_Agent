@@ -16,24 +16,11 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
   };
 
   return (
-    <>
-      <style>{`
-        @media (max-width: 375px) {
-          .platform-grid-375-fix {
-            grid-template-columns: 1fr !important;
-          }
-        }
-        @media (min-width: 380px) and (max-width: 480px) {
-          .platform-grid-375-fix {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
       <div
-        className="platform-grid-375-fix"
+        className="platform-grid"
         role="group"
         aria-label="Choose a platform"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 14 }}
       >
       {platforms.map((p) => {
         const sel = value === p.id;
@@ -84,7 +71,6 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
         );
       })}
     </div>
-    </>
   );
 }
 

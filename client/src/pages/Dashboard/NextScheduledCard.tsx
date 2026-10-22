@@ -35,7 +35,9 @@ export function NextScheduledCard() {
       .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))[0] ?? null;
   }, [scheduleQuery.data]);
 
-  const loading = scheduleQuery.isLoading;
+  // WHY isPending: isLoading is false while the query is disabled waiting on
+  // Clerk, which flashed the empty "no posts" copy before the skeleton.
+  const loading = scheduleQuery.isPending;
   // WHY treat a row with no joined job as "nothing to show" rather than
   // rendering a broken card: the server only omits `job` when the
   // scheduled_posts row outlived its job (e.g. deleted before the cleanup in

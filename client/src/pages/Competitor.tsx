@@ -344,7 +344,7 @@ export default function CompetitorPage() {
         @keyframes comp-spin  { to{transform:rotate(360deg)} }
         @keyframes comp-spinR { to{transform:rotate(-360deg)} }
         @keyframes comp-fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-        @media (max-width:768px) {
+        @media (max-width:900px) {
           .comp-form-grid { grid-template-columns:1fr !important; }
           .comp-grid      { grid-template-columns:1fr !important; }
           .comp-angles-grid { grid-template-columns:1fr !important; }

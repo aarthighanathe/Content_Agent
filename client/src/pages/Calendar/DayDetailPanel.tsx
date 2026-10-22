@@ -20,13 +20,26 @@ interface DayDetailPanelProps {
   /** Called when user picks a piece of unscheduled content to add to this day. */
   onAddContent: (jobId: string) => void;
   /** Called when user sets/changes/clears which platform to auto-publish this job to. */
-  onSetPublishPlatform: (jobId: string, platform: PublishPlatform | undefined) => void;
+  onSetPublishPlatform: (
+    jobId: string,
+    platform: PublishPlatform | undefined,
+    publishHour?: number,
+  ) => void;
 }
 
 const PUBLISH_PLATFORM_LABELS: Record<PublishPlatform, string> = {
   linkedin: 'LinkedIn',
   twitter: 'Twitter / X',
 };
+
+const PUBLISH_HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+function formatPublishHour(hour: number): string {
+  const h = ((hour % 24) + 24) % 24;
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const twelve = h % 12 === 0 ? 12 : h % 12;
+  return `${twelve}:00 ${suffix}`;
+}
 
 // WHY both directions are worth building (#12):
 // - Card → day (sidebar Schedule… button): works well when the user is browsing their
@@ -43,6 +56,9 @@ export function DayDetailPanel({
 }: DayDetailPanelProps) {
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [platformMenuJobId, setPlatformMenuJobId] = useState<string | null>(null);
+  // WHY local draft hour: chosen before/while picking a platform so the first
+  // allocate() call already carries the user's preferred time (default 9).
+  const [draftHour, setDraftHour] = useState(9);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // WHY: this panel renders below the grid inside the same scrollable .sc-cal column,
@@ -187,11 +203,33 @@ export function DayDetailPanel({
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px 10px 60px', flexWrap: 'wrap' }}>
                 {post?.publishPlatform ? (
                   <>
-                    {/* Auto-publish time disclosure */}
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', background: 'color-mix(in srgb, var(--text-muted) 6%, transparent)', padding: '2px 6px', borderRadius: 4 }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9.5, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
                       <CalendarDays size={9} />
-                      Auto-publishes at 9am UTC
-                    </span>
+                      Auto-publishes at
+                      <select
+                        aria-label="Auto-publish hour"
+                        value={post.publishHour ?? 9}
+                        onChange={(e) => {
+                          const hour = Number(e.target.value);
+                          if (!Number.isFinite(hour) || !post.publishPlatform) return;
+                          onSetPublishPlatform(job.id, post.publishPlatform, hour);
+                        }}
+                        style={{
+                          background: 'color-mix(in srgb, var(--text-muted) 6%, transparent)',
+                          border: '1px solid var(--rule)',
+                          borderRadius: 4,
+                          color: 'var(--text-secondary)',
+                          fontSize: 9.5,
+                          fontFamily: 'var(--font-mono)',
+                          padding: '2px 4px',
+                        }}
+                      >
+                        {PUBLISH_HOURS.map((h) => (
+                          <option key={h} value={h}>{formatPublishHour(h)}</option>
+                        ))}
+                      </select>
+                      <span>(your time)</span>
+                    </label>
                     {post.publishStatus === 'pending' && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
                         <Loader2 size={10} style={{ animation: 'sc-spin .8s linear infinite' }} />
@@ -225,7 +263,27 @@ export function DayDetailPanel({
                     </button>
                   </>
                 ) : connectedPlatforms.length > 0 ? (
-                  <div style={{ position: 'relative' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Time
+                      <select
+                        aria-label="Choose auto-publish hour"
+                        value={draftHour}
+                        onChange={(e) => setDraftHour(Number(e.target.value))}
+                        style={{
+                          background: 'var(--bg-raised)',
+                          border: '1px solid var(--rule)',
+                          borderRadius: 4,
+                          color: 'var(--text-secondary)',
+                          fontSize: 10,
+                          padding: '2px 4px',
+                        }}
+                      >
+                        {PUBLISH_HOURS.map((h) => (
+                          <option key={h} value={h}>{formatPublishHour(h)}</option>
+                        ))}
+                      </select>
+                    </label>
                     <button
                       className="sc-btn-ghost"
                       onClick={() => setPlatformMenuJobId(isPlatformMenuOpen ? null : job.id)}
@@ -240,7 +298,10 @@ export function DayDetailPanel({
                           <button
                             key={p}
                             className="sc-publish-menu-item"
-                            onClick={() => { onSetPublishPlatform(job.id, p); setPlatformMenuJobId(null); }}
+                            onClick={() => {
+                              onSetPublishPlatform(job.id, p, draftHour);
+                              setPlatformMenuJobId(null);
+                            }}
                           >
                             {PUBLISH_PLATFORM_LABELS[p]}
                           </button>

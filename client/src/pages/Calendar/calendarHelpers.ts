@@ -119,19 +119,22 @@ export function useSchedule() {
   });
 
   const scheduleMutation = useMutation({
-    mutationFn: (vars: { dateKey: string; jobId: string; publishPlatform?: PublishPlatform }) =>
+    mutationFn: (vars: {
+      dateKey: string;
+      jobId: string;
+      publishPlatform?: PublishPlatform;
+      publishHour?: number;
+    }) =>
       // WHY timezoneOffsetMinutes here: dateKey is the browser's LOCAL
       // calendar day (CalendarGrid.tsx builds it from local Date methods) —
       // pairing it with Date.prototype.getTimezoneOffset() lets the server
-      // compute "9am in this user's own timezone" instead of always "9am
-      // UTC", which could previously fire auto-publish up to ~16 hours off
-      // from what the user actually meant. Only affects publish TIMING —
-      // scheduledDate itself (what's displayed/grouped-by) is unchanged.
+      // compute "N:00 in this user's own timezone" instead of always UTC.
       scheduleJob({
         jobId: vars.jobId,
         scheduledDate: vars.dateKey,
         publishPlatform: vars.publishPlatform,
         timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        publishHour: vars.publishHour,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SCHEDULE_QUERY_KEY }).catch(() => {});
@@ -160,14 +163,13 @@ export function useSchedule() {
     isLoading: query.isLoading,
     isError: query.isError,
     refetch: query.refetch,
-    // WHY (dateKey, jobId, publishPlatform?) => Promise<void>: server-side
-    // upsert-on-jobId already enforces "remove from any other date first"
-    // (the old client-side loop in allocate() is no longer needed, the DB's
-    // unique constraint on jobId is the same invariant). publishPlatform is
-    // optional — omitting it keeps a job reminder-only, matching the pre-
-    // auto-publish behavior exactly.
-    allocate: (dateKey: string, jobId: string, publishPlatform?: PublishPlatform) =>
-      scheduleMutation.mutateAsync({ dateKey, jobId, publishPlatform }),
+    // WHY publishHour optional: omit → server default 9am local (L10/F12).
+    allocate: (
+      dateKey: string,
+      jobId: string,
+      publishPlatform?: PublishPlatform,
+      publishHour?: number,
+    ) => scheduleMutation.mutateAsync({ dateKey, jobId, publishPlatform, publishHour }),
     removeFromSchedule: (jobId: string) => unscheduleMutation.mutateAsync(jobId),
     isMutating: scheduleMutation.isPending || unscheduleMutation.isPending,
   };
