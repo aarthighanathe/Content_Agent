@@ -1,7 +1,9 @@
 ﻿import { useState, useEffect, useRef } from 'react';
+import { ImagePlus, Loader2 } from 'lucide-react';
 import type { SlideData } from './IGSlide';
 import { useFocusTrap } from '../../../../../hooks/useFocusTrap';
 import { Button } from '../../../../../components/Button';
+import { generateSlideImage } from '../../../../../api';
 
 interface Props {
   slide:    SlideData;
@@ -19,23 +21,31 @@ interface Props {
 // the same caps here means a save can never produce something export will reject.
 const HEADLINE_MAX = 300;
 const BODY_MAX = 1000;
+const PROMPT_MAX = 500;
 
 export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
-  const [form,   setForm]   = useState({ headline: slide.headline || '', body: slide.body || '' });
+  const [form, setForm] = useState({
+    headline: slide.headline || '',
+    body: slide.body || '',
+    imagePrompt: slide.imagePrompt || '',
+  });
+  const [imageDataUrl, setImageDataUrl] = useState<string | undefined>(slide.imageDataUrl);
   const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // WHY try/catch/finally: onSave (→ Result.tsx's handleContentSave) rethrows on
-  // failure so callers can react — previously nothing here caught it, so a failed
-  // save left `saving` stuck true forever (the Save button showed a permanent
-  // spinner) with the modal never closing and no error shown
-  // (FUNCTIONAL_AUDIT_2026-07.md finding #12).
   async function handleSave() {
     setSaving(true);
     setError('');
     try {
-      await onSave({ ...slide, ...form });
+      await onSave({
+        ...slide,
+        headline: form.headline,
+        body: form.body,
+        imagePrompt: form.imagePrompt.trim() || undefined,
+        imageDataUrl,
+      });
       onClose();
     } catch {
       setError('Failed to save — please try again.');
@@ -44,7 +54,32 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
     }
   }
 
-  // SECURITY/ACCESSIBILITY: Escape-to-close, cleaned up on unmount.
+  async function handleGenerateImage(): Promise<void> {
+    const prompt = form.imagePrompt.trim()
+      || [form.headline, form.body].filter(Boolean).join('. ').slice(0, PROMPT_MAX);
+    if (!prompt) {
+      setError('Add a headline or image prompt before generating.');
+      return;
+    }
+    setGenerating(true);
+    setError('');
+    try {
+      if (!form.imagePrompt.trim()) {
+        setForm((prev) => ({ ...prev, imagePrompt: prompt.slice(0, PROMPT_MAX) }));
+      }
+      const result = await generateSlideImage(prompt, 'background');
+      if (typeof result.image !== 'string' || !result.image.startsWith('data:image/')) {
+        setError('Image generation returned an unexpected response.');
+        return;
+      }
+      setImageDataUrl(result.image);
+    } catch {
+      setError('Image generation failed — please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
       if (e.key === 'Escape') onClose();
@@ -52,6 +87,14 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   useFocusTrap(modalRef, true);
 
@@ -89,10 +132,6 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
           </button>
         </div>
 
-        {/* WHY a separate scroll region: the header and Save/Cancel footer must
-            stay pinned so they're never pushed off-screen on short mobile
-            viewports (landscape phones, keyboard open) — only the field area
-            scrolls internally. */}
         <div style={{ overflowY: 'auto', padding: '14px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {(['headline', 'body'] as const).map(key => {
             const max = key === 'headline' ? HEADLINE_MAX : BODY_MAX;
@@ -100,10 +139,10 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
             return (
               <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", letterSpacing: 1, textTransform: 'uppercase' }}>
+                  <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: 1, textTransform: 'uppercase' }}>
                     {key === 'headline' ? 'Headline' : 'Body'}
                   </label>
-                  <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color: nearLimit ? 'var(--color-error)' : 'var(--text-muted)' }}>
+                  <span style={{ fontSize: 9.5, fontFamily: 'var(--font-mono)', color: nearLimit ? 'var(--color-error)' : 'var(--text-muted)' }}>
                     {form[key].length}/{max}
                   </span>
                 </div>
@@ -126,13 +165,66 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
             );
           })}
 
+          {/* F2: AI slide image — prompt + generate, stored as data URL on the slide */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <label style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: 1, textTransform: 'uppercase' }}>
+                Image prompt
+              </label>
+              <span style={{ fontSize: 9.5, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                {form.imagePrompt.length}/{PROMPT_MAX}
+              </span>
+            </div>
+            <textarea
+              className="input"
+              value={form.imagePrompt}
+              onChange={(e) => setForm({ ...form, imagePrompt: e.target.value })}
+              maxLength={PROMPT_MAX}
+              placeholder="Describe a background image for this slide…"
+              style={{ minHeight: 64, resize: 'vertical' }}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={generating ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <ImagePlus size={12} />}
+                onClick={() => { void handleGenerateImage(); }}
+                disabled={generating || saving}
+              >
+                {generating ? 'Generating…' : 'Generate image'}
+              </Button>
+              {imageDataUrl && (
+                <button
+                  type="button"
+                  onClick={() => setImageDataUrl(undefined)}
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--text-muted)',
+                    fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
+                  }}
+                >
+                  Remove image
+                </button>
+              )}
+            </div>
+            {imageDataUrl && (
+              <img
+                src={imageDataUrl}
+                alt="Generated slide background preview"
+                style={{
+                  width: '100%', maxHeight: 160, objectFit: 'cover',
+                  borderRadius: 8, border: '1px solid var(--rule)',
+                }}
+              />
+            )}
+          </div>
+
           {error && (
             <div style={{ fontSize: 11.5, color: 'var(--color-error)' }} role="alert">{error}</div>
           )}
         </div>
 
         <div style={{ display: 'flex', gap: 8, padding: '14px 24px 22px', flexShrink: 0 }}>
-          <Button variant="primary" onClick={handleSave} disabled={saving} loading={saving} style={{ flex: 1, justifyContent: 'center' }}>
+          <Button variant="primary" onClick={handleSave} disabled={saving || generating} loading={saving} style={{ flex: 1, justifyContent: 'center' }}>
             Save
           </Button>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>

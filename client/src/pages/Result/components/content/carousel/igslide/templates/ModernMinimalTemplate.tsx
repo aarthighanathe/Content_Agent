@@ -52,7 +52,7 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
         {/* Fixed header block: accent + headline + body never compress, so the
             points list below is what absorbs any leftover/short space instead
             of the whole slide overflowing past the frame. */}
-        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ flexShrink: 0, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           {/* Decorative top accent */}
           <div
             style={{
@@ -99,23 +99,19 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
           )}
         </div>
 
-        {/* Points/bullets — the flexible region: centers in whatever space is
-            left under the header when short, and scrolls-within-bounds
-            (clipped by TemplateLayout's overflow:hidden) rather than pushing
-            the slide number/footer off the bottom when long. */}
+        {/* Points stay their full height. A flex shrink here used to clip the
+            last row while the card still looked like it had room. */}
         {slide.points && slide.points.length > 0 && (
           <div
             style={{
-              flex: 1,
-              minHeight: 0,
+              flexGrow: 1,
+              flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
               gap: spacing.gap,
               marginTop: spacing.sectionSpacing,
-              maxWidth: '85%',
               width: '100%',
-              overflow: 'hidden',
             }}
           >
             {slide.points.map((point, i) => (
@@ -135,11 +131,12 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
                     color: colors.BRAND_PRIMARY,
                     fontSize: 16,
                     fontWeight: 600,
+                    flexShrink: 0,
                   }}
                 >
                   {point.icon || '•'}
                 </span>
-                <div>
+                <div style={{ flex: '1 1 0%', minWidth: 0, overflowWrap: 'break-word' }}>
                   <div style={{ fontWeight: 600, marginBottom: 2 }}>{point.label}</div>
                   {point.desc && (
                     <div style={{ fontSize: 13, opacity: 0.8 }}>{point.desc}</div>

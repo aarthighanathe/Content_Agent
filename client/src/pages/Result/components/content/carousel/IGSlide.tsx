@@ -16,6 +16,8 @@ import { HowToLayout } from './igslide/layouts/HowToLayout';
 import { FeaturesLayout } from './igslide/layouts/FeaturesLayout';
 import { getTemplate, getPalette, isTemplateId } from '../../../../../lib/templateSystem';
 import { TEMPLATE_COMPONENTS } from './igslide/templates/registry';
+import { FitFrame } from './igslide/layouts/FitFrame';
+import { estimateFitScale, slidePointCopy } from './igslide/layouts/fitScale';
 
 // WHY re-export here: external consumers (ssr/renderSlideHtml.tsx, IGCarouselPreview.tsx,
 // useCarouselDesignSeed.ts, EditSlideModal.tsx, SlideVisual.tsx) all import SlideData/
@@ -104,18 +106,35 @@ export const IGSlide = React.memo(
         ref={ref}
         style={{ position: 'relative', width, height, flexShrink: 0, background, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
       >
-        {type === 'cover'                                                  && <CoverLayout    slide={slide} index={index} colors={colors} brandName={brandName} handle={handle} preset={preset} />}
-        {type === 'problem'                                                && <ProblemLayout  slide={slide} colors={colors} />}
-        {type === 'solution'                                               && <SolutionLayout slide={slide} colors={colors} brandName={brandName} handle={handle} />}
-        {type === 'howto'                                                  && <HowToLayout    slide={slide} colors={colors} />}
-        {type === 'features'                                               && <FeaturesLayout slide={slide} colors={colors} />}
-        {(type === 'content' || type === 'tip' || type === 'details')      && <ContentLayout  slide={slide} index={index} colors={colors} bgMode={bgMode === 'light' ? 'light' : 'dark'} preset={preset} />}
-        {type === 'stat'                                                   && <StatLayout     slide={slide} colors={colors} />}
-        {type === 'quote'                                                  && <QuoteLayout    slide={slide} index={index} colors={colors} />}
-        {type === 'cta'                                                    && <CTALayout      slide={slide} colors={colors} brandName={brandName} handle={handle} />}
-        {!['cover','problem','solution','howto','features','content','tip','details','stat','quote','cta'].includes(type) && (
-          <ContentLayout slide={slide} index={index} colors={colors} bgMode={bgMode === 'light' ? 'light' : 'dark'} preset={preset} />
-        )}
+        <FitFrame
+          initialScale={estimateFitScale({
+            width,
+            height,
+            padding: 28,
+            headingSize: 28,
+            bodySize: 15,
+            gap: 12,
+            sectionSpacing: 16,
+            headline: slide.headline ?? '',
+            body: slide.body ?? '',
+            pointCount: slide.points?.length ?? 0,
+            pointCopy: slidePointCopy(slide.points),
+          })}
+          watch={`${width}x${height}|${type}|${slide.headline ?? ''}|${slide.body ?? ''}|${slide.points?.length ?? 0}`}
+        >
+          {type === 'cover'                                                  && <CoverLayout    slide={slide} index={index} colors={colors} brandName={brandName} handle={handle} preset={preset} />}
+          {type === 'problem'                                                && <ProblemLayout  slide={slide} colors={colors} />}
+          {type === 'solution'                                               && <SolutionLayout slide={slide} colors={colors} brandName={brandName} handle={handle} />}
+          {type === 'howto'                                                  && <HowToLayout    slide={slide} colors={colors} />}
+          {type === 'features'                                               && <FeaturesLayout slide={slide} colors={colors} />}
+          {(type === 'content' || type === 'tip' || type === 'details')      && <ContentLayout  slide={slide} index={index} colors={colors} bgMode={bgMode === 'light' ? 'light' : 'dark'} preset={preset} />}
+          {type === 'stat'                                                   && <StatLayout     slide={slide} colors={colors} />}
+          {type === 'quote'                                                  && <QuoteLayout    slide={slide} index={index} colors={colors} />}
+          {type === 'cta'                                                    && <CTALayout      slide={slide} colors={colors} brandName={brandName} handle={handle} />}
+          {!['cover','problem','solution','howto','features','content','tip','details','stat','quote','cta'].includes(type) && (
+            <ContentLayout slide={slide} index={index} colors={colors} bgMode={bgMode === 'light' ? 'light' : 'dark'} preset={preset} />
+          )}
+        </FitFrame>
 
       </div>
     );

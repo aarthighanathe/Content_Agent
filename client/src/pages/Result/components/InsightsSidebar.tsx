@@ -19,8 +19,8 @@ const scoreDims: { l: string; k: keyof CriticScores; c: string; tip: string }[] 
   { l: 'CTA Clarity',    k: 'ctaClarity',          c: '#EC4899', tip: 'Make your call-to-action more direct — tell readers exactly what to do next.' },
 ];
 
-const RING_SIZE = 112;
-const RING_R    = 44;
+const RING_SIZE = 84;
+const RING_R    = 32;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
 export function InsightsSidebar({ criticResult, className, onSteer, collapsed = false, onToggle }: Props) {
@@ -55,8 +55,8 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
     }
     return (
       <div className={['rp-sidebar', className].filter(Boolean).join(' ')}>
-        <div className="card-glow" style={{ padding: '22px 22px', flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div className="card-glow" style={{ padding: 'var(--card-padding)', flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>AI Quality Analysis</div>
             {onToggle && (
               <button
@@ -126,10 +126,10 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
       {/* card-glow fills the full sidebar height via flex:1; scrolls internally
           (see .rp-sidebar > .card-glow in Result.css) so the scrollbar sits inside
           the card's own border/padding instead of on the outer sidebar wrapper. */}
-      <div className="card-glow" style={{ padding: '22px 22px', flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
+      <div className="card-glow" style={{ padding: 'var(--card-padding)', flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
 
         {/* Section label + collapse toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>AI Quality Analysis</div>
           {onToggle && (
             <button
@@ -145,7 +145,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
         </div>
 
         {/* Score ring + badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
           <div style={{ position: 'relative', width: RING_SIZE, height: RING_SIZE, flexShrink: 0 }}>
             <svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`} style={{ transform: 'rotate(-90deg)' }}>
               <circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R} fill="none" stroke="var(--rule)" strokeWidth="6" />
@@ -161,7 +161,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
               </defs>
             </svg>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 700, color: 'var(--accent)', lineHeight: 1 }}>{criticResult.totalScore}</span>
+              <span style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 700, color: 'var(--accent)', lineHeight: 1 }}>{criticResult.totalScore}</span>
               <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginTop: 2 }}>/ 100</span>
             </div>
           </div>
@@ -176,13 +176,13 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
         </div>
 
         {/* Score bars */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {scoreDims.map(({ l, k, c }) => {
             const sc  = criticResult.scores[k] || 0;
             const pct = Math.round((sc / 20) * 100);
             return (
               <div key={k}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
                   <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{l}</span>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
                     <span style={{ color: c, fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12 }}>{sc}</span>
@@ -200,14 +200,11 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
 
         {/* Critic feedback */}
         {criticResult.feedback && (
-          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--rule)' }}>
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--rule)', flex: 1, minHeight: 0, overflow: 'auto' }}>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>Critic Feedback</div>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.65, margin: 0 }}>"{criticResult.feedback}"</p>
           </div>
         )}
-
-        {/* Spacer pushes tip + button to bottom when card is stretched */}
-        <div style={{ flex: 1 }} />
 
         {/* Actionable tip for weakest dimension */}
         {showTip && (

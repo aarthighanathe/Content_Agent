@@ -42,6 +42,9 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
         style={{
           flex: 1,
           display: 'flex',
+          flexDirection: 'column',
+          width: '100%',
+          boxSizing: 'border-box',
           padding: spacing.padding,
           position: 'relative',
           background: colors.LIGHT_BG,
@@ -73,15 +76,16 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
           }}
         />
 
-        {/* Content with offset layout */}
+        {/* WHY width 100% and a column: this block used to sit in a row with
+            flex-basis 0, so the copy collapsed to one word per line. */}
         <div
           style={{
-            flex: 1,
+            width: '100%',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            alignItems: 'center',
-            textAlign: 'center',
+            alignItems: 'stretch',
+            textAlign: 'left',
             position: 'relative',
             zIndex: 1,
           }}
@@ -95,8 +99,10 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
                 fontSize: typography.headingSize,
                 letterSpacing: typography.letterSpacing,
                 color: getContrastColor(colors.LIGHT_BG),
+                margin: 0,
                 marginBottom: spacing.gap,
                 lineHeight: 1.2,
+                width: '100%',
               }}
             >
               {slide.headline}
@@ -111,9 +117,11 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
                 fontWeight: typography.bodyWeight,
                 fontSize: typography.bodySize,
                 color: getContrastColor(colors.LIGHT_BG),
+                margin: 0,
                 marginBottom: spacing.sectionSpacing,
                 lineHeight: 1.6,
                 fontStyle: 'italic',
+                width: '100%',
               }}
             >
               {slide.body}
@@ -129,11 +137,9 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
               style={{
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'center',
+                alignItems: 'stretch',
                 gap: spacing.gap,
-                flex: 1,
-                minHeight: 0,
-                overflow: 'hidden',
+                width: '100%',
               }}
             >
               {slide.points.map((point, i) => (
@@ -141,8 +147,9 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
                   key={pointKeys[i]}
                   style={{
                     display: 'flex',
-                    alignItems: 'center',
+                    alignItems: 'flex-start',
                     gap: 12,
+                    width: '100%',
                     fontSize: 14,
                     color: getContrastColor(colors.LIGHT_BG),
                   }}
@@ -151,12 +158,14 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
                     style={{
                       width: 12,
                       height: 12,
+                      flexShrink: 0,
+                      marginTop: 4,
                       background: colors.BRAND_PRIMARY,
                       transform: i % 2 === 0 ? 'rotate(45deg)' : 'rotate(0deg)',
                       borderRadius: i % 2 === 0 ? 0 : '50%',
                     }}
                   />
-                  <span>{point.label}</span>
+                  <span style={{ flex: '1 1 auto', minWidth: 0 }}>{point.label}</span>
                 </div>
               ))}
             </div>

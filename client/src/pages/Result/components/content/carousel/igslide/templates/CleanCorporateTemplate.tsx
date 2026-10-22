@@ -179,14 +179,12 @@ export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselT
             paddingTop: spacing.gap,
             borderTop: `1px solid ${colors.LIGHT_BORDER}`,
             display: 'flex',
-            justifyContent: 'space-between',
             alignItems: 'center',
             fontSize: 11,
             color: getContrastRgba(colors.LIGHT_BG, 0.5),
           }}
         >
           <span>@{handle}</span>
-          <span>Professional Content</span>
         </div>
       </div>
     </TemplateLayout>

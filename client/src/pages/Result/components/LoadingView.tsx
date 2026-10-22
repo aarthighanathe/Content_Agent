@@ -1,4 +1,4 @@
-import { useRef, useMemo } from 'react';
+import { useRef } from 'react';
 import { Check } from 'lucide-react';
 import { agentNames, agentSubs, agentColors, stageOrder } from '../constants';
 
@@ -16,26 +16,17 @@ interface Props {
   agentLogs?:    AgentLogEntry[];
 }
 
-function getStageIndex(s: string) { return stageOrder.indexOf(s); }
-
-// WHY: the "packet" pill must never show fabricated numbers — the SSE payload only ever
-// carries a free-text `message` (see server/src/agents/*.ts sendEvent calls) plus an
-// optional `durationMs`. We surface exactly those two real fields, nothing invented.
-function packetLabel(log: AgentLogEntry | undefined): string | null {
-  if (!log?.action) return null;
-  const short = log.action.length > 42 ? `${log.action.slice(0, 41)}…` : log.action;
-  return log.durationMs ? `${short} · ${(log.durationMs / 1000).toFixed(1)}s` : short;
+function getStageIndex(s: string): number {
+  // WHY: after Critic the pipeline emits `predicting`, which is not one of the five
+  // nodes. indexOf returns -1, and every `si < -1` / `si === -1` check then paints
+  // the whole track idle — the bar looks like it jumped back to the start at 95%.
+  if (s === 'predicting' || s === 'done') return stageOrder.length;
+  return stageOrder.indexOf(s);
 }
 
 export function LoadingView({ regenerating, currentStage, stageMessage, progress, agentLogs }: Props) {
   const latestLogRef = useRef<HTMLDivElement>(null);
   const ci = getStageIndex(currentStage);
-
-  // WHY: the most recent real agent-log entry becomes the "handoff packet" text flying
-  // into the currently-active node — it's literally the last thing the backend reported,
-  // not a synthetic count. useMemo avoids recomputing the packet label on unrelated re-renders.
-  const lastLog = agentLogs && agentLogs.length > 0 ? agentLogs[agentLogs.length - 1] : undefined;
-  const packet = useMemo(() => packetLabel(lastLog), [lastLog]);
 
   return (
     <div className="rp-lv card">
@@ -61,33 +52,19 @@ export function LoadingView({ regenerating, currentStage, stageMessage, progress
         </div>
       </div>
 
-      {/* Pipeline stepper — the agent relay is the visual centerpiece: each node lights up
-          in sequence and a real handoff "packet" (the agent's actual latest SSE message)
-          flies along the connector into the next active node. */}
+      {/* Pipeline stepper. Status text stays in the feed below — a flying label
+          on the connector overlapped the step names every time the stage changed. */}
       <div className="rp-lv-steps">
         {agentNames.map((name, i) => {
           const stage  = stageOrder[i];
           const si     = getStageIndex(stage);
-          const done   = si < ci;
+          const done   = si < ci && ci >= 0;
           const active = si === ci;
           const color  = agentColors[i];
-          // WHY: only render the flying packet on the connector leading INTO the currently
-          // active node (i.e. the line after the previous, now-done, node) — this is the
-          // literal handoff that just happened, so it can't legitimately appear anywhere else.
-          const showPacket = active && i > 0 && packet !== null;
           return (
             <div key={name} className="rp-lv-step">
               {i < agentNames.length - 1 && (
                 <div className={`rp-lv-step-line${done ? ' done' : ''}`} />
-              )}
-              {showPacket && (
-                <div
-                  key={`${currentStage}-${packet}`}
-                  className="rp-lv-packet"
-                  style={{ background: `${color}20`, border: `1px solid ${color}55`, color }}
-                >
-                  {packet}
-                </div>
               )}
               <div className="rp-lv-step-dot" style={{ border: `1.5px solid ${done || active ? color : 'var(--rule)'}`, background: done ? `${color}18` : active ? `${color}12` : 'var(--bg-card)', color: done ? color : active ? color : 'var(--text-muted)', animation: active ? 'rp-pulse 1.4s infinite' : 'none' }}>
                 {done ? <Check size={9} /> : active ? <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} /> : null}

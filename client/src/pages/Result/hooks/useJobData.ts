@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../../../store';
-import { getJob, regenerateJob, getStreamToken } from '../../../api';
+import { getJob, getJobStatus, regenerateJob, getStreamToken } from '../../../api';
 import { useIsMountedRef } from '../../../hooks/useTrackedTimeout';
 import type { ContentJob, SSEEvent } from '../../../types/job';
 
@@ -13,17 +13,14 @@ import type { ContentJob, SSEEvent } from '../../../types/job';
 type JobData = ContentJob | null;
 
 export function useJobData(jobId: string | undefined) {
-  // WHY slice selectors, not the whole-store no-selector form: subscribing with
-  // no selector makes this hook (and the whole Result tree via Result.tsx) re-render
-  // on every store mutation — theme switches, Ideate saves — not just on
-  // currentJob/SSE progress. Selecting the exact slices keeps Result renders
-  // tied to the job stream (perf audit).
-  const currentJob         = useAppStore((s) => s.currentJob);
+  // WHY only socket actions from Zustand — progress UI reads jobData exclusively (M1).
+  // Subscribing to currentJob here re-rendered Result on every SSE tick twice (store + jobData).
   const connectToStream    = useAppStore((s) => s.connectToStream);
   const disconnectStream   = useAppStore((s) => s.disconnectStream);
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const [jobData, setJobData]           = useState<JobData>(null);
+  const [loadError, setLoadError]       = useState<'not_found' | 'error' | null>(null);
   const [regenerating, setRegenerating] = useState(false);
   // WHY: tracks the last time mergeSSEIntoJobData actually processed an event, so the
   // REST poll below can skip firing while SSE is demonstrably alive — see poll effect.
@@ -36,13 +33,31 @@ export function useJobData(jobId: string | undefined) {
   // FeedbackPanel's Apply, ErrorState's Try again), so its own onError
   // reconnect needs its own debounce state, not the mount effect's.
   const regenerateReconnecting = useRef(false);
+  // WHY: avoid re-fetching full job on every jobData identity change while status
+  // stays done (terminal refresh should fire once per transition to terminal).
+  const terminalRefreshDone = useRef(false);
 
   const loadJob = useCallback(async () => {
     if (!jobId) return;
-    try { const d = await getJob(jobId); setJobData(d); } catch (_e) {
-      // NOTE: Job fetch errors are handled by ErrorState component; no need for console.error
+    try {
+      const d = await getJob(jobId);
+      setLoadError(null);
+      setJobData(d);
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      setLoadError(status === 404 ? 'not_found' : 'error');
+      setJobData(null);
     }
   }, [jobId]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    setJobData(null);
+    setLoadError(null);
+    setRegenerating(false);
+    terminalRefreshDone.current = false;
+    void loadJob();
+  }, [jobId, loadJob]);
 
   const mergeSSEIntoJobData = useCallback((data: SSEEvent) => {
     if (!jobId) return;
@@ -165,15 +180,24 @@ export function useJobData(jobId: string | undefined) {
     };
   }, [jobId, connectToStream, disconnectStream, getToken, mergeSSEIntoJobData]);
 
+  // WHY jobData (not Zustand currentJob): sole progress source after M1 — when SSE
+  // marks the job done, refresh full outputs from REST once.
   useEffect(() => {
-    if (currentJob?.stage === 'done' || currentJob?.status === 'done') {
-      const t = setTimeout(() => {
-        loadJob();
-        setRegenerating(false);
-      }, 0);
-      return () => clearTimeout(t);
+    if (!jobId) return;
+    const stage = jobData?.stage;
+    const status = jobData?.status;
+    if (stage !== 'done' && status !== 'done' && status !== 'failed') {
+      terminalRefreshDone.current = false;
+      return;
     }
-  }, [currentJob?.stage, currentJob?.status, loadJob]);
+    if (terminalRefreshDone.current) return;
+    terminalRefreshDone.current = true;
+    const t = setTimeout(() => {
+      loadJob();
+      setRegenerating(false);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [jobId, jobData?.stage, jobData?.status, loadJob]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -191,32 +215,52 @@ export function useJobData(jobId: string | undefined) {
       // reported anything recently.
       if (Date.now() - lastSSEEventAt.current < 10000) return;
       try {
+        // WHY slim status first (O2): full getJob re-downloads every output's
+        // content jsonb — only fetch that once the job is actually terminal.
+        const s = await getJobStatus(jobId);
+        const isTerminal = (s.status === 'done' && s.hasFinal) || s.status === 'failed';
+        if (!isTerminal) {
+          setJobData((prev): JobData => {
+            if (!prev) return prev;
+            const prevTerminal = prev.status === 'failed' || (
+              prev.status === 'done'
+              && Array.isArray(prev.outputs)
+              && prev.outputs.some((o) => o.outputType === 'final')
+            );
+            if (prevTerminal) return prev;
+            return {
+              ...prev,
+              status: s.status,
+              stage: s.stage ?? prev.stage,
+              progress: typeof s.progress === 'number' ? s.progress : prev.progress,
+              topic: s.topic || prev.topic,
+            };
+          });
+          return;
+        }
+
         const d = await getJob(jobId);
-        // WHY hasFinal: a job can briefly report status:'done' before its
-        // 'final' output is attached (pipeline stages between critic approval
-        // and DB persist). Treating that snapshot as terminal freezes the UI
-        // on empty content — only stop polling once real output has arrived.
-        const hasFinal = Array.isArray(d.outputs) && d.outputs.some((o) => o.outputType === 'final');
-        const isTerminal = (d.status === 'done' && hasFinal) || d.status === 'failed';
         setJobData((prev): JobData => {
-          const prevTerminal = prev?.status === 'failed' || (prev?.status === 'done' && Array.isArray(prev?.outputs) && prev.outputs.some((o) => o.outputType === 'final'));
+          const prevTerminal = prev?.status === 'failed' || (
+            prev?.status === 'done'
+            && Array.isArray(prev?.outputs)
+            && prev.outputs.some((o) => o.outputType === 'final')
+          );
           return prevTerminal ? prev : d;
         });
-        if (isTerminal) {
-          setRegenerating(false);
-          clearInterval(iv);
-          // WHY: Library's job list (React Query) has no other trigger to refetch once this
-          // job reaches a terminal state, so it stayed stale until its 30s staleTime expired.
-          queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }).catch(() => {});
-        }
-      } catch {}
+        setRegenerating(false);
+        clearInterval(iv);
+        // WHY: Library's job list (React Query) has no other trigger to refetch once this
+        // job reaches a terminal state, so it stayed stale until its 30s staleTime expired.
+        queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }).catch(() => {});
+      } catch { /* poll is best-effort — next tick retries */ }
     }, 2000);
     return () => clearInterval(iv);
   }, [jobId, queryClient]);
 
   async function handleRegenerate(feedback?: string) {
     // WHY guarded here, not just by disabling individual buttons: this is called
-    // from several surfaces (desktop toolbar, mobile sticky footer, FeedbackPanel's
+    // from several surfaces (desktop toolbar, mobile footer, FeedbackPanel's
     // Apply, ErrorState's Try again) — the desktop toolbar unmounts itself once
     // `regenerating` flips true, but the mobile footer previously had no matching
     // guard, so a fast double-tap there could fire two concurrent regenerate
@@ -224,6 +268,7 @@ export function useJobData(jobId: string | undefined) {
     // Guarding in the one shared function fixes every call site at once.
     if (!jobId || regenerating) return;
     setRegenerating(true);
+    terminalRefreshDone.current = false;
     setJobData((p): JobData => (p ? { ...p, status: 'pending', outputs: [] } : p));
     try {
       await regenerateJob(jobId, feedback);
@@ -263,5 +308,5 @@ export function useJobData(jobId: string | undefined) {
     }
   }
 
-  return { jobData, setJobData, regenerating, setRegenerating, handleRegenerate, currentJob, loadJob };
+  return { jobData, setJobData, loadError, regenerating, setRegenerating, handleRegenerate, loadJob };
 }

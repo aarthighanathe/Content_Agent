@@ -96,6 +96,8 @@ export interface GetJobsOptions {
   // totalPages but never renders the platform pills, so it opts out to drop those
   // aggregate queries (perf audit) — Library still uses them for its filter pills.
   counts?: boolean;
+  // WHY optional: Library tag pills used to filter only the current page client-side.
+  tag?: string;
 }
 
 export async function getJobs(page: number = 1, options?: GetJobsOptions): Promise<JobListResponse> {
@@ -104,6 +106,7 @@ export async function getJobs(page: number = 1, options?: GetJobsOptions): Promi
   if (options?.platform && options.platform !== 'all') params.platform = options.platform;
   if (options?.sort) params.sort = options.sort;
   if (options?.counts === false) params.counts = 0;
+  if (options?.tag) params.tag = options.tag;
   const response = await api.get('/jobs', { params });
   return response.data;
 }
@@ -168,19 +171,43 @@ export async function setCarouselTemplate(
   return response.data;
 }
 
-export async function multiplyJob(jobId: string, targetPlatform: string): Promise<{ jobId: string }> {
+export async function multiplyJob(
+  jobId: string,
+  targetPlatform: string,
+): Promise<{ jobId: string; reused?: boolean }> {
   const response = await api.post(`/jobs/${jobId}/multiply`, { targetPlatform });
   return response.data;
 }
 
-export async function createBatchJobs(items: Array<{ topic: string; platform: string; tone: string; targetAudience: string }>): Promise<{
+export interface RelatedJobVariant {
+  jobId: string;
+  platform: string;
+  status: string;
+  sourceJobId: string | null;
+  isCurrent: boolean;
+  isRoot: boolean;
+}
+
+export async function getRelatedJobs(jobId: string): Promise<{
+  rootJobId: string;
+  currentJobId: string;
+  variants: RelatedJobVariant[];
+}> {
+  const response = await api.get(`/jobs/${jobId}/related`);
+  return response.data;
+}
+
+export async function createBatchJobs(
+  items: Array<{ topic: string; platform: string; tone: string; targetAudience: string }>,
+  opts?: { templateId?: string; paletteId?: string },
+): Promise<{
   jobs: Array<{ jobId: string; topic: string; platform: string }>;
   // WHY present even on a fully-successful batch: the server always returns
   // this key (possibly empty) rather than omitting it, so callers don't need
   // an `in`/`??` check to safely read .length.
   failedItems: Array<{ index: number; topic: string; error: string }>;
 }> {
-  const response = await api.post('/jobs/batch', { items });
+  const response = await api.post('/jobs/batch', { items, ...opts });
   return response.data;
 }
 

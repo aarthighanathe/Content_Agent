@@ -1,10 +1,11 @@
 ﻿import React, { useState, useMemo } from 'react';
 import axios from 'axios';
 import { Send, Clock, CheckCircle, AlertCircle, RefreshCw, ExternalLink, Calendar, ChevronRight, ChevronLeft } from 'lucide-react';
-import { schedulePost } from '../../../../api';
+import { scheduleJob } from '../../../../api';
 import { flattenContentToPreview } from '../../../../lib/contentFlattener.js';
 import type { SocialConnection } from '../../../../types/api';
-import type { ContentJob, PlatformContent } from '../../../../types/job';
+import type { ContentJob } from '../../../../types/job';
+import type { PublishPlatform } from '../../../../types/scheduledPost';
 import type { ResultContent } from '../ContentColumn';
 
 interface Props {
@@ -84,21 +85,39 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
   const platColor = PLATFORM_COLORS[selectedPlatform] || '#60a5fa';
 
   async function handleSchedule() {
-    if (!scheduleDate || !selectedPlatform || !content) return;
+    if (!scheduleDate || !selectedPlatform || !jobId) return;
+    if (selectedPlatform !== 'linkedin' && selectedPlatform !== 'twitter') {
+      setScheduleError('Auto-publish is only available for LinkedIn and Twitter');
+      return;
+    }
     setScheduling(true);
     setScheduleError(null);
     try {
-      // WHY unknown->PlatformContent cast: SchedulePostInput's content type predates
-      // carousel/video-script scheduling; the `!content` guard above already confirms a
-      // real value is being sent, so this is a type-system technicality (same rationale
-      // as useSocial.ts's identical cast for postToSocial).
-      const scheduleContent = content as unknown as PlatformContent | PlatformContent[] | string;
-      const res = await schedulePost({ platform: selectedPlatform, content: scheduleContent, scheduledAt: new Date(scheduleDate).toISOString(), jobId });
-      setScheduleResult({ ok: true, scheduledAt: res.scheduledAt });
+      // WHY Calendar scheduledPosts + publish worker, not social/schedule Map:
+      // the in-memory reminder path never delivered posts and was lost on restart.
+      // jobId is required here so we can upsert into the real scheduled_posts table
+      // with optional auto-publish on the chosen platform (fires ~9am user TZ).
+      const local = new Date(scheduleDate);
+      const yyyy = local.getFullYear();
+      const mm = String(local.getMonth() + 1).padStart(2, '0');
+      const dd = String(local.getDate()).padStart(2, '0');
+      const scheduledDateKey = `${yyyy}-${mm}-${dd}`;
+      // WHY hour from datetime-local (L10/F12): Calendar publish worker fires at
+      // a whole hour in the user's TZ — minutes are floored to the selected hour.
+      const publishHour = local.getHours();
+      const res = await scheduleJob({
+        jobId,
+        scheduledDate: scheduledDateKey,
+        publishPlatform: selectedPlatform as PublishPlatform,
+        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        publishHour,
+      });
+      setScheduleResult({
+        ok: true,
+        scheduledAt: res.scheduledPost.scheduledDate,
+      });
       setView('done');
     } catch (err: unknown) {
-      // WHY axios.isAxiosError: narrows `unknown` to AxiosError before reading the
-      // server's { error: string } response body, instead of trusting an `any` catch.
       const message = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
       setScheduleError(message || 'Failed to schedule post');
     } finally {
@@ -109,40 +128,53 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
   // Platform selection step
   if (view === 'select') {
     return (
-      <div style={{ padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)', letterSpacing: 1, textTransform: 'uppercase', fontFamily: "var(--font-mono)", marginBottom: 4 }}>
-          Select platform to publish
-        </div>
+      <div className="rp-post-select">
         {connections.map((conn) => {
           const PIcon = PLATFORM_ICON_COMPONENTS[conn.platform];
           const color = PLATFORM_COLORS[conn.platform] || '#60a5fa';
-          const isSelected = selectedPlatform === conn.platform;
           return (
             <button
               key={conn.platform}
+              type="button"
+              className="rp-post-account"
               onClick={() => { setSelectedPlatform(conn.platform); setView('preview'); }}
               style={{
-                display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left',
-                background: isSelected ? `rgba(${hexToRgb(color)},0.12)` : 'color-mix(in srgb, var(--text-primary) 3%, transparent)',
-                border: `1px solid ${isSelected ? color : 'var(--rule)'}`,
-                borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'all .18s',
+                borderColor: 'var(--rule)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = color;
+                e.currentTarget.style.background =
+                  `rgba(${hexToRgb(color)},0.08)`;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--rule)';
+                e.currentTarget.style.background = 'var(--bg-card)';
               }}
             >
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: `rgba(${hexToRgb(color)},0.15)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color }}>
+              <div
+                className="rp-post-account-icon"
+                style={{ background: `rgba(${hexToRgb(color)},0.15)`, color }}
+              >
                 {PIcon ? <PIcon size={18} /> : <Send size={16} />}
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{conn.label}</div>
-                {conn.displayName && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>{conn.displayName}</div>}
+              <div className="rp-post-account-copy">
+                <div className="rp-post-account-name">{conn.label}</div>
+                {conn.displayName && (
+                  <div className="rp-post-account-handle">{conn.displayName}</div>
+                )}
               </div>
-              <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+              <ChevronRight size={14} className="rp-post-account-chevron" aria-hidden />
             </button>
           );
         })}
         {connections.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, padding: '20px 0' }}>
-            No connected accounts.<br />
-            <a href="/brand" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Connect accounts in Brand settings →</a>
+          <div className="rp-panel-empty">
+            <p className="rp-panel-empty-title">No connected accounts</p>
+            <p className="rp-panel-empty-blurb">
+              <a href="/brand" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+                Connect LinkedIn or X in Brand settings →
+              </a>
+            </p>
           </div>
         )}
       </div>
@@ -280,15 +312,11 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
           </div>
         </div>
 
-        {/* WHY this note: scheduling currently only saves the reminder — there is
-            no delivery worker wired up yet to actually publish at the scheduled
-            time (FUNCTIONAL_AUDIT_2026-07.md finding #5). The old "Post scheduled!"
-            confirmation implied automatic publishing, which never happens.
-            Additionally, scheduled posts are stored in-memory only and will be lost
-            on server restart (REVIEW_FINDINGS.md SEC-05). */}
+        {/* WHY Calendar scheduled_posts: Result schedule upserts the same table
+            Calendar uses; publishHour comes from the datetime-local control. */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 8, padding: '9px 12px', fontSize: 11.5, color: 'color-mix(in srgb, var(--accent) 85%, transparent)', lineHeight: 1.5 }}>
           <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>This saves a reminder only — auto-publishing isn't available yet. Come back at the scheduled time and post it yourself from here. <strong>Note:</strong> Scheduled posts are stored in-memory and will be lost if the server restarts.</span>
+          <span>Saves to your Calendar and queues auto-publish for this platform at the selected hour in your timezone. You can also manage it from Calendar.</span>
         </div>
 
         {scheduleError && (
@@ -323,11 +351,16 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
       </div>
       <div style={{ textAlign: 'center' }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {scheduleResult ? 'Reminder saved!' : 'Posted!'}
+          {scheduleResult ? 'Scheduled!' : 'Posted!'}
         </div>
         {scheduleResult?.scheduledAt && (
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 260 }}>
-            We'll remind you on {formatScheduledDate(scheduleResult.scheduledAt)} — you'll need to come back and post it yourself.
+            {/* WHY not “around 9:00”: schedule now sends publishHour from the
+                datetime-local control (L10/F12), so the copy must match. */}
+            Added to Calendar for {scheduleResult.scheduledAt}
+            {scheduleDate
+              ? ` · auto-publish around ${new Date(scheduleDate).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} in your timezone.`
+              : ' — auto-publish runs at the hour you selected.'}
           </div>
         )}
       </div>
@@ -347,14 +380,6 @@ function hexToRgb(hex: string): string {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (!result) return '255,255,255';
   return `${parseInt(result[1], 16)},${parseInt(result[2], 16)},${parseInt(result[3], 16)}`;
-}
-
-function formatScheduledDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  } catch {
-    return iso;
-  }
 }
 
 function Spinner() {

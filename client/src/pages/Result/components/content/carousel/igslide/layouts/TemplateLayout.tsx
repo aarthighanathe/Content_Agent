@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import type { SlideData } from '../../IGSlide';
 import type { ColorSystem } from '../../../../../../../lib/colorSystem';
 import type { CarouselTemplate } from '../../../../../../../lib/templateSystem';
+import { FitFrame } from './FitFrame';
+import { estimateFitScale, slidePointCopy } from './fitScale';
 
 interface TemplateLayoutProps {
   slide: SlideData;
@@ -35,16 +37,28 @@ interface TemplateLayoutProps {
  * already deleted in the 2026-08-06 migration to CompactTemplatePicker.tsx).
  */
 export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutProps>(
-  function TemplateLayout({ width, height, template, children }, ref) {
+  function TemplateLayout({ width, height, template, slide, children }, ref) {
+    const fitScale = estimateFitScale({
+      width,
+      height,
+      padding: template.spacing.padding,
+      headingSize: template.typography.headingSize,
+      bodySize: template.typography.bodySize,
+      gap: template.spacing.gap,
+      sectionSpacing: template.spacing.sectionSpacing,
+      headline: slide.headline ?? '',
+      body: slide.body ?? '',
+      pointCount: slide.points?.length ?? 0,
+      pointCopy: slidePointCopy(slide.points),
+    });
+    const imageDataUrl = typeof slide.imageDataUrl === 'string' && slide.imageDataUrl.startsWith('data:image/')
+      ? slide.imageDataUrl
+      : null;
+
     return (
       // WHY no padding/background here: every *Template.tsx component already
       // applies its own `padding: spacing.padding` and `background` to its inner
       // content div (that's where each template's actual surface color lives).
-      // This box used to apply `padding: spacing.padding` a second time on top
-      // of that, shrinking the visible template surface inward from all four
-      // edges on every side — the gap revealed whatever sat behind it (the page
-      // background), which is exactly the letterboxed "post floating on a black
-      // background" bug reported on both the live preview and the exported PNG.
       // This box's only job is fixed sizing + clipping; full-bleed styling is
       // entirely the child template component's responsibility.
       <div
@@ -60,19 +74,33 @@ export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutPro
         }}
         data-template={template.id}
       >
-        {/* Child content — each template component computes its own heading/body
-            styles from `template.typography` directly rather than reading an
-            injected prop, so children render as-is. */}
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          }}
-        >
-          {children}
+        {/* WHY behind children: AI slide image (F2) is decorative backdrop —
+            template content still owns typography/layout on top. */}
+        {imageDataUrl && (
+          <img
+            src={imageDataUrl}
+            alt=""
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: 0.35,
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+        )}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative', zIndex: 1 }}>
+          <FitFrame
+            initialScale={fitScale}
+            padding={template.spacing.padding}
+            watch={`${width}x${height}|${slide.headline ?? ''}|${slide.body ?? ''}|${slidePointCopy(slide.points)}`}
+          >
+            {children}
+          </FitFrame>
         </div>
       </div>
     );

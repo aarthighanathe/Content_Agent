@@ -1,5 +1,4 @@
 ﻿import React from 'react';
-import { platNames, platIcons } from '../constants';
 import { IGCarouselPreview }   from './content/carousel/IGCarouselPreview';
 import type { SlideData }      from './content/carousel/IGSlide';
 import { LinkedInContent }     from './content/LinkedInContent';
@@ -30,8 +29,6 @@ interface Props {
   setCurrentSlide: (n: number) => void;
   touchStartX:     React.MutableRefObject<number | null>;
   onSave:          (newContent: SlideData[] | PlatformContent) => Promise<void>;
-  showMultiplier:  boolean;
-  setShowMultiplier: (v: boolean) => void;
   multiplyJobs:    Record<string, MultiplyEntry>;
   onMultiply:      (platform: string) => void;
   className?:      string;
@@ -51,66 +48,54 @@ interface Props {
 
 export function ContentColumn({
   jobData, content, currentSlide, setCurrentSlide,
-  onSave, showMultiplier, setShowMultiplier,
+  onSave,
   multiplyJobs, onMultiply, className, slideRefs,
   brandName, handle, colorSystem, designPreset,
   templateId, paletteId, onTemplateChange,
 }: Props) {
-  const isCarousel  = Array.isArray(content);
-  const Icon        = jobData?.platform ? platIcons[jobData.platform] : undefined;
-  const totalSlides = isCarousel ? content.length : (content as PlatformContent).tweets?.length ?? 0;
+  const isCarousel = Array.isArray(content);
 
   // NOTE: the "Render with AI theme" flow was removed here. It asked Gemini to invent a
   // slide design and replaced this preview with it — a different look from both the
   // preview and the PNG download. The export now renders these same components
   // server-side, so the preview is already what you get.
 
+  const multiplier = (
+    <ContentMultiplier
+      jobData={jobData}
+      multiplyJobs={multiplyJobs}
+      onMultiply={onMultiply}
+    />
+  );
+
   return (
     <div className={['rp-main', className].filter(Boolean).join(' ')}>
-      {/* Platform header pill */}
-      <div className="rp-plat-hd" style={{ borderBottom: '1px solid var(--rule)', paddingBottom: 14, marginBottom: 16 }}>
-        <div className="rp-platform-pill">
-          {Icon && <Icon size={18} style={{ color: 'var(--color-text-secondary)' }} />}
-          <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', letterSpacing: 0.2 }}>
-            {(jobData?.platform && platNames[jobData.platform]) || jobData?.platform}
-          </span>
-          {totalSlides > 0 && (
-            <>
-              <div className="rp-platform-pill-sep" />
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, color: 'var(--text-muted)' }}>
-                {isCarousel
-                  ? <>Slide <strong style={{ color: 'var(--text-secondary)' }}>{currentSlide + 1}</strong> / {totalSlides}</>
-                  : <>{totalSlides} tweets</>
-                }
-              </span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Instagram Carousel — full visual preview */}
       {isCarousel && slideRefs && (
-        <IGCarouselPreview
-          slides={content}
-          colors={colorSystem}
-          brandName={brandName}
-          handle={handle}
-          currentSlide={currentSlide}
-          setCurrentSlide={setCurrentSlide}
-          onSave={onSave}
-          slideRefs={slideRefs}
-          designPreset={designPreset}
-          templateId={templateId}
-          paletteId={paletteId}
-        />
-      )}
-
-      {isCarousel && onTemplateChange && (
-        <CarouselTemplateSwitcher
-          templateId={templateId}
-          paletteId={paletteId}
-          onChange={onTemplateChange}
-        />
+        <div className="rp-carousel-layout">
+          <IGCarouselPreview
+            slides={content}
+            colors={colorSystem}
+            brandName={brandName}
+            handle={handle}
+            currentSlide={currentSlide}
+            setCurrentSlide={setCurrentSlide}
+            onSave={onSave}
+            slideRefs={slideRefs}
+            designPreset={designPreset}
+            templateId={templateId}
+            paletteId={paletteId}
+          />
+          <div className="rp-carousel-side">
+            {onTemplateChange && (
+              <CarouselTemplateSwitcher
+                templateId={templateId}
+                paletteId={paletteId}
+                onChange={onTemplateChange}
+              />
+            )}
+            {multiplier}
+          </div>
+        </div>
       )}
 
       {/* WHY cast to PlatformContent per branch: `content` is a ResultContent union once
@@ -118,27 +103,25 @@ export function ContentColumn({
           distinguished by which fields the writer/formatter agents actually populated
           (segments => video script, tweets => thread, etc.) rather than a discriminant
           tag in the data itself — same runtime check the pre-typing JSX already used. */}
-      {!isCarousel && !('segments' in content) && content.hook && !content.tweets && !content.caption && (
-        <LinkedInContent content={content} onSave={onSave} />
+      {/* WHY Adapt lives inside .rp-copy-stage: keeps caption/thread and Adapt
+          on the same full-width column (the old 720px reading cap was removed). */}
+      {!isCarousel && (
+        <div className="rp-copy-stage">
+          {!('segments' in content) && content.hook && !content.tweets && !content.caption && (
+            <LinkedInContent content={content} onSave={onSave} />
+          )}
+          {!('segments' in content) && content.tweets && (
+            <TwitterContent content={content} onSave={onSave} />
+          )}
+          {!('segments' in content) && content.caption && (
+            <InstagramContent content={content} onSave={onSave} />
+          )}
+          {'segments' in content && content.hook && content.segments && (
+            <VideoScriptContent content={content} />
+          )}
+          {multiplier}
+        </div>
       )}
-      {!isCarousel && !('segments' in content) && content.tweets && (
-        <TwitterContent content={content} onSave={onSave} />
-      )}
-      {!isCarousel && !('segments' in content) && content.caption && (
-        <InstagramContent content={content} onSave={onSave} />
-      )}
-      {!isCarousel && 'segments' in content && content.hook && content.segments && (
-        <VideoScriptContent content={content} />
-      )}
-
-      {/* Content Multiplier */}
-      <ContentMultiplier
-        jobData={jobData}
-        multiplyJobs={multiplyJobs}
-        onMultiply={onMultiply}
-        show={showMultiplier}
-        onToggle={() => setShowMultiplier(!showMultiplier)}
-      />
     </div>
   );
 }

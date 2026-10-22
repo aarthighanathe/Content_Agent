@@ -42,9 +42,9 @@ const FORMATS: ExportFormat[] = [
   },
   {
     id: 'html',
-    label: 'HTML Source',
+    label: 'Slide Outline (HTML)',
     icon: Code,
-    description: 'For developers — raw slide HTML for custom rendering',
+    description: 'Readable HTML outline of slide headlines and body text — not the PNG layout source',
     recommended: [],
   },
 ];
@@ -89,6 +89,16 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
+
+  // WHY lock body scroll: same as ActionDrawer — page shouldn't scroll under the modal.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
 
   // WHY this effect's cleanup runs on isOpen leaving true, not just on
   // unmount: this component stays mounted across opens/closes (Result.tsx
@@ -153,8 +163,9 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
 
   async function exportPNG() {
     if (!Array.isArray(content)) throw new Error('No carousel content');
-    const themeKey = THEME_KEYS[colorTheme] ?? 'minimal';
     const jobId = jobData?.id;
+    if (!jobId) throw new Error('Missing job id');
+    const themeKey = THEME_KEYS[colorTheme] ?? 'minimal';
     // WHY generic <Blob>: api.post's response type defaults to `any`-shaped axios data;
     // the export route always returns a ZIP blob (responseType: 'blob' below), so pin it
     // explicitly instead of relying on axios's default inference.
@@ -166,6 +177,10 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
       { theme: themeKey, slides: content, colors: colorSystem, brandName, handle, designPreset, templateId, paletteId },
       { responseType: 'blob' },
     );
+    const exportWarning = response.headers?.['x-export-warning'];
+    if (typeof exportWarning === 'string' && exportWarning.length > 0) {
+      throw new Error(exportWarning);
+    }
     triggerDownload(response.data, `${safeFileName()}_slides.zip`, 'application/zip');
   }
 
@@ -295,8 +310,7 @@ ${slides.map((s, i) => `<div class="slide">
   // renders every slide and zips them in one request, returning a single blob
   // at the end — there's no real per-slide completion signal reaching the
   // client without new backend plumbing (SSE/polling), which this fix
-  // deliberately avoids adding. LoadingView.tsx's own packetLabel() comment
-  // states progress UI here must never show fabricated numbers — showing the
+  // deliberately avoids adding. Progress UI must never show fabricated numbers — showing the
   // real, already-known slide count (no false claim of live completion
   // tracking) is the honest version of "give this format more detail than a
   // bare spinner," closing the gap with LoadingView's per-stage detail

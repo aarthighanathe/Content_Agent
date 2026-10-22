@@ -4,10 +4,11 @@
 // jobOutputVersions WHY comment for why the snapshot is taken only at
 // regenerate/restore time, not on every save.
 import { useState } from 'react';
-import { History, RotateCcw, X, Loader2 } from 'lucide-react';
+import { RotateCcw, Loader2, History } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getJobVersions, restoreJobVersion } from '../../../../api';
 import { timeAgo } from '../../../../lib/utils';
+import { Button } from '../../../../components/Button';
 
 interface Props {
   jobId: string | undefined;
@@ -38,83 +39,84 @@ export function HistoryPanel({ jobId, onClose, onRestored }: Props) {
   const versions = versionsQuery.data?.versions ?? [];
 
   return (
-    <div style={{ width: '100%', maxWidth: 500, background: 'color-mix(in srgb, var(--accent-2) 4%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 18%, transparent)', borderRadius: 10, padding: '14px 16px', animation: 'rp-fadeUp .2s ease both' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--accent-2)' }}>
-          <History size={11} /> Version History
-        </div>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-          <X size={14} />
-        </button>
-      </div>
-
+    <div className="rp-history-panel">
       {versionsQuery.isLoading && (
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>Loading history…</p>
+        <div className="rp-panel-status">
+          <span className="rp-panel-spinner" aria-hidden />
+          <span>Loading history…</span>
+        </div>
       )}
 
       {versionsQuery.isError && (
-        <p style={{ fontSize: 12, color: 'var(--color-error)', margin: 0 }}>Failed to load version history.</p>
-      )}
-
-      {!versionsQuery.isLoading && !versionsQuery.isError && versions.length === 0 && (
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
-          No past versions yet — a snapshot is saved automatically each time you regenerate this content.
-        </p>
-      )}
-
-      {versions.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {versions.map((v) => (
-            <div
-              key={v.id}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-                padding: '8px 10px', borderRadius: 8, background: 'color-mix(in srgb, var(--bg-raised) 60%, transparent)',
-                border: '1px solid var(--rule)',
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: 12, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {v.label}
-                </p>
-                <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: '2px 0 0', fontFamily: 'var(--font-mono)' }}>
-                  {timeAgo(v.createdAt)}{v.qualityScore !== null ? ` · score ${v.qualityScore}` : ''}
-                </p>
-              </div>
-              {confirmingId === v.id ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                  <button
-                    onClick={() => restoreMutation.mutate(v.id)}
-                    disabled={restoreMutation.isPending}
-                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 7, border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)', background: 'color-mix(in srgb, var(--accent) 10%, transparent)', color: 'var(--accent)', fontSize: 11, cursor: 'pointer' }}
-                  >
-                    {restoreMutation.isPending ? <Loader2 size={11} style={{ animation: 'rp-spin .7s linear infinite' }} /> : null}
-                    Confirm
-                  </button>
-                  <button
-                    onClick={() => setConfirmingId(null)}
-                    disabled={restoreMutation.isPending}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11 }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setConfirmingId(v.id)}
-                  title="Restore this version"
-                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 7, border: '1px solid var(--rule)', background: 'none', color: 'var(--text-secondary)', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}
-                >
-                  <RotateCcw size={11} /> Restore
-                </button>
-              )}
-            </div>
-          ))}
+        <div className="rp-panel-banner rp-panel-banner-error">
+          Failed to load version history.
         </div>
       )}
 
+      {!versionsQuery.isLoading && !versionsQuery.isError && versions.length === 0 && (
+        <div className="rp-panel-empty">
+          <span className="rp-panel-empty-icon" aria-hidden>
+            <History size={22} />
+          </span>
+          <p className="rp-panel-empty-title">No past versions yet</p>
+          <p className="rp-panel-empty-blurb">
+            A snapshot is saved automatically each time you regenerate this content.
+          </p>
+        </div>
+      )}
+
+      {versions.length > 0 && (
+        <ul className="rp-history-list">
+          {versions.map((v) => (
+            <li key={v.id} className="rp-history-row">
+              <div className="rp-history-meta">
+                <p className="rp-history-label">{v.label}</p>
+                <p className="rp-history-sub">
+                  {timeAgo(v.createdAt)}
+                  {v.qualityScore !== null ? ` · score ${v.qualityScore}` : ''}
+                </p>
+              </div>
+              {confirmingId === v.id ? (
+                <div className="rp-history-confirm">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={restoreMutation.isPending}
+                    icon={
+                      restoreMutation.isPending
+                        ? <Loader2 size={11} className="btn-spinner" />
+                        : undefined
+                    }
+                    onClick={() => restoreMutation.mutate(v.id)}
+                  >
+                    Confirm
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={restoreMutation.isPending}
+                    onClick={() => setConfirmingId(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<RotateCcw size={11} />}
+                  onClick={() => setConfirmingId(v.id)}
+                >
+                  Restore
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
       {restoreMutation.isError && (
-        <p style={{ fontSize: 11, color: 'var(--color-error)', marginTop: 8, marginBottom: 0 }}>
+        <p className="rp-panel-banner rp-panel-banner-error" role="alert">
           Failed to restore — please try again.
         </p>
       )}

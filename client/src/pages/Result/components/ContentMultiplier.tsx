@@ -1,125 +1,157 @@
-import React from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Instagram, Linkedin, XTwitter } from '../../../components/BrandIcons';
-import { Sparkles, ChevronDown, Check, AlertTriangle, Undo2, ExternalLink, RefreshCw } from 'lucide-react';
+import {
+  Sparkles, Check, AlertTriangle, Undo2, ExternalLink, RefreshCw, Clapperboard, Layers,
+} from 'lucide-react';
 import type { MultiplyEntry } from '../hooks/useMultiplier';
 import type { ContentJob } from '../../../types/job';
 
 const platforms = [
-  { id: 'instagram_carousel', label: 'Instagram Carousel', short: 'Carousel', color: '#ec4899', Icon: Instagram  },
-  { id: 'linkedin_post',      label: 'LinkedIn Post',      short: 'LinkedIn', color: '#60a5fa', Icon: Linkedin   },
-  { id: 'twitter_thread',     label: 'Twitter Thread',     short: 'Twitter',  color: '#22d3ee', Icon: XTwitter  },
-  { id: 'instagram_caption',  label: 'Instagram Caption',  short: 'Caption',  color: '#a78bfa', Icon: Instagram  },
+  { id: 'instagram_carousel', label: 'Instagram Carousel', short: 'Carousel', color: '#ec4899', Icon: Instagram },
+  { id: 'linkedin_post',      label: 'LinkedIn Post',      short: 'LinkedIn', color: '#60a5fa', Icon: Linkedin },
+  { id: 'twitter_thread',     label: 'Twitter Thread',     short: 'Twitter',  color: '#22d3ee', Icon: XTwitter },
+  { id: 'instagram_caption',  label: 'Instagram Caption',  short: 'Caption',  color: '#a78bfa', Icon: Instagram },
+  { id: 'video_script',       label: 'Video Script',       short: 'Video',    color: '#f97316', Icon: Clapperboard },
 ];
 
 interface Props {
-  jobData:          ContentJob | null;
-  multiplyJobs:     Record<string, MultiplyEntry>;
-  onMultiply:       (platform: string) => void;
-  show:             boolean;
-  onToggle:         () => void;
+  jobData:      ContentJob | null;
+  multiplyJobs: Record<string, MultiplyEntry>;
+  onMultiply:   (platform: string) => void;
 }
 
-export function ContentMultiplier({ jobData, multiplyJobs, onMultiply, show, onToggle }: Props) {
+type RowKind = 'idle' | 'ready' | 'original' | 'working' | 'failed';
+
+export function ContentMultiplier({ jobData, multiplyJobs, onMultiply }: Props) {
   const filtered = platforms.filter((p) => p.id !== jobData?.platform);
   const doneCount = Object.values(multiplyJobs).filter((j) => j.status === 'done').length;
 
+  const [researchAgeDays, setResearchAgeDays] = useState<number | null>(null);
+  useEffect(() => {
+    if (!jobData?.createdAt) {
+      setResearchAgeDays(null);
+      return;
+    }
+    const created = new Date(jobData.createdAt).getTime();
+    if (!Number.isFinite(created)) {
+      setResearchAgeDays(null);
+      return;
+    }
+    setResearchAgeDays(Math.floor((Date.now() - created) / 86_400_000));
+  }, [jobData?.createdAt]);
+  const isStale = researchAgeDays != null && researchAgeDays >= 7;
+
   return (
-    <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, marginTop: 4 }}>
-      <button onClick={onToggle} className="rp-mult-banner" style={{ width: '100%', border: 'none', marginBottom: show ? 16 : 0, textAlign: 'left' }}>
-        <div className="rp-mult-banner-icon"><Sparkles size={14} /></div>
-        <div className="rp-mult-banner-text">
-          <div className="rp-mult-banner-label">Content Multiplier</div>
-          <div className="rp-mult-banner-sub">
-            Adapt to {filtered.length} other platforms · reuses research
-            {doneCount > 0 && <span style={{ color: 'var(--color-success)', marginLeft: 8 }}>· {doneCount} ready</span>}
+    <section id="rp-adapt" className="rp-side-card rp-adapt" aria-label="Adapt to another platform">
+      <header className="rp-adapt-hd">
+        <div className="rp-adapt-hd-top">
+          <div className="rp-adapt-hd-icon" aria-hidden="true">
+            <Layers size={14} />
           </div>
+          <div className="rp-side-kicker">Adapt</div>
+          {doneCount > 0 && (
+            <span className="rp-adapt-badge">{doneCount} linked</span>
+          )}
         </div>
-        <ChevronDown size={14} className={`rp-mult-banner-chevron${show ? ' open' : ''}`} />
-      </button>
+        <p className="rp-side-help">
+          Remix this research into another platform — Open jumps to a finished variant.
+        </p>
+      </header>
 
-      {show && (
-        <>
-          {/* Stale research disclosure */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 8, padding: '9px 12px', fontSize: 11.5, color: 'color-mix(in srgb, var(--accent) 85%, transparent)', lineHeight: 1.5, marginBottom: 12 }}>
-            <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>This content reuses research from the original job. Research may be outdated.</span>
-          </div>
-          <div className="rp-mult-grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(224px,1fr))' }}>
-          {filtered.map((p) => {
-            const mj       = multiplyJobs[p.id];
-            const isSource = p.id === jobData?.sourcePlatform && !!jobData?.sourceJobId;
-            const isDone   = mj?.status === 'done';
-            const isProc   = mj?.status === 'processing';
-            const isFailed = mj?.status === 'failed';
-            const preview  = isDone && mj.content
-              ? (Array.isArray(mj.content) ? mj.content[0]?.headline : mj.content.hook || mj.content.tweets?.[0]?.text || mj.content.caption || '')
-              : '';
-
-            return (
-              <div key={p.id} style={{ background: 'var(--bg-raised)', border: `1px solid ${isSource ? `${p.color}22` : isDone ? `${p.color}30` : isProc ? `${p.color}18` : `${p.color}15`}`, borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', transition: 'border-color .25s', boxShadow: isDone ? `0 0 20px ${p.color}0A` : 'none' }}>
-                <div style={{ height: 2.5, background: isSource ? `linear-gradient(90deg,${p.color}50,${p.color}20)` : isDone ? `linear-gradient(90deg,${p.color},${p.color}50)` : isProc ? `linear-gradient(90deg,${p.color}60,transparent)` : `${p.color}25`, transition: 'background .3s' }} />
-                <div style={{ padding: '14px 15px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
-                  {/* Platform header */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 9, background: isSource ? `${p.color}12` : isDone ? `${p.color}18` : `${p.color}0C`, border: `1px solid ${isSource ? `${p.color}25` : isDone ? `${p.color}30` : `${p.color}20`}`, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .25s' }}>
-                      <p.Icon size={15} color={isSource || isDone ? p.color : `${p.color}A0`} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: isSource || isDone ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{p.label}</div>
-                      <div style={{ fontSize: 9.5, color: isSource ? `${p.color}90` : 'var(--text-muted)', fontFamily: "var(--font-mono)" }}>
-                        {isSource ? 'Source content' : isDone ? 'Ready to view' : isProc ? 'Generating…' : 'Cached research'}
-                      </div>
-                    </div>
-                    {isDone && !isSource && <div style={{ marginLeft: 'auto', width: 20, height: 20, borderRadius: '50%', background: `${p.color}18`, border: `1px solid ${p.color}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: p.color }}><Check size={9} /></div>}
-                    {isSource && <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, background: `${p.color}12`, border: `1px solid ${p.color}30`, color: p.color, fontFamily: "var(--font-mono)", fontSize: 8, letterSpacing: 0.8, textTransform: 'uppercase', padding: '2px 7px', borderRadius: 20 }}>origin</div>}
-                  </div>
-
-                  {/* Progress bar */}
-                  {isProc && (
-                    <div>
-                      <div style={{ height: 3, background: 'var(--rule)', borderRadius: 2, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', background: `linear-gradient(90deg,${p.color},${p.color}60)`, borderRadius: 2, width: `${mj.progress || 15}%`, transition: 'width .6s ease' }} />
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
-                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Adapting content…</span>
-                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: p.color }}>{mj.progress || 15}%</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Preview snippet */}
-                  {isDone && preview && (
-                    <div style={{ background: `${p.color}08`, border: `1px solid ${p.color}18`, borderRadius: 8, padding: '9px 11px', overflow: 'hidden' }}>
-                      <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>{preview}</p>
-                    </div>
-                  )}
-
-                  {/* Failed */}
-                  {isFailed && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'rgba(239,68,68,0.7)', background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 7, padding: '7px 10px' }}>
-                      <AlertTriangle size={12} /> Generation failed
-                    </div>
-                  )}
-
-                  {/* CTA */}
-                  <button
-                    onClick={() => isSource ? window.open(`/result/${jobData.sourceJobId}`, '_blank') : isDone && mj.jobId ? window.open(`/result/${mj.jobId}`, '_blank') : onMultiply(p.id)}
-                    disabled={isProc}
-                    style={{ background: isSource ? `${p.color}10` : isDone ? `${p.color}15` : isFailed ? 'var(--bg-raised)' : `${p.color}0C`, border: `1px solid ${isSource ? `${p.color}28` : isDone ? `${p.color}35` : `${p.color}22`}`, borderRadius: 8, padding: '8px 12px', cursor: isProc ? 'not-allowed' : 'pointer', fontSize: 12, color: p.color, transition: 'all .18s', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', fontWeight: isSource || isDone ? 600 : 400, marginTop: 'auto' }}
-                  >
-                    {isProc
-                      ? <><span style={{ display: 'inline-block', width: 10, height: 10, border: `1.5px solid ${p.color}40`, borderTopColor: p.color, borderRadius: '50%', animation: 'rp-spin .7s linear infinite' }} /> Generating…</>
-                      : isSource ? <><Undo2 size={11} /> View Original {p.short}</>
-                      : isDone   ? <><ExternalLink size={11} /> Open {p.short}</>
-                      : <>{isFailed ? <><RefreshCw size={11} /> Retry</> : <><Sparkles size={11} /> Adapt to {p.short}</>}</>}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        </>
+      {isStale && (
+        <p className="rp-adapt-stale" role="status">
+          <AlertTriangle size={13} aria-hidden="true" />
+          <span>Research is {researchAgeDays} days old. Regen for fresher facts.</span>
+        </p>
       )}
-    </div>
+
+      <div className="rp-adapt-list" role="list">
+        {filtered.map((p) => {
+          const mj = multiplyJobs[p.id];
+          const isOriginal =
+            Boolean(mj?.isRoot) ||
+            (p.id === jobData?.sourcePlatform && !!jobData?.sourceJobId);
+          const openJobId =
+            mj?.status === 'done' && mj.jobId
+              ? mj.jobId
+              : isOriginal && !mj?.jobId
+                ? jobData?.sourceJobId
+                : undefined;
+          const isDone = Boolean(openJobId) || mj?.status === 'done';
+          const isProc = mj?.status === 'processing';
+          const isFailed = mj?.status === 'failed';
+          const progress = mj?.progress ?? 15;
+
+          let kind: RowKind = 'idle';
+          if (isProc) kind = 'working';
+          else if (isFailed) kind = 'failed';
+          else if (isOriginal && isDone) kind = 'original';
+          else if (isDone) kind = 'ready';
+
+          const stateLabel =
+            kind === 'working' ? `Working · ${progress}%`
+            : kind === 'original' ? 'Original'
+            : kind === 'ready' ? 'Ready to open'
+            : kind === 'failed' ? 'Failed — retry'
+            : 'Not started yet';
+
+          const action =
+            kind === 'working' ? 'Working'
+            : kind === 'original' ? 'View'
+            : kind === 'ready' ? 'Open'
+            : kind === 'failed' ? 'Retry'
+            : 'Adapt';
+
+          return (
+            <div
+              key={p.id}
+              role="listitem"
+              className={`rp-adapt-tile rp-adapt-tile--${kind}`}
+              style={{ '--adapt-accent': p.color } as CSSProperties}
+            >
+              <div className="rp-adapt-tile-icon" aria-hidden="true">
+                <p.Icon size={16} color={p.color} />
+              </div>
+              <div className="rp-adapt-tile-copy">
+                <div className="rp-adapt-name">{p.short}</div>
+                <div className="rp-adapt-state">{stateLabel}</div>
+                {kind === 'working' && (
+                  <div className="rp-adapt-progress" aria-hidden="true">
+                    <span style={{ width: `${Math.max(8, Math.min(100, progress))}%` }} />
+                  </div>
+                )}
+              </div>
+              {kind === 'ready' && (
+                <span className="rp-adapt-check" aria-hidden="true">
+                  <Check size={12} strokeWidth={2.5} />
+                </span>
+              )}
+              <button
+                type="button"
+                className={`rp-adapt-go rp-adapt-go--${kind}`}
+                aria-label={`${action} ${p.short}`}
+                disabled={isProc}
+                onClick={() => {
+                  if (openJobId) {
+                    window.open(`/result/${openJobId}`, '_blank', 'noopener,noreferrer');
+                    return;
+                  }
+                  onMultiply(p.id);
+                }}
+              >
+                {kind === 'working'
+                  ? <RefreshCw size={12} className="rp-adapt-spin" />
+                  : kind === 'original'
+                    ? <Undo2 size={12} />
+                    : kind === 'ready'
+                      ? <ExternalLink size={12} />
+                      : <Sparkles size={12} />}
+                {action}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }

@@ -1,4 +1,16 @@
-.rp { display:flex; flex-direction:column; gap:20px; }
+/* WHY container-type: stacking Content|Quality and the one-screen lock must
+   follow the Result workspace width (sidebar + DevTools shrink the column),
+   not the viewport — viewport @media kept a 2-col desktop grid while the
+   slide crushed to ~180px. */
+.rp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+  container-type: inline-size;
+  container-name: rp;
+}
 
 /* Breadcrumb nav */
 .rp-breadcrumb { display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); margin-bottom:4px; }
@@ -6,7 +18,8 @@
 .rp-breadcrumb a:hover, .rp-breadcrumb button:hover { color:var(--accent); }
 .rp-breadcrumb-sep { opacity:0.3; }
 
-.rp-hd { display:flex; flex-direction:column; gap:12px; padding-bottom:20px; border-bottom:1px solid var(--rule); }
+.rp-hd { display:flex; flex-direction:column; gap:4px; padding-bottom:8px; border-bottom:1px solid var(--rule); flex-shrink:0; }
+.rp-topic { font-family:var(--font-display); font-size:clamp(18px,1.6vw,24px); font-weight:650; color:var(--text-primary); line-height:1.25; margin:0; letter-spacing:-0.3px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .rp-title { min-width:0; }
 .rp-hd-bottom { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
 .rp-eyebrow { display:flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--accent); margin-bottom:8px; flex-wrap:wrap; }
@@ -18,12 +31,62 @@
 
 .rp-actions { display:flex; flex-direction:column; gap:10px; align-items:flex-end; flex-shrink:0; }
 .rp-btn-row { display:flex; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
-.rp-feedback-bar { display:flex; gap:8px; width:100%; max-width:440px; animation:rp-fadeUp .2s ease both; }
+.rp-feedback-panel { display:flex; flex-direction:column; gap:14px; width:100%; flex:1; min-height:0; }
+/* WHY one border: this field autofocuses, so .input's 1.5px border, its focus
+   box-shadow ring, and the focus-visible outline all painted together. */
+.rp-feedback-panel textarea.input {
+  border: 1px solid var(--rule);
+  box-shadow: none;
+  outline: none;
+}
+.rp-feedback-panel textarea.input:focus,
+.rp-feedback-panel textarea.input:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: none;
+  outline: none;
+}
 
-/* Grouped action toolbar */
-.rp-toolbar { display:flex; align-items:center; gap:4px; flex-wrap:wrap; justify-content:flex-end; }
+/* Grouped action toolbar — primary buttons vs quieter tool strip */
+.rp-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
 .rp-toolbar-group { display:flex; align-items:center; gap:5px; }
-.rp-toolbar-sep { width:1px; height:22px; background:var(--rule); margin:0 4px; flex-shrink:0; }
+.rp-toolbar-sep { width:1px; height:22px; background:var(--rule); margin:0 2px; flex-shrink:0; }
+/* WHY a single segmented strip: eight identical secondary buttons used to
+   compete with the drawer’s Feedback/Post/Hashtags/History tabs. Tools open
+   one focused panel; this strip is the only place those labels appear. */
+.rp-toolbar-tools {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 3px;
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.rp-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.rp-tool-btn:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+.rp-tool-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 /* Platform header pill */
 .rp-platform-pill { display:inline-flex; align-items:center; gap:7px; background:var(--bg-raised); border:1px solid var(--rule); border-radius:8px; padding:5px 12px; }
@@ -36,31 +99,16 @@
 .rp-lv-spinner-wrap { display:flex; flex-direction:column; align-items:center; gap:10px; }
 .rp-lv-title { font-family:var(--font-heading); font-size:clamp(17px,4vw,22px); font-weight:700; color:var(--text-primary); text-align:center; margin:0; }
 
-/* ── 4.1: pipeline-as-hero — relay track with animated handoff packets ── */
-.rp-lv-steps { display:flex; align-items:flex-start; width:100%; max-width:560px; position:relative; }
-.rp-lv-step { display:flex; flex-direction:column; align-items:center; flex:1; position:relative; z-index:1; }
-.rp-lv-step-line { position:absolute; top:12px; left:calc(50% + 12px); right:calc(-50% + 12px); height:1.5px; background:var(--rule); z-index:0; transition:background .4s; overflow:visible; }
+/* Pipeline track. Labels stay inside each column — a flying handoff pill used to cross them. */
+.rp-lv-steps { display:flex; align-items:flex-start; width:100%; max-width:640px; position:relative; }
+.rp-lv-step { display:flex; flex-direction:column; align-items:center; flex:1; min-width:0; position:relative; z-index:1; }
+.rp-lv-step-line { position:absolute; top:12px; left:calc(50% + 14px); right:calc(-50% + 14px); height:1.5px; background:var(--rule); z-index:0; transition:background .4s; }
 .rp-lv-step-line.done { background:color-mix(in srgb, var(--accent) 30%, transparent); }
-/* WHY: the handoff packet travels along this line's own box (not a shared absolute
-   overlay) so each inter-agent gap gets an independently-timed pill with no layout
-   math needed in JS — CSS keyframes alone move it from 0% to 100% of the line. */
-.rp-lv-packet {
-  position: absolute; top: 50%; left: 0; transform: translate(-50%, -50%);
-  white-space: nowrap; font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.3px;
-  padding: 3px 8px; border-radius: 20px; pointer-events: none;
-  animation: rp-lv-packet-fly 1.1s cubic-bezier(.4,0,.2,1) both;
-}
 .rp-lv-step-dot { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-family:var(--font-mono); transition:all .25s; flex-shrink:0; position:relative; z-index:1; }
-.rp-lv-step-name { font-size:9.5px; color:var(--text-muted); margin-top:6px; text-align:center; font-family:var(--font-mono); letter-spacing:0.5px; transition:color .25s; }
+.rp-lv-step-text { width:100%; min-width:0; display:flex; flex-direction:column; align-items:center; }
+.rp-lv-step-name { display:block; max-width:100%; font-size:9.5px; color:var(--text-muted); margin-top:6px; text-align:center; font-family:var(--font-mono); letter-spacing:0.3px; line-height:1.3; transition:color .25s; overflow-wrap:anywhere; }
 .rp-lv-step-name.lit { color:var(--text-primary); }
-.rp-lv-step-sub { font-size:8.5px; color:var(--text-muted); text-align:center; margin-top:2px; }
-
-@keyframes rp-lv-packet-fly {
-  0%   { left: 4%;  opacity: 0;   transform: translate(-50%,-50%) scale(0.8); }
-  12%  { opacity: 1; transform: translate(-50%,-50%) scale(1); }
-  88%  { opacity: 1; transform: translate(-50%,-50%) scale(1); }
-  100% { left: 96%; opacity: 0;   transform: translate(-50%,-50%) scale(0.8); }
-}
+.rp-lv-step-sub { display:block; max-width:100%; font-size:8.5px; color:var(--text-muted); text-align:center; margin-top:2px; line-height:1.3; overflow-wrap:anywhere; }
 
 .rp-lv-feed { width:100%; max-width:460px; background:var(--bg-card); border:1px solid var(--rule); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; max-height:120px; overflow-y:auto; scrollbar-width:none; }
 .rp-lv-feed::-webkit-scrollbar { display:none; }
@@ -70,9 +118,107 @@
 .rp-tab  { flex:1; padding:11px 14px; background:none; border:none; cursor:pointer; font-family:var(--font-mono); font-size:11px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-muted); transition:all .2s; }
 .rp-tab.on { background:color-mix(in srgb, var(--accent) 10%, transparent); color:var(--accent); border-bottom:2px solid var(--accent); }
 
-.rp-grid { display:grid; grid-template-columns:1fr 360px; gap:20px; align-items:stretch; }
-.rp-main { display:flex; flex-direction:column; gap:16px; min-width:0; }
-.rp-sidebar { display:flex; flex-direction:column; gap:14px; position:sticky; top:20px; max-height:calc(100vh - 30px); height:100%; }
+/* WHY 794px: 470px slide + 24px gap + 300px template. Anything wider
+   than that goes to AI Quality Analysis. Default is stacked — @container
+   widens to 2-col only when the Result area itself has room. */
+.rp-grid {
+  --rp-slide: 470px;
+  --rp-tools: 300px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: stretch;
+  min-height: 0;
+  min-width: 0;
+}
+.rp-main { display:flex; flex-direction:column; gap:16px; min-width:0; min-height:0; container-type:inline-size; container-name: rp-main; }
+/* WHY: point rows are flex lines beside an icon. Forcing flex-shrink:0 made
+   each line as wide as the unwrapped sentence, so the card clipped the right
+   edge. min-width:0 lets the copy wrap inside the template padding, and
+   min-height/overflow stay unlocked so a tall slide can still be measured
+   and scaled instead of losing the last row. */
+.rp-fit-inner * {
+  min-width: 0 !important;
+  min-height: min-content !important;
+  overflow: visible !important;
+  overflow-wrap: break-word;
+}
+/* WHY default single column: Template/Adapt only share a row when .rp-main
+   has room. The content column is capped at ~794px when Quality is beside it
+   (slide 470 + gap 24 + tools 300), so this threshold MUST stay ≤ that —
+   900px made tools always stack under the slide on laptops. */
+.rp-carousel-layout { display:grid; grid-template-columns:1fr; gap:24px; align-items:stretch; min-height:0; }
+.rp-carousel-side { display:flex; flex-direction:column; gap:12px; min-width:0; min-height:0; }
+.rp-carousel-side > .rp-side-card:first-child { flex:1 1 auto; min-height:0; }
+.rp-carousel-stage { width:100%; height:100%; min-height:0; display:flex; flex-direction:column; align-items:flex-start; gap:8px; }
+/* WHY 640: matches the pre-responsive desktop look — slide left, tools
+   right inside the capped content column. Stack only when mid-width
+   content-width stacking already put Quality under content. */
+@container rp-main (min-width: 640px) {
+  .rp-carousel-layout {
+    grid-template-columns: minmax(240px, var(--rp-slide, 470px)) minmax(240px, 1fr);
+  }
+}
+@container rp-main (max-width: 639px) {
+  .rp-carousel-stage { align-items: center; }
+  .rp-carousel-side { position: static; }
+}
+/* WHY @container rp (not viewport): docked DevTools / expanded sidebar leave
+   the window wide while the Result column is narrow — stack Quality under
+   content so the slide keeps a readable width. At ≥1100px restore the
+   classic laptop layout: capped content (slide+tools) | Quality. */
+@container rp (min-width: 1100px) {
+  .rp-grid {
+    grid-template-columns:
+      minmax(0, calc(var(--rp-slide) + var(--rp-tools) + 24px))
+      minmax(320px, 1fr);
+  }
+}
+@container rp (min-width: 1300px) {
+  .rp-grid {
+    grid-template-columns:
+      minmax(0, calc(var(--rp-slide) + var(--rp-tools) + 24px))
+      minmax(400px, 1fr);
+  }
+}
+/* Collapsed Quality rail: only meaningful in the 2-col layout. */
+@container rp (min-width: 1100px) {
+  .rp-grid.rp-grid-sidebar-collapsed {
+    grid-template-columns: 1fr 48px;
+  }
+}
+.rp-slide-frame { border-radius:12px; overflow:hidden; border:1px solid var(--rule); max-width:100%; }
+.rp-slide-toolbar { display:flex; align-items:center; gap:8px; max-width:100%; flex-wrap:wrap; }
+.rp-slide-dots { display:flex; align-items:center; gap:2px; flex:1; min-width:0; justify-content:center; }
+.rp-slide-dots button { width:22px; height:22px; padding:0; border:none; background:none; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.rp-slide-count { font-family:var(--font-mono); font-size:11px; color:var(--text-muted); display:flex; align-items:center; gap:6px; }
+.rp-slide-count span { text-transform:uppercase; letter-spacing:0.4px; font-size:9px; }
+.rp-slide-textbtn { display:inline-flex; align-items:center; gap:5px; padding:6px 10px; border-radius:8px; border:1px solid var(--rule); background:var(--bg-raised); color:var(--text-secondary); font-size:12px; cursor:pointer; }
+.rp-slide-textbtn:hover { color:var(--text-primary); border-color:color-mix(in srgb, var(--accent) 40%, var(--rule)); }
+.rp-slide-btn {
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-raised); border: 1px solid var(--rule);
+  color: var(--text-primary);
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+.rp-slide-btn:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+.rp-slide-btn:disabled { cursor: default; opacity: 0.35; }
+/* WHY flex-shrink:0 + overflow-anchor:none: under the one-screen Result lock
+   (.rp-main overflow:hidden), a tall thread used to compress or get scroll-anchored
+   to the Adapt block at the bottom — early tweets vanished with no way to scroll
+   back. Keep the reading column at content height; scrolling lives on .rp-main.
+   WHY width 100% (not a 720px cap): caption/thread must match Adapt’s full
+   column width — a reading-column max-width made the content card look narrower. */
+.rp-copy-stage {
+  width: 100%;
+  flex-shrink: 0;
+  overflow-anchor: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rp-sidebar { display:flex; flex-direction:column; gap:14px; min-height:0; min-width:0; }
 /* WHY scroll lives on .card-glow, not .rp-sidebar: the sidebar is just the sticky
    positioner — the visible card (border+padding) is a child of it. Scrolling the
    outer wrapper put the scrollbar outside the card's rounded border; scrolling the
@@ -88,16 +234,238 @@
 
 .rp-mult-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(196px,1fr)); gap:10px; margin-top:10px; animation:rp-fadeUp .25s ease both; }
 
-/* Slide-over drawer */
-.rp-drawer-backdrop { position:fixed; inset:0; background:color-mix(in srgb, var(--bg-base) 70%, transparent); z-index:199; animation:rp-fadeIn .2s ease both; backdrop-filter:blur(2px); }
-.rp-drawer { position:fixed; top:0; right:0; bottom:0; width:340px; max-width:100vw; background:var(--bg-raised); border-left:1px solid var(--rule); z-index:200; display:flex; flex-direction:column; overflow:hidden; animation:rp-slideInRight .22s cubic-bezier(.16,1,.3,1) both; box-shadow:-12px 0 40px rgba(0,0,0,0.45); }
-.rp-drawer-hd { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 16px; border-bottom:1px solid var(--rule); flex-shrink:0; }
-.rp-drawer-title { font-family:var(--font-display); font-size:15px; font-weight:600; color:var(--text-primary); }
-.rp-drawer-close { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; border-radius:6px; transition:color .15s, background .15s; display:flex; align-items:center; justify-content:center; font-size:16px; line-height:1; }
-.rp-drawer-close:hover { color:var(--text-secondary); background:var(--rule); }
-.rp-drawer-body { flex:1; overflow-y:auto; padding:20px; scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--accent) 18%, transparent) transparent; }
-.rp-drawer-body::-webkit-scrollbar { width:3px; }
-.rp-drawer-body::-webkit-scrollbar-thumb { background:color-mix(in srgb, var(--accent) 20%, transparent); border-radius:2px; }
+/* Action panel — centered dialog on desktop; bottom sheet on mobile.
+   WHY not a side drawer: Rewrite/Post/Hashtags/History are focused tasks;
+   a centered card reads as the workspace for that click, not a secondary rail. */
+.rp-drawer-backdrop {
+  position: fixed; inset: 0; z-index: 199;
+  background: color-mix(in srgb, var(--bg-base) 72%, transparent);
+  backdrop-filter: blur(6px);
+  animation: rp-fadeIn .2s ease both;
+}
+.rp-drawer {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(84vh, 720px);
+  background: var(--bg-raised);
+  border: 1px solid var(--rule);
+  border-radius: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  animation: rp-panelIn .22s cubic-bezier(.16, 1, .3, 1) both;
+}
+@keyframes rp-panelIn {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)) scale(0.98); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.rp-drawer-hd {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--rule);
+  flex-shrink: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 6%, transparent) 0%,
+    transparent 100%
+  );
+}
+.rp-drawer-hd-left { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.rp-drawer-hd-icon {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--accent);
+}
+.rp-drawer-hd-copy { min-width: 0; padding-top: 2px; }
+.rp-drawer-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.2px;
+}
+.rp-drawer-subtitle {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.rp-drawer-back {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0; margin-top: 4px;
+  border: none; border-radius: 8px;
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+}
+.rp-drawer-back:hover { background: var(--rule); color: var(--text-primary); }
+.rp-drawer-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rp-drawer-close {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  padding: 6px; border-radius: 8px; margin-top: 2px;
+  transition: color .15s, background .15s;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.rp-drawer-close:hover { color: var(--text-secondary); background: var(--rule); }
+.rp-drawer-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rp-drawer-body {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  padding: 18px 20px 22px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 18%, transparent) transparent;
+}
+.rp-drawer-body::-webkit-scrollbar { width: 3px; }
+.rp-drawer-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 2px;
+}
+
+.rp-action-menu { display: flex; flex-direction: column; gap: 8px; }
+.rp-action-menu-item {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%;
+  padding: 14px; border: 1px solid var(--rule); border-radius: 12px;
+  background: var(--bg-card); color: inherit; text-align: left; cursor: pointer;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+.rp-action-menu-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-card));
+  transform: translateY(-1px);
+}
+.rp-action-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rp-action-menu-icon {
+  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.rp-action-menu-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rp-action-menu-label { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.rp-action-menu-blurb { font-size: 12px; line-height: 1.4; color: var(--text-muted); }
+
+/* Shared panel chrome (Rewrite / Hashtags / History) */
+.rp-feedback-panel { display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; }
+.rp-panel-hints { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-panel-chip {
+  padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px; cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.rp-panel-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--rule));
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.rp-panel-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rp-panel-footnote { margin: 0; font-size: 11.5px; color: var(--text-muted); }
+.rp-panel-status {
+  display: flex; align-items: center; gap: 10px;
+  padding: 18px 4px; font-size: 13px; color: var(--text-muted);
+}
+.rp-panel-spinner {
+  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: rp-spin .7s linear infinite;
+}
+.rp-panel-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border-radius: 10px; font-size: 12.5px;
+}
+.rp-panel-banner-error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  color: var(--color-error);
+}
+.rp-panel-success { margin: 0; font-size: 12.5px; color: var(--color-success); }
+.rp-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.rp-panel-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 8px; padding: 28px 12px;
+}
+.rp-panel-empty-icon {
+  width: 48px; height: 48px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent); margin-bottom: 4px;
+}
+.rp-panel-empty-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.rp-panel-empty-blurb { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); max-width: 280px; }
+
+.rp-hashtag-panel { display: flex; flex-direction: column; gap: 14px; }
+.rp-hashtag-tiers { display: flex; flex-direction: column; gap: 14px; }
+.rp-hashtag-tier-label {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted); font-weight: 600;
+}
+.rp-hashtag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-hashtag-chip {
+  border-radius: 999px; padding: 4px 11px; font-size: 12px;
+  border: 1px solid; cursor: pointer; transition: filter .15s, transform .15s;
+}
+.rp-hashtag-chip:hover { filter: brightness(1.15); transform: translateY(-1px); }
+.rp-hashtag-strategy {
+  margin: 0; padding-top: 12px; border-top: 1px solid var(--rule);
+  font-size: 12.5px; line-height: 1.55; color: var(--text-secondary);
+}
+
+.rp-history-panel { display: flex; flex-direction: column; gap: 12px; }
+.rp-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rp-history-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-radius: 12px;
+  background: var(--bg-card); border: 1px solid var(--rule);
+}
+.rp-history-meta { min-width: 0; }
+.rp-history-label {
+  margin: 0; font-size: 13px; font-weight: 600; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rp-history-sub {
+  margin: 3px 0 0; font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.rp-history-confirm { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+.rp-tool-btn.on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.rp-post-select { display: flex; flex-direction: column; gap: 8px; }
+.rp-post-account {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  text-align: left; padding: 14px; border-radius: 12px;
+  border: 1px solid var(--rule); background: var(--bg-card);
+  cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
+  color: inherit;
+}
+.rp-post-account:hover { transform: translateY(-1px); }
+.rp-post-account:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rp-post-account-icon {
+  width: 40px; height: 40px; border-radius: 11px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.rp-post-account-copy { flex: 1; min-width: 0; }
+.rp-post-account-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.rp-post-account-handle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.rp-post-account-chevron { color: var(--text-muted); flex-shrink: 0; }
 
 /* Sticky mobile footer action bar
    WHY bottom:72px, not 0: the app-wide .mobile-tab-bar (Home/Create/Library/Ideate/
@@ -108,15 +476,149 @@
 .rp-footer-bar { display:none; position:fixed; bottom:72px; left:0; right:0; z-index:150; background:color-mix(in srgb, var(--bg-base) 92%, transparent); border-top:1px solid var(--rule); backdrop-filter:blur(20px); padding:10px 16px; gap:8px; align-items:center; justify-content:center; }
 .rp-footer-bar-btn { display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:none; cursor:pointer; color:var(--text-secondary); font-family:var(--font-mono); font-size:9px; letter-spacing:0.5px; text-transform:uppercase; transition:color .18s; padding:6px 14px; border-radius:8px; flex:1; max-width:80px; }
 .rp-footer-bar-btn:hover { color:var(--text-primary); background:var(--rule); }
+.rp-footer-bar-btn:disabled { opacity:0.4; cursor:not-allowed; }
+.rp-footer-bar-btn:disabled:hover { color:var(--text-secondary); background:none; }
 .rp-footer-bar-btn.primary { color:var(--accent); }
 .rp-footer-bar-btn.primary:hover { background:color-mix(in srgb, var(--accent) 6%, transparent); }
 .rp-footer-spacer { flex:1; }
 .rp-footer-sep { width:1px; height:28px; background:var(--rule); }
 
+/* Template + adapt tools beside the slide */
+.rp-side-card { background:var(--bg-raised); border:1px solid var(--rule); border-radius:12px; padding:var(--card-padding); display:flex; flex-direction:column; gap:8px; min-width:0; }
+.rp-side-kicker { font-family:var(--font-mono); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-muted); }
+.rp-side-help { margin:0; font-size:12px; line-height:1.45; color:var(--text-muted); }
+.rp-template-list { display:flex; flex-direction:column; gap:1px; flex:1 1 auto; min-height:0; overflow:auto; margin:0; padding:0; list-style:none; }
+.rp-template-row { display:flex; align-items:center; gap:8px; width:100%; padding:4px 0; border:none; border-radius:8px; background:transparent; color:var(--text-secondary); font-size:13px; text-align:left; cursor:pointer; }
+.rp-template-row:hover { background:color-mix(in srgb, var(--text-primary) 5%, transparent); color:var(--text-primary); }
+.rp-template-row[aria-pressed="true"] { background:color-mix(in srgb, var(--accent) 12%, transparent); color:var(--text-primary); font-weight:600; }
+.rp-template-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; border:1px solid rgba(0,0,0,0.18); }
+.rp-color-row { display:flex; align-items:center; gap:8px; }
+.rp-color-dot { width:22px; height:22px; border-radius:50%; overflow:hidden; display:flex; padding:0; cursor:pointer; border:2px solid transparent; background:transparent; }
+.rp-color-dot[aria-pressed="true"] { border-color:var(--accent); }
+/* Adapt — platform remix panel beside the slide */
+.rp-adapt { gap: 12px; }
+.rp-adapt-hd { display: flex; flex-direction: column; gap: 6px; }
+.rp-adapt-hd-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rp-adapt-hd-icon {
+  width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.rp-adapt-hd .rp-side-kicker { margin: 0; flex: 1; min-width: 0; }
+.rp-adapt-badge {
+  flex-shrink: 0;
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.4px;
+  text-transform: uppercase; color: var(--accent);
+  padding: 3px 8px; border-radius: 20px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.rp-adapt-stale {
+  margin: 0; display: flex; gap: 7px; align-items: flex-start;
+  padding: 8px 10px; border-radius: 9px;
+  font-size: 11.5px; line-height: 1.45; color: #fbbf24;
+  background: color-mix(in srgb, #f59e0b 10%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 28%, transparent);
+}
+.rp-adapt-stale svg { flex-shrink: 0; margin-top: 1px; }
+.rp-adapt-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rp-adapt-tile {
+  --adapt-accent: var(--accent);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 10px 10px 10px; min-width: 0;
+  border-radius: 11px;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+  transition: border-color .18s, background .18s, box-shadow .18s;
+}
+.rp-adapt-tile:hover {
+  border-color: color-mix(in srgb, var(--adapt-accent) 35%, var(--rule));
+  background: color-mix(in srgb, var(--adapt-accent) 5%, var(--bg-card));
+}
+.rp-adapt-tile--ready {
+  border-color: color-mix(in srgb, var(--adapt-accent) 28%, var(--rule));
+  background: color-mix(in srgb, var(--adapt-accent) 7%, var(--bg-card));
+}
+.rp-adapt-tile--working {
+  border-color: color-mix(in srgb, var(--adapt-accent) 40%, var(--rule));
+}
+.rp-adapt-tile--failed {
+  border-color: color-mix(in srgb, var(--color-error) 35%, var(--rule));
+  background: color-mix(in srgb, var(--color-error) 6%, var(--bg-card));
+}
+.rp-adapt-tile--original {
+  border-color: color-mix(in srgb, var(--adapt-accent) 22%, var(--rule));
+}
+.rp-adapt-tile-icon {
+  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--adapt-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--adapt-accent) 28%, transparent);
+}
+.rp-adapt-tile-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rp-adapt-name { font-size: 13px; font-weight: 650; color: var(--text-primary); letter-spacing: -0.01em; }
+.rp-adapt-state { font-size: 11px; color: var(--text-muted); line-height: 1.3; }
+.rp-adapt-tile--ready .rp-adapt-state { color: color-mix(in srgb, var(--adapt-accent) 85%, var(--text-muted)); }
+.rp-adapt-tile--failed .rp-adapt-state { color: var(--color-error); }
+.rp-adapt-progress {
+  margin-top: 5px; height: 3px; border-radius: 2px; overflow: hidden;
+  background: color-mix(in srgb, var(--adapt-accent) 15%, transparent);
+}
+.rp-adapt-progress > span {
+  display: block; height: 100%; border-radius: 2px;
+  background: var(--adapt-accent);
+  transition: width .35s ease;
+}
+.rp-adapt-check {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--adapt-accent);
+  background: color-mix(in srgb, var(--adapt-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--adapt-accent) 30%, transparent);
+}
+.rp-adapt-go {
+  margin-left: auto; flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: 5px;
+  border-radius: 9px; padding: 7px 11px;
+  font-size: 12px; font-weight: 650; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--adapt-accent) 40%, transparent);
+  color: var(--adapt-accent);
+  background: color-mix(in srgb, var(--adapt-accent) 10%, transparent);
+  transition: background .15s, border-color .15s, transform .12s;
+}
+.rp-adapt-go:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--adapt-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--adapt-accent) 55%, transparent);
+}
+.rp-adapt-go:active:not(:disabled) { transform: scale(0.97); }
+.rp-adapt-go:disabled { cursor: wait; opacity: 0.7; }
+.rp-adapt-go--ready {
+  background: var(--adapt-accent); color: #0a0a0a; border-color: transparent;
+}
+.rp-adapt-go--ready:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--adapt-accent);
+}
+.rp-adapt-go--original {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--adapt-accent) 30%, var(--rule));
+}
+.rp-adapt-go--failed {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+}
+.rp-adapt-spin { animation: rp-spin 0.85s linear infinite; }
+.rp-side-toggle { align-self:flex-start; display:inline-flex; align-items:center; gap:4px; border:none; background:transparent; color:var(--accent); font-size:12.5px; font-weight:600; padding:0; cursor:pointer; }
+
 /* Content Multiplier banner card */
-.rp-mult-banner { display:flex; align-items:center; gap:12px; padding:14px 18px; background:var(--bg-raised); border:1px solid var(--rule); border-radius:12px; cursor:pointer; transition:background .18s, border-color .18s; }
+.rp-mult-banner { display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--bg-raised); border:1px solid var(--rule); border-radius:10px; cursor:pointer; transition:background .18s, border-color .18s; }
 .rp-mult-banner:hover { background:color-mix(in srgb, var(--accent) 6%, var(--bg-raised)); border-color:color-mix(in srgb, var(--accent) 25%, transparent); }
-.rp-mult-banner-icon { width:36px; height:36px; border-radius:10px; background:color-mix(in srgb, var(--accent) 12%, transparent); border:1px solid color-mix(in srgb, var(--accent) 25%, transparent); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:16px; color:var(--accent); }
+.rp-mult-banner-icon { width:28px; height:28px; border-radius:8px; background:color-mix(in srgb, var(--accent) 12%, transparent); border:1px solid color-mix(in srgb, var(--accent) 25%, transparent); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:14px; color:var(--accent); }
+.rp-tool-block { border-top:1px solid var(--rule); padding-top:14px; }
+.rp-carousel-side .rp-tool-block { border-top:none; padding-top:0; }
 .rp-mult-banner-text { flex:1; min-width:0; }
 .rp-mult-banner-label { font-family:var(--font-display); font-size:13px; font-weight:600; color:var(--text-primary); }
 .rp-mult-banner-sub { font-family:var(--font-mono); font-size:10px; color:var(--text-muted); letter-spacing:0.5px; margin-top:2px; }
@@ -191,18 +693,82 @@
 @keyframes rp-spinR  { to{transform:rotate(-360deg)} }
 @keyframes rp-pulse  { 0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--accent) 20%, transparent)} 50%{box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 7%, transparent)} }
 
-@media (max-width:1100px) {
-  .rp-grid { grid-template-columns:1fr 300px; }
+/* WHY one-screen lock only with .rp-layout-wide: that class is set when the
+   Result container itself is ≥1100px (see Result.tsx ResizeObserver). Viewport
+   ≥901px alone was wrong — DevTools/sidebar left the window wide while the
+   content column had no room, and overflow:hidden crushed the slide. Prefer
+   page scroll over a postage-stamp preview when the workspace is mid-width. */
+.main-content:has(.rp-layout-wide) {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
-@media (max-width:900px) {
-  .rp-grid    { grid-template-columns:1fr; }
-  .rp-sidebar { position:static; max-height:none; overflow:visible; display:grid; grid-template-columns:1fr 1fr; gap:14px; padding-right:0; }
-  .rp-lv-steps { max-width:100%; }
+.main-content:has(.rp-layout-wide) .main-inner {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
+.main-content:has(.rp-layout-wide) .rp {
+  flex: 1;
+  overflow: hidden;
+}
+.main-content:has(.rp-layout-wide) .rp-grid {
+  flex: 1;
+  overflow: hidden;
+  grid-template-rows: minmax(0, 1fr);
+}
+.main-content:has(.rp-layout-wide) .rp-main {
+  min-height: 0;
+  overflow: hidden;
+}
+/* WHY: carousel stays clipped to one screen; copy platforms scroll inside the
+   column. overflow:hidden alone still creates a scroll container, so when the
+   tweet list mounted, scroll anchoring kept Adapt in view and hid tweets 1–N. */
+.main-content:has(.rp-layout-wide) .rp-main:has(.rp-copy-stage) {
+  overflow-y: auto;
+  overflow-anchor: none;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 18%, transparent) transparent;
+}
+.main-content:has(.rp-layout-wide) .rp-main:has(.rp-copy-stage)::-webkit-scrollbar { width: 3px; }
+.main-content:has(.rp-layout-wide) .rp-main:has(.rp-copy-stage)::-webkit-scrollbar-track { background: transparent; }
+.main-content:has(.rp-layout-wide) .rp-main:has(.rp-copy-stage)::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 2px;
+}
+.main-content:has(.rp-layout-wide) .rp-carousel-layout { flex: 1; min-height: 0; overflow: hidden; }
+.main-content:has(.rp-layout-wide) .rp-sidebar { min-height: 0; overflow: hidden; }
+/* WHY overflow-y:auto (not hidden): the one-screen lock used to clip long
+   critic feedback / tips with no way to scroll the quality card. */
+.main-content:has(.rp-layout-wide) .rp-sidebar > .card-glow {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Mid-width (Quality already stacked via @container): keep sidebar flowing. */
+@container rp (max-width: 1099px) {
+  .rp-sidebar {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-right: 0;
+  }
+  .rp-lv-steps { max-width: 100%; }
+}
+
 @media (max-width:768px) {
+  .rp-carousel-layout { grid-template-columns:1fr; }
+  .rp-carousel-side { position:static; }
   .rp-hd-bottom { flex-direction:column; align-items:stretch; }
   .rp-toolbar { display:none !important; }
-  .rp-feedback-bar { max-width:100%; }
+  .rp-drawer-tab { padding:12px 6px; gap:4px; font-size:11px; }
   .rp-tabs    { display:flex; }
   .rp-tab     { padding:13px 16px; }
   .rp-tab.on  { border-bottom-width:3px; }
@@ -227,29 +793,26 @@
     flex-direction:row; align-items:center; width:100%; flex:none; gap:12px; position:relative;
   }
   .rp-lv-step-line { display:none; }
-  .rp-lv-step-text { display:flex; flex-direction:column; align-items:flex-start; gap:2px; }
+  .rp-lv-step-text { align-items:flex-start; gap:2px; }
   .rp-lv-step-name { margin-top:0; text-align:left; }
   .rp-lv-step-sub  { margin-top:0; text-align:left; }
-  .rp-lv-packet    { display:none; }
   .rp-footer-bar { display:flex; }
   /* WHY 140px, not 80px: .main-content (index.css) already reserves 72px+safe-area to
      clear the global bottom nav; this page also needs its OWN ~64px-tall footer bar
      (which now sits above that nav, not overlapping it — see .rp-footer-bar) cleared on
      top of that, or the last card in the page gets tucked behind both fixed bars. */
   .rp { padding-bottom:140px; }
-  /* WHY switch to a bottom sheet on mobile, not a full-width right-edge drawer:
-     width:100vw on the old right-side drawer left zero backdrop margin, so the panel
-     filled the entire screen edge-to-edge with no visible "this is an overlay, not a
-     new page" cue — tab switches inside it (Feedback/Post/Hashtags/Template) looked
-     like nothing had happened because the whole viewport was already drawer chrome.
-     A bottom sheet keeps a visible strip of the dimmed page above it at all times, and
-     is the platform-idiomatic mobile pattern for this kind of action panel anyway. */
+  /* WHY bottom sheet on mobile: desktop uses a centered dialog; on small screens
+     a sheet from the bottom keeps a dimmed strip of the page visible above it. */
   .rp-drawer {
-    top:auto; right:0; left:0; bottom:0; width:auto; max-width:100vw;
-    max-height:min(80vh, 640px); border-left:none; border-top:1px solid var(--rule);
-    border-radius:16px 16px 0 0;
-    animation:rp-slideInUp .22s cubic-bezier(.16,1,.3,1) both;
-    padding-bottom:env(safe-area-inset-bottom);
+    top: auto; left: 0; right: 0; bottom: 0;
+    transform: none;
+    width: auto; max-width: 100vw;
+    max-height: min(80vh, 640px);
+    border-left: none; border-top: 1px solid var(--rule);
+    border-radius: 16px 16px 0 0;
+    animation: rp-slideInUp .22s cubic-bezier(.16, 1, .3, 1) both;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 @media (max-width:480px) {

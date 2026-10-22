@@ -2,6 +2,17 @@ import React from 'react';
 import type { ColorSystem } from '../../../../../../lib/colorSystem';
 import { FONT, PROGRESS_H } from './constants';
 
+// SECURITY: color is interpolated into SVG markup via dangerouslySetInnerHTML —
+// only allow hex / rgba / CSS vars so a malicious palette string can't break out
+// of the attribute context (e.g. `"/><script>...`).
+function safeSvgColor(color: string, fallback = '#888888'): string {
+  const c = color.trim();
+  if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c)) return c;
+  if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(c)) return c;
+  if (/^var\(--[a-zA-Z0-9_-]+\)$/.test(c)) return c;
+  return fallback;
+}
+
 // ── SVG icon set ──────────────────────────────────────────────────────────────
 
 type SP = { c: string };
@@ -54,25 +65,28 @@ export function FeatureIcon({ icon, color, fi }: { icon: string; color: string; 
 // ── Decorative primitives ─────────────────────────────────────────────────────
 
 export function DotGrid({ color, opacity = 0.055 }: { color: string; opacity?: number }) {
+  const safe = safeSvgColor(color);
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity }}
-      dangerouslySetInnerHTML={{ __html: `<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="dg" width="18" height="18" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1.5" fill="${color}"/></pattern></defs><rect width="100%" height="100%" fill="url(#dg)"/></svg>` }}
+      dangerouslySetInnerHTML={{ __html: `<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="dg" width="18" height="18" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1.5" fill="${safe}"/></pattern></defs><rect width="100%" height="100%" fill="url(#dg)"/></svg>` }}
     />
   );
 }
 
 export function GridLines({ color }: { color: string }) {
+  const safe = safeSvgColor(color);
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.04 }}
-      dangerouslySetInnerHTML={{ __html: `<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="gl" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M 36 0 L 0 0 0 36" fill="none" stroke="${color}" stroke-width="1"/></pattern></defs><rect width="100%" height="100%" fill="url(#gl)"/></svg>` }}
+      dangerouslySetInnerHTML={{ __html: `<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="gl" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M 36 0 L 0 0 0 36" fill="none" stroke="${safe}" stroke-width="1"/></pattern></defs><rect width="100%" height="100%" fill="url(#gl)"/></svg>` }}
     />
   );
 }
 
 export function CrosshatchLines({ color }: { color: string }) {
+  const safe = safeSvgColor(color);
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.032 }}
-      dangerouslySetInnerHTML={{ __html: `<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="ch" width="24" height="24" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="24" y2="24" stroke="${color}" stroke-width="1"/><line x1="24" y1="0" x2="0" y2="24" stroke="${color}" stroke-width="1"/></pattern></defs><rect width="100%" height="100%" fill="url(#ch)"/></svg>` }}
+      dangerouslySetInnerHTML={{ __html: `<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="ch" width="24" height="24" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="24" y2="24" stroke="${safe}" stroke-width="1"/><line x1="24" y1="0" x2="0" y2="24" stroke="${safe}" stroke-width="1"/></pattern></defs><rect width="100%" height="100%" fill="url(#ch)"/></svg>` }}
     />
   );
 }
@@ -130,10 +144,11 @@ export function LeftStripe({ color, accent = false }: { color: string; accent?: 
 }
 
 export function RadialBurst({ color }: { color: string }) {
+  const safe = safeSvgColor(color);
   const N = 18, cx = 210, cy = 262;
   const lines = Array.from({ length: N }, (_, i) => {
     const a = (i / N) * Math.PI * 2;
-    return `<line x1="${cx}" y1="${cy}" x2="${(cx + 380 * Math.cos(a)).toFixed(1)}" y2="${(cy + 380 * Math.sin(a)).toFixed(1)}" stroke="${color}" stroke-width="0.7" stroke-opacity="0.07"/>`;
+    return `<line x1="${cx}" y1="${cy}" x2="${(cx + 380 * Math.cos(a)).toFixed(1)}" y2="${(cy + 380 * Math.sin(a)).toFixed(1)}" stroke="${safe}" stroke-width="0.7" stroke-opacity="0.07"/>`;
   }).join('');
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
@@ -157,9 +172,10 @@ export function StatWatermark({ text, color }: { text: string; color: string }) 
 }
 
 export function DiagStripes({ color }: { color: string }) {
+  const safe = safeSvgColor(color);
   return (
     <div style={{ position: 'absolute', bottom: PROGRESS_H, right: 0, width: 130, height: 130, overflow: 'hidden', pointerEvents: 'none', opacity: 0.06 }}
-      dangerouslySetInnerHTML={{ __html: `<svg width="130" height="130" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="ds" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="14" stroke="${color}" stroke-width="4"/></pattern></defs><rect width="130" height="130" fill="url(#ds)"/></svg>` }}
+      dangerouslySetInnerHTML={{ __html: `<svg width="130" height="130" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="ds" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="14" stroke="${safe}" stroke-width="4"/></pattern></defs><rect width="130" height="130" fill="url(#ds)"/></svg>` }}
     />
   );
 }

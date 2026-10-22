@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { LayoutTemplate, ChevronDown } from 'lucide-react';
-import { CompactTemplatePicker } from '../../../../Create/CompactTemplatePicker';
+import { useEffect, useRef } from 'react';
+import { Check } from 'lucide-react';
+import {
+  TEMPLATES, getTemplate, getDefaultPalette, isTemplateId,
+} from '../../../../../lib/templateSystem';
 import type { NewTemplateId } from '../../../constants';
-import { getTemplate, isTemplateId } from '../../../../../lib/templateSystem';
 
 interface Props {
   templateId?: string;
@@ -10,19 +11,16 @@ interface Props {
   onChange: (templateId: string, paletteId?: string) => void;
 }
 
-// WHY a standalone collapsible panel, not inline in ContentColumn: matches the
-// existing ContentMultiplier banner pattern (collapsed by default, expands on
-// click) and keeps ContentColumn.tsx from growing past a reasonable size.
-// Lets a user change a carousel's look after generation without regenerating
-// content — see CAROUSEL_TEMPLATE_PLAN.md §2.3.
+// WHY a column of rows, not the Create form's wrapping pills: this control
+// sits in a narrow column beside the slide. Wide chips wrapped into a tall,
+// uneven stack and hid the color choice.
 export function CarouselTemplateSwitcher({ templateId, paletteId, onChange }: Props) {
-  const [open, setOpen] = useState(false);
-  // WHY isTemplateId, not a bare `as NewTemplateId` cast: templateId arrives as
-  // a plain string off job data, which may predate the template system or hold
-  // a stale/legacy value — validate against the real catalog instead of
-  // asserting the type, same pattern used at every other templateId boundary.
   const currentId: NewTemplateId = templateId && isTemplateId(templateId) ? templateId : 'modern-minimal';
   const currentTemplate = getTemplate(currentId);
+  const palettes = currentTemplate?.colorPalettes ?? [];
+  const activePalette = paletteId || palettes[currentTemplate?.defaultPaletteIndex ?? 0]?.id || '';
+
+  const listRef = useRef<HTMLDivElement>(null);
 
   function handleTemplateSelect(id: NewTemplateId): void {
     const template = getTemplate(id);
@@ -30,35 +28,66 @@ export function CarouselTemplateSwitcher({ templateId, paletteId, onChange }: Pr
     onChange(id, defaultPaletteId);
   }
 
-  function handlePaletteSelect(id: string): void {
-    onChange(currentId, id);
-  }
+  useEffect(() => {
+    const list = listRef.current;
+    const row = list?.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+    if (!list || !row) return;
+    const top = row.offsetTop;
+    const bottom = top + row.offsetHeight;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (bottom > list.scrollTop + list.clientHeight) {
+      list.scrollTop = bottom - list.clientHeight;
+    }
+  }, [currentId]);
 
   return (
-    <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, marginTop: 18 }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="rp-mult-banner"
-        style={{ width: '100%', border: 'none', marginBottom: open ? 16 : 0, textAlign: 'left' }}
-      >
-        <div className="rp-mult-banner-icon"><LayoutTemplate size={14} /></div>
-        <div className="rp-mult-banner-text">
-          <div className="rp-mult-banner-label">Carousel template</div>
-          <div className="rp-mult-banner-sub">
-            {currentTemplate?.name || 'Modern Minimal'} · change layout without regenerating
-          </div>
+    <section className="rp-side-card" aria-label="Carousel template">
+      <div className="rp-side-kicker">Template</div>
+      <p className="rp-side-help">Changes the look. Your words stay the same.</p>
+      <div className="rp-template-list" ref={listRef} role="group" aria-label="Templates">
+        {Object.values(TEMPLATES).map((template) => {
+          const selected = template.id === currentId;
+          const swatch = getDefaultPalette(template.id)?.colors.primary || 'var(--accent)';
+          return (
+            <button
+              key={template.id}
+              type="button"
+              className="rp-template-row"
+              aria-pressed={selected}
+              title={template.description}
+              onClick={() => handleTemplateSelect(template.id)}
+            >
+              <span className="rp-template-dot" style={{ background: swatch }} />
+              <span style={{ flex: 1, minWidth: 0 }}>{template.name}</span>
+              {selected && <Check size={14} aria-hidden="true" />}
+            </button>
+          );
+        })}
+      </div>
+      {palettes.length > 0 && (
+        <div className="rp-color-row" role="group" aria-label="Colors">
+          {palettes.map((palette) => {
+            const selected = palette.id === activePalette;
+            return (
+              <button
+                key={palette.id}
+                type="button"
+                className="rp-color-dot"
+                aria-pressed={selected}
+                aria-label={palette.name}
+                title={palette.name}
+                onClick={() => onChange(currentId, palette.id)}
+              >
+                <span style={{ flex: 1, background: palette.colors.primary }} />
+                <span style={{ flex: 1, background: palette.colors.accent }} />
+              </button>
+            );
+          })}
+          <span className="rp-adapt-state">
+            {palettes.find((palette) => palette.id === activePalette)?.name ?? 'Color'}
+          </span>
         </div>
-        <ChevronDown size={14} className={`rp-mult-banner-chevron${open ? ' open' : ''}`} />
-      </button>
-
-      {open && (
-        <CompactTemplatePicker
-          templateId={currentId}
-          onTemplateChange={handleTemplateSelect}
-          paletteId={paletteId || currentTemplate?.colorPalettes[currentTemplate.defaultPaletteIndex].id || ''}
-          onPaletteChange={handlePaletteSelect}
-        />
       )}
-    </div>
+    </section>
   );
 }

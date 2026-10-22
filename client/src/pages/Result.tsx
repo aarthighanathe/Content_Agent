@@ -1,5 +1,5 @@
-import { useState, useRef, useMemo, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useRef, useMemo, useEffect, useLayoutEffect } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import './Result/Result.css';
 import { useJobData }    from './Result/hooks/useJobData';
 import { useExport }     from './Result/hooks/useExport';
@@ -13,6 +13,7 @@ import { ContentColumn }  from './Result/components/ContentColumn';
 import type { ResultContent } from './Result/components/ContentColumn';
 import { InsightsSidebar } from './Result/components/InsightsSidebar';
 import { ActionDrawer }   from './Result/components/ActionDrawer';
+import type { ActionTab } from './Result/components/ActionDrawer';
 import { ExportModal }    from './Result/components/ExportModal';
 import { useCarouselDesignSeed } from './Result/hooks/useCarouselDesignSeed';
 import { deriveColorSystem, THEME_ACCENTS } from '../lib/colorSystem';
@@ -21,9 +22,6 @@ import { getProfile } from '../api';
 import { Copy, RotateCcw, Download, MoreHorizontal } from 'lucide-react';
 import type { CriticResult, PlatformContent } from '../types/job';
 import type { SlideData } from './Result/components/content/carousel/IGSlide';
-import { CAROUSEL_TEMPLATE_KEY, CAROUSEL_PALETTE_KEY } from '../lib/carouselStorageKeys';
-
-type ActionTab = 'feedback' | 'post' | 'hashtags' | null;
 
 // WHY guard instead of trusting JobOutput.content: `content: unknown` (job.ts) varies by
 // outputType; a 'critique' output's content is a CriticResult object with these fields —
@@ -41,7 +39,7 @@ function isCriticResult(value: unknown): value is CriticResult {
 export default function ResultPage() {
   const { jobId } = useParams<{ jobId: string }>();
 
-  const { jobData, setJobData, regenerating, handleRegenerate, currentJob, loadJob } = useJobData(jobId);
+  const { jobData, setJobData, loadError, regenerating, handleRegenerate, loadJob } = useJobData(jobId);
 
   // NOTE: the theme picker that called the setter lived in the removed AI-render UI.
   // The stored value still selects the palette for the preview and the PNG export.
@@ -57,10 +55,12 @@ export default function ResultPage() {
     } catch { return 4; }
   });
   const [currentSlide, setCurrentSlide]         = useState(0);
-  const [showMultiplier, setShowMultiplier]     = useState(false);
   const [mobileTab, setMobileTab]               = useState<'content' | 'insights'>('content');
   const [actionDrawerOpen, setActionDrawerOpen] = useState(false);
-  const [actionDrawerTab, setActionDrawerTab]   = useState<ActionTab>('feedback');
+  // WHY null: mobile "More" opens the action menu; desktop tools pass a concrete tab.
+  const [actionDrawerTab, setActionDrawerTab]   = useState<ActionTab | null>(null);
+  // WHY: Insights “Fix with AI” passes a tip; Rewrite from the header starts blank.
+  const [feedbackPrefill, setFeedbackPrefill]   = useState('');
   const [exportModalOpen, setExportModalOpen]   = useState(false);
   // Sidebar open by default so users notice the AI Quality Analysis is available;
   // still user-toggleable via the collapse button in InsightsSidebar.
@@ -72,6 +72,23 @@ export default function ResultPage() {
   });
   const [saveError, setSaveError]               = useState('');
   const touchStartX = useRef<number | null>(null);
+  const rpRef = useRef<HTMLDivElement | null>(null);
+  // WHY content-width (not viewport): sidebar + DevTools leave the window wide
+  // while .rp is narrow — one-screen lock + Quality side column only when the
+  // Result workspace itself has room (≥1100px). See Result.css @container rp.
+  const [layoutWide, setLayoutWide] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = rpRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = (): void => {
+      setLayoutWide(el.clientWidth >= 1100);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure();
+    return () => observer.disconnect();
+  }, []);
 
   // Persist sidebar collapse state to localStorage
   useEffect(() => {
@@ -79,6 +96,10 @@ export default function ResultPage() {
       localStorage.setItem('ca_insights_sidebar_collapsed', String(sidebarCollapsed));
     } catch { /* ignore */ }
   }, [sidebarCollapsed]);
+
+  // WHY: collapsed rail is a 48px side column — only valid in the 2-col layout.
+  // On stacked mid-width, force the full Quality card so it isn't a thin strip.
+  const effectiveSidebarCollapsed = layoutWide && sidebarCollapsed;
 
   // Template selection: an in-Result override (set by switching templates
   // post-generation — see onTemplateSwitch below) takes priority; otherwise
@@ -105,14 +126,8 @@ export default function ResultPage() {
   // every render, including every SSE progress tick during job polling — the
   // stored value only matters as a fallback for pre-feature carousels with no
   // templateId/paletteId on the job row, so it only needs to be read once.
-  const storedTemplateId = useMemo(() => {
-    try { return localStorage.getItem(CAROUSEL_TEMPLATE_KEY) || undefined; } catch { return undefined; }
-  }, []);
-  const storedPaletteId = useMemo(() => {
-    try { return localStorage.getItem(CAROUSEL_PALETTE_KEY) || undefined; } catch { return undefined; }
-  }, []);
-  const templateId = templateOverride?.templateId ?? jobData?.templateId ?? storedTemplateId;
-  const paletteId = templateOverride?.paletteId ?? jobData?.paletteId ?? storedPaletteId;
+  const templateId = templateOverride?.templateId ?? jobData?.templateId ?? undefined;
+  const paletteId = templateOverride?.paletteId ?? jobData?.paletteId ?? undefined;
 
   async function onTemplateSwitch(newTemplateId: string, newPaletteId?: string): Promise<void> {
     setTemplateOverride({ templateId: newTemplateId, paletteId: newPaletteId });
@@ -120,9 +135,7 @@ export default function ResultPage() {
     try {
       await setCarouselTemplate(jobId, newTemplateId, newPaletteId);
     } catch {
-      // NOTE: the override above already updated the on-screen preview; a failed
-      // PATCH just means the choice won't survive a reload, not worth surfacing
-      // as a blocking error for a purely cosmetic setting.
+      setSaveError('Couldn’t save template choice — preview updated, but it may not stick after reload.');
     }
   }
 
@@ -154,9 +167,11 @@ export default function ResultPage() {
       : undefined;
   const isDone       = jobData?.status === 'done';
   const isFailed     = jobData?.status === 'failed';
-  const progress     = jobData?.progress ?? currentJob?.progress ?? (isDone ? 100 : 0);
-  const currentStage = jobData?.stage || jobData?.status || currentJob?.stage || 'pending';
-  const stageMessage = jobData?.message ?? currentJob?.message ?? '';
+  // WHY jobData only (not Zustand currentJob): SSE merges into jobData via
+  // mergeSSEIntoJobData — reading both caused progress flicker (M1/H2).
+  const progress     = jobData?.progress ?? (isDone ? 100 : 0);
+  const currentStage = jobData?.stage || jobData?.status || 'pending';
+  const stageMessage = jobData?.message ?? '';
   const isCarousel   = Array.isArray(content);
 
   // WHY: brand identity, palette and design preset are resolved once here and passed to
@@ -217,18 +232,42 @@ export default function ResultPage() {
     });
   }
 
+  async function handleInsertHashtags(tags: string[]): Promise<void> {
+    if (!content || Array.isArray(content)) {
+      throw new Error('Hashtag insert is only available for caption/LinkedIn posts');
+    }
+    const existing = Array.isArray(content.hashtags) ? content.hashtags : [];
+    const normalized = tags.map((t) => (t.startsWith('#') ? t : `#${t}`));
+    const merged = [...existing];
+    for (const tag of normalized) {
+      if (!merged.some((e) => e.toLowerCase() === tag.toLowerCase())) {
+        merged.push(tag);
+      }
+    }
+    await handleContentSave({ ...content, hashtags: merged });
+  }
+
   function onRegenerate(feedback?: string) {
     setCurrentSlide(0);
     handleRegenerate(feedback);
   }
 
-  function onSteer() {
+  function onSteer(prefill?: string) {
+    setFeedbackPrefill(prefill?.trim() || '');
     setActionDrawerTab('feedback');
     setActionDrawerOpen(true);
   }
 
+  function closeActionDrawer(): void {
+    setActionDrawerOpen(false);
+    setFeedbackPrefill('');
+  }
+
   return (
-    <div className="rp">
+    <div
+      ref={rpRef}
+      className={['rp', layoutWide ? 'rp-layout-wide' : ''].filter(Boolean).join(' ')}
+    >
       <ResultHeader
         jobData={jobData}
         content={content}
@@ -244,16 +283,44 @@ export default function ResultPage() {
         currentStage={currentStage}
         progress={progress}
         social={social}
-        onOpenActions={() => setActionDrawerOpen(true)}
+        activePanel={actionDrawerOpen ? actionDrawerTab : null}
+        onOpenPanel={(tab) => {
+          // WHY clear: header Rewrite is a blank form; Insights “Fix with AI”
+          // sets feedbackPrefill via onSteer instead.
+          if (tab === 'feedback') setFeedbackPrefill('');
+          setActionDrawerTab(tab);
+          setActionDrawerOpen(true);
+        }}
+        onToggleAdapt={() => {
+          document.getElementById('rp-adapt')?.scrollIntoView({ block: 'nearest' });
+        }}
       />
 
-      {((!content || regenerating) && !isFailed) && (
+      {loadError && !regenerating && (
+        <ErrorState
+          title={loadError === 'not_found' ? 'Job not found' : 'Could not load job'}
+          message={
+            loadError === 'not_found'
+              ? 'This job may have been deleted or you may not have access to it.'
+              : 'We could not load this job. Check your connection and try again.'
+          }
+          retryLabel="Retry"
+          onRetry={() => { void loadJob(); }}
+        />
+      )}
+      {loadError === 'not_found' && (
+        <p style={{ textAlign: 'center', marginTop: '-0.5rem' }}>
+          <Link to="/library">Back to Library</Link>
+        </p>
+      )}
+
+      {((!content || regenerating) && !isFailed && !loadError) && (
         <LoadingView
           regenerating={regenerating}
           currentStage={currentStage}
           stageMessage={stageMessage}
           progress={progress}
-          agentLogs={jobData?.agentLogs ?? currentJob?.agentLogs}
+          agentLogs={jobData?.agentLogs}
         />
       )}
 
@@ -273,12 +340,36 @@ export default function ResultPage() {
               {saveError}
             </div>
           )}
-          <div className="rp-tabs">
-            <button className={'rp-tab' + (mobileTab === 'content'  ? ' on' : '')} onClick={() => setMobileTab('content')}>Content</button>
-            <button className={'rp-tab' + (mobileTab === 'insights' ? ' on' : '')} onClick={() => setMobileTab('insights')}>Insights</button>
+          <div className="rp-tabs" role="tablist" aria-label="Result views">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobileTab === 'content'}
+              className={'rp-tab' + (mobileTab === 'content'  ? ' on' : '')}
+              onClick={() => setMobileTab('content')}
+            >
+              Content
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobileTab === 'insights'}
+              className={'rp-tab' + (mobileTab === 'insights' ? ' on' : '')}
+              onClick={() => setMobileTab('insights')}
+            >
+              Insights
+            </button>
           </div>
 
-          <div className="rp-grid" style={{ gridTemplateColumns: sidebarCollapsed ? '1fr 48px' : '1fr 360px', transition: 'grid-template-columns 0.25s cubic-bezier(.16,1,.3,1)' }}>
+          <div
+            className={[
+              'rp-grid',
+              effectiveSidebarCollapsed ? 'rp-grid-sidebar-collapsed' : '',
+            ].filter(Boolean).join(' ')}
+            style={{
+              transition: 'grid-template-columns 0.25s cubic-bezier(.16,1,.3,1)',
+            }}
+          >
             <ContentColumn
               className={mobileTab === 'insights' ? 'rp-off' : undefined}
               jobData={jobData}
@@ -287,8 +378,6 @@ export default function ResultPage() {
               setCurrentSlide={setCurrentSlide}
               touchStartX={touchStartX}
               onSave={handleContentSave}
-              showMultiplier={showMultiplier}
-              setShowMultiplier={setShowMultiplier}
               multiplyJobs={multiplyJobs}
               onMultiply={handleMultiply}
               slideRefs={isCarousel ? slideRefs : undefined}
@@ -304,7 +393,7 @@ export default function ResultPage() {
               criticResult={criticResult}
               className={mobileTab !== 'insights' ? 'rp-off' : undefined}
               onSteer={onSteer}
-              collapsed={sidebarCollapsed}
+              collapsed={effectiveSidebarCollapsed}
               onToggle={() => setSidebarCollapsed(c => !c)}
             />
           </div>
@@ -317,13 +406,8 @@ export default function ResultPage() {
                 <span className="rp-footer-label">Copy</span>
               </button>
               <div className="rp-footer-sep" />
-              {/* WHY disabled={regenerating}: the desktop toolbar's Regen button
-                  unmounts entirely once regenerating flips true (see ResultHeader.tsx),
-                  but this footer bar stayed mounted with no matching guard — a fast
-                  double-tap here could fire two concurrent regenerate pipelines
-                  (FUNCTIONAL_AUDIT_2026-07.md finding #13). handleRegenerate itself
-                  is now also guarded at the source, but disabling here too keeps the
-                  button visually honest about its state. */}
+              {/* WHY: the desktop Regen button unmounts while a run is in
+                  progress, but this bar stays mounted, so disable it here too. */}
               <button className="rp-footer-bar-btn" onClick={() => onRegenerate()} disabled={regenerating} title="Regenerate">
                 <RotateCcw size={16} />
                 <span className="rp-footer-label">Regen</span>
@@ -334,7 +418,14 @@ export default function ResultPage() {
                 <span className="rp-footer-label">Export</span>
               </button>
               <div className="rp-footer-sep" />
-              <button className="rp-footer-bar-btn" onClick={() => setActionDrawerOpen(true)} title="More actions">
+              <button
+                className="rp-footer-bar-btn"
+                onClick={() => {
+                  setActionDrawerTab(null);
+                  setActionDrawerOpen(true);
+                }}
+                title="More actions"
+              >
                 <MoreHorizontal size={16} />
                 <span className="rp-footer-label">More</span>
               </button>
@@ -346,12 +437,14 @@ export default function ResultPage() {
       {/* Action Drawer with tabbed panels */}
       <ActionDrawer
         isOpen={actionDrawerOpen}
-        onClose={() => setActionDrawerOpen(false)}
+        onClose={closeActionDrawer}
         jobData={jobData}
         content={content}
         onRegenerate={onRegenerate}
         onRestored={() => { loadJob().catch(() => {}); }}
-        defaultTab={actionDrawerTab ?? 'feedback'}
+        onInsertHashtags={handleInsertHashtags}
+        defaultTab={actionDrawerTab}
+        feedbackPrefill={feedbackPrefill}
         social={social}
       />
 

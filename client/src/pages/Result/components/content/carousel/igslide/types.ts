@@ -17,6 +17,9 @@ export interface SlideData {
   body?:          string;
   visual_hint?:   string;
   imagePrompt?:   string;
+  // WHY optional data URL (F2): set by EditSlideModal after imageGen — rendered
+  // as a full-bleed background under template content when present.
+  imageDataUrl?:  string;
   bg_suggestion?: string;
   points?:        SlidePoint[];
   cta?:           { action?: string; handle?: string };

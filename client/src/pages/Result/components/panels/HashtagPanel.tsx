@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Copy, X } from 'lucide-react';
+import { Copy, Plus, RefreshCw } from 'lucide-react';
+import { Button } from '../../../../components/Button';
 import { researchHashtags } from '../../../../api';
 import { useIsMountedRef } from '../../../../hooks/useTrackedTimeout';
 import type { ContentJob, PlatformContent } from '../../../../types/job';
@@ -9,6 +10,8 @@ interface Props {
   jobData:  ContentJob | null;
   content:  ResultContent | undefined;
   onClose:  () => void;
+  /** Merge researched tags into the final caption/post and persist (F8). */
+  onInsertHashtags?: (tags: string[]) => Promise<void>;
 }
 
 interface HashtagResearch {
@@ -20,35 +23,31 @@ interface HashtagResearch {
 }
 
 const tiers: { label: string; key: 'broad' | 'niche' | 'branded'; color: string }[] = [
-  { label: 'Broad (1M+ posts)', key: 'broad',   color: '#60A5FA' },
-  { label: 'Niche (10K–500K)',  key: 'niche',   color: '#22D3EE' },
-  { label: 'Branded / Unique',  key: 'branded', color: '#A78BFA' },
+  { label: 'Broad', key: 'broad', color: '#60A5FA' },
+  { label: 'Niche', key: 'niche', color: '#22D3EE' },
+  { label: 'Branded', key: 'branded', color: '#A78BFA' },
 ];
 
-export function HashtagPanel({ jobData, content, onClose }: Props) {
+function canInsertInto(platform: string | undefined): boolean {
+  return platform === 'linkedin_post' || platform === 'instagram_caption';
+}
+
+export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHashtags }: Props) {
   const [data, setData]       = useState<HashtagResearch | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
-  // WHY a ref, not a useEffect cleanup flag alone: fetchHashtags is also called
-  // directly from the Retry button's onClick (outside any effect), so the
-  // "am I still mounted" check needs to be readable from both call sites, not
-  // just the effect that fires the initial fetch.
+  const [inserting, setInserting] = useState(false);
+  const [insertMsg, setInsertMsg] = useState('');
+  const [copied, setCopied] = useState(false);
   const isMountedRef = useIsMountedRef();
 
-  function fetchHashtags() {
+  function fetchHashtags(): void {
     if (!jobData) return;
     setLoading(true);
     setError('');
-    // WHY unknown->PlatformContent cast: researchHashtags' content param predates carousel/
-    // video-script hashtag research; content is forwarded to the server as-is regardless
-    // of exact shape (same rationale as the identical cast in useSocial.ts/PostPanel.tsx).
     const hashtagContent = content as unknown as PlatformContent | PlatformContent[] | undefined;
     researchHashtags({ topic: jobData.topic, platform: jobData.platform, content: hashtagContent })
       .then((result) => {
-        // WHY guarded: HashtagPanel unmounts immediately when the user switches
-        // ActionDrawer tabs — if this promise resolves after that (e.g. the user
-        // opens Hashtags then quickly switches tabs), setState on the unmounted
-        // component would otherwise fire.
         if (!isMountedRef.current) return;
         setData(result);
       })
@@ -62,13 +61,6 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
       });
   }
 
-  // WHY []: HashtagPanel is only ever rendered behind `activeTab === 'hashtags' &&`
-  // in ActionDrawer.tsx, so React fully unmounts/remounts it each time the user
-  // leaves and returns to this tab — jobData/content are fixed for the lifetime of
-  // a single mount (the Result page doesn't swap jobs while the drawer is open).
-  // A real dependency array (jobData, content, fetchHashtags) would re-fire this
-  // effect on every parent re-render that produces a new `content` object identity,
-  // re-triggering a paid hashtag-research API call the user never asked for.
   useEffect(() => {
     if (!jobData || data || loading) return;
     const t = setTimeout(fetchHashtags, 0);
@@ -76,50 +68,143 @@ export function HashtagPanel({ jobData, content, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <div style={{ width: '100%', maxWidth: 500, background: 'rgba(34,211,238,0.04)', border: '1px solid rgba(34,211,238,0.18)', borderRadius: 10, padding: '14px 16px', animation: 'rp-fadeUp .2s ease both' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'rgba(34,211,238,0.7)' }}>Hashtag Research</div>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><X size={14} /></button>
-      </div>
+  async function handleInsertAll(): Promise<void> {
+    if (!data || !onInsertHashtags) return;
+    const tags = [...(data.broad || []), ...(data.niche || []), ...(data.branded || [])]
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tags.length === 0) return;
+    setInserting(true);
+    setInsertMsg('');
+    try {
+      await onInsertHashtags(tags);
+      if (!isMountedRef.current) return;
+      setInsertMsg(`Added ${tags.length} hashtags to your post.`);
+    } catch {
+      if (!isMountedRef.current) return;
+      setInsertMsg('');
+      setError('Could not save hashtags — please try again.');
+    } finally {
+      if (isMountedRef.current) setInserting(false);
+    }
+  }
 
+  function copyAll(): void {
+    if (!data) return;
+    const all = [...(data.broad || []), ...(data.niche || []), ...(data.branded || [])].join(' ');
+    navigator.clipboard.writeText(all).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }).catch(() => {});
+  }
+
+  const showInsert = Boolean(onInsertHashtags && canInsertInto(jobData?.platform) && data);
+
+  return (
+    <div className="rp-hashtag-panel">
       {loading && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
-          <div style={{ width: 12, height: 12, border: '1.5px solid rgba(34,211,238,0.3)', borderTopColor: '#22D3EE', borderRadius: '50%', animation: 'rp-spin .7s linear infinite', flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: 'rgba(34,211,238,0.7)' }}>Researching hashtags…</span>
+        <div className="rp-panel-status">
+          <span className="rp-panel-spinner" aria-hidden />
+          <span>Researching hashtags…</span>
         </div>
       )}
 
       {!loading && error && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 0' }}>
-          <span style={{ fontSize: 12, color: 'var(--color-error)' }}>{error}</span>
-          <button onClick={fetchHashtags} style={{ background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.25)', borderRadius: 7, padding: '5px 11px', color: '#22D3EE', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+        <div className="rp-panel-banner rp-panel-banner-error">
+          <span>{error}</span>
+          <Button variant="secondary" size="sm" onClick={fetchHashtags}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
       {data && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {tiers.map(({ label, key, color }) => (
-            <div key={key}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 }}>{label}</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {(data[key] || []).map((tag: string) => (
-                  <button key={tag} onClick={() => { navigator.clipboard.writeText(tag).catch(() => {}); }} title="Click to copy"
-                    style={{ background: `${color}12`, border: `1px solid ${color}28`, borderRadius: 20, padding: '3px 10px', fontSize: 11.5, color, cursor: 'pointer', transition: 'all .15s' }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = `${color}22`; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = `${color}12`; }}
-                  >{tag}</button>
-                ))}
-              </div>
+        <div className="rp-hashtag-tiers">
+          {tiers.every(({ key }) => (data[key] || []).length === 0) ? (
+            <div className="rp-panel-empty">
+              <p className="rp-panel-empty-title">No hashtags found</p>
+              <p className="rp-panel-empty-blurb">
+                Try Refresh, or regenerate the draft with a more specific topic.
+              </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<RefreshCw size={12} />}
+                onClick={fetchHashtags}
+                disabled={loading}
+              >
+                Refresh
+              </Button>
             </div>
-          ))}
-          {data.reachTier && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Reach tier: {data.reachTier}</div>}
-          {data.strategy && <p style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6, borderTop: '1px solid var(--rule)', paddingTop: 8 }}>{data.strategy}</p>}
-          <button onClick={() => { const all = [...(data.broad || []), ...(data.niche || []), ...(data.branded || [])].join(' '); navigator.clipboard.writeText(all).catch(() => {}); }} style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.25)', borderRadius: 7, padding: '6px 12px', color: '#22D3EE', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
-            <Copy size={10} /> Copy all hashtags
-          </button>
+          ) : (
+            <>
+              {tiers.map(({ label, key, color }) => (
+                <section key={key} className="rp-hashtag-tier">
+                  <h3 className="rp-hashtag-tier-label">{label}</h3>
+                  <div className="rp-hashtag-chips">
+                    {(data[key] || []).map((tag: string) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        className="rp-hashtag-chip"
+                        style={{
+                          color,
+                          background: `${color}14`,
+                          borderColor: `${color}30`,
+                        }}
+                        title="Click to copy"
+                        onClick={() => {
+                          navigator.clipboard.writeText(tag).catch(() => {});
+                        }}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+
+              {data.strategy && (
+                <p className="rp-hashtag-strategy">{data.strategy}</p>
+              )}
+
+              <div className="rp-panel-actions">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Copy size={12} />}
+                  onClick={copyAll}
+                >
+                  {copied ? 'Copied' : 'Copy all'}
+                </Button>
+                {showInsert && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<Plus size={12} />}
+                    disabled={inserting}
+                    loading={inserting}
+                    onClick={() => { void handleInsertAll(); }}
+                  >
+                    Add to post
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<RefreshCw size={12} />}
+                  onClick={fetchHashtags}
+                  disabled={loading}
+                >
+                  Refresh
+                </Button>
+              </div>
+
+              {insertMsg && (
+                <p className="rp-panel-success" role="status">{insertMsg}</p>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
