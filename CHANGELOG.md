@@ -15,6 +15,20 @@
 
 ---
 
+## 2026-10-24 — CI, Render, and Ideate 500
+
+GitHub `test` crashed because `schemas/index.ts` imports `config.ts`, which
+validates env at load, and Actions has no `.env`. `tests/setupEnv.ts` fills
+placeholder required vars after dotenv so the suite can import routes.
+`security-scan` failed on new high/critical advisories (axios, dompurify,
+proxy-addr, vite, brace-expansion); `npm audit fix` clears those.
+
+Production Ideate returned 500 while Dashboard still loaded because the last
+live Render deploy is still on shut-down `gemini-2.0-flash` (generation
+routes only). The generator now calls `gemini-3.6-flash`. `0016_publish_hour`
+uses `ADD COLUMN IF NOT EXISTS` so a retried pre-deploy migrate cannot block
+the rollout.
+
 ## 2026-10-21 — Library insights: compact strip redesign
 
 Replaced tall KPI boxes + multi-row bar charts with a short strip: inline KPI

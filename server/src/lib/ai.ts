@@ -143,9 +143,10 @@ export async function generateWithAI(
       // in the system role and the user prompt as the creative brief — this
       // prevents long system prompts from drowning out shorter user prompts.
       const model = ai.getGenerativeModel({
-        // WHY 3.5 Flash: 2.0 Flash is retired. 3.5 Flash is available on this
-        // key and answers promptly, so demo and pipeline calls stay reliable.
-        model: 'gemini-3.5-flash',
+        // WHY 3.6 Flash: gemini-2.0-flash was shut down (June 2026), so Ideate
+        // and the pipeline 500 on any deploy still pinned to it. 3.5 Flash is
+        // deprecated and Google routes it to 3.6; call 3.6 directly.
+        model: 'gemini-3.6-flash',
         ...(systemPrompt ? { systemInstruction: systemPrompt } : {}),
         generationConfig: { temperature, topP: 0.95 },
       });

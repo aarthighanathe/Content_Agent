@@ -293,7 +293,7 @@ roadmap document is tracked; see `CHANGELOG.md` for shipped work.
 ### AI / LLM
 | Provider | Used For |
 |---|---|
-| Google Gemini 3.5 Flash (`@google/generative-ai`) | Primary LLM for all 5 agents |
+| Google Gemini 3.6 Flash (`@google/generative-ai`) | Primary LLM for all 5 agents |
 | Groq (`groq-sdk`) | Fallback LLM when Gemini fails after 3 retries |
 | Tavily REST API | Web research (researcher agent, hashtag research) |
 | OpenAI REST (DALL-E 3, gpt-image-1) | Image generation (primary) |

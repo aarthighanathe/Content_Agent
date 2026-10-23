@@ -146,7 +146,7 @@ Two independent multi-provider fallback chains exist — don't confuse them:
 
 **LLM text generation** (`lib/ai.ts`, `generateWithAI()`):
 ```
-Gemini 3.5 Flash (3 retries, exponential backoff 1s/2s/4s, circuit breaker opens for 60s
+Gemini 3.6 Flash (3 retries, exponential backoff 1s/2s/4s, circuit breaker opens for 60s
 after 5 consecutive failures) → Groq llama-3.3-70b-versatile (2 retries)
 ```
 
