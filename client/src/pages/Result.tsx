@@ -233,7 +233,10 @@ export default function ResultPage() {
   }
 
   async function handleInsertHashtags(tags: string[]): Promise<void> {
-    if (!content || Array.isArray(content)) {
+    // WHY drop video scripts too: ResultContent includes VideoScriptContentData,
+    // whose hook/cta are objects. Spreading that union is not a PlatformContent,
+    // so tsc -b rejects the save (CI client build).
+    if (!content || Array.isArray(content) || 'segments' in content) {
       throw new Error('Hashtag insert is only available for caption/LinkedIn posts');
     }
     const existing = Array.isArray(content.hashtags) ? content.hashtags : [];

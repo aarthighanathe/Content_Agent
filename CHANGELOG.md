@@ -15,6 +15,13 @@
 
 ---
 
+## 2026-10-24 — Client build: hashtag insert type
+
+`tsc -b` failed on `handleInsertHashtags`: after skipping carousel arrays,
+`content` was still `PlatformContent | VideoScriptContentData`, and spreading
+a video script (object `hook`) is not a `PlatformContent`. The insert now
+also rejects content that has `segments`.
+
 ## 2026-10-24 — CI, Render, and Ideate 500
 
 GitHub `test` crashed because `schemas/index.ts` imports `config.ts`, which
