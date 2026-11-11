@@ -14,12 +14,21 @@ import IORedis from 'ioredis';
 import { env } from '../config.js';
 import { logger } from './logger.js';
 
+/** Log host only — never URL userinfo (password) prefixes. */
+function redisHostForLog(redisUrl: string): string {
+  try {
+    return new URL(redisUrl).hostname || '(unknown-host)';
+  } catch {
+    return '(invalid-url)';
+  }
+}
+
 function buildConnection(): IORedis | null {
   const redisUrl = env.UPSTASH_REDIS_URL || env.REDIS_URL || '';
   const redisToken = env.UPSTASH_REDIS_TOKEN || '';
 
   if (redisUrl && (redisUrl.startsWith('rediss://') || redisUrl.startsWith('redis://'))) {
-    logger.info('[Redis] Creating Redis connection', { urlPrefix: redisUrl.substring(0, 30) });
+    logger.info('[Redis] Creating Redis connection', { host: redisHostForLog(redisUrl) });
     return new IORedis(redisUrl, {
       maxRetriesPerRequest: null,
       enableReadyCheck: false,
@@ -28,8 +37,8 @@ function buildConnection(): IORedis | null {
   }
 
   if (redisUrl && redisUrl.startsWith('https://')) {
-    const host = redisUrl.replace('https://', '').replace('http://', '');
-    logger.info('[Redis] Creating Redis connection (REST mode)', { hostPrefix: host.substring(0, 30) });
+    const host = redisUrl.replace(/^https?:\/\//, '').split('/')[0] ?? '';
+    logger.info('[Redis] Creating Redis connection (REST mode)', { host: host || '(unknown-host)' });
     return new IORedis({
       host,
       port: 6379,

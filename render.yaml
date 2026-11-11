@@ -4,7 +4,11 @@ services:
     runtime: node
     plan: free
     rootDir: server
-    buildCommand: npm install --include=dev && npm --prefix ../client install --include=dev && npm run build
+    # WHY puppeteer browsers install after build: npm install often skips Chrome
+    # download (blocked install scripts / cache miss). Without an explicit install
+    # into PUPPETEER_CACHE_DIR (project-local so the slug upload includes it),
+    # carousel PNG export fails with "Could not find Chrome" on Render.
+    buildCommand: npm install --include=dev && npm --prefix ../client install --include=dev && npm run build && npx puppeteer browsers install chrome
     # WHY preDeployCommand, not folded into buildCommand: Render runs this after a successful
     # build but before traffic is cut over to the new deploy, and (unlike buildCommand) it fails
     # the deploy outright if the command exits non-zero — a broken migration blocks the rollout
@@ -16,6 +20,12 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # WHY project-local cache: /opt/render/.cache is not part of the uploaded
+      # build slug — Chrome must live under the service root to survive deploy.
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/project/src/server/.cache/puppeteer
+      - key: CLERK_TELEMETRY_DISABLED
+        value: '1'
       - key: DATABASE_URL
         sync: false
       - key: CLERK_SECRET_KEY
@@ -61,3 +71,5 @@ services:
         sync: false
       - key: RATE_LIMIT_MAX_JOBS
         value: '10'
+      - key: PUPPETEER_EXECUTABLE_PATH
+        sync: false

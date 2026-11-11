@@ -20,8 +20,12 @@ import { env } from '../config.js';
 // first render requests. The pool auto-scales up to POOL_MAX and then queues.
 // Prevents OOM when many users render carousels concurrently.
 
-export const POOL_MIN = 2;
-export const POOL_MAX = 8;
+// WHY smaller on Render: free-tier RAM can't hold POOL_MIN=2 × ~150MB Chromium
+// plus Express/BullMQ — pool init was logging "No browsers available" after
+// launch failures under memory pressure. Local/dev keeps the warmer pool.
+const onRender = env.RENDER === 'true';
+export const POOL_MIN = onRender ? 1 : 2;
+export const POOL_MAX = onRender ? 2 : 8;
 export const RENDER_TIMEOUT_MS = 60_000;
 // WHY: puppeteer.launch() and browser.close() have no built-in timeout — a hung
 // Chromium subprocess (OS-level stall, sandbox issue, zombie process) would block

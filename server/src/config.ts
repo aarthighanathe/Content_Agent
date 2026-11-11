@@ -88,6 +88,9 @@ const envSchema = z.object({
   // browserPool.ts's guessed Render-image paths. Set this on any deploy
   // target other than Render (or if Render's known paths ever change).
   PUPPETEER_EXECUTABLE_PATH: z.string().optional(),
+  // Directory for `npx puppeteer browsers install chrome` (Render pins this
+  // under the service root so Chrome survives the slug upload).
+  PUPPETEER_CACHE_DIR: z.string().optional(),
   // Set by Render's own platform (not something you configure) — used only
   // to gate browserPool.ts's Render-specific system-Chrome path guesses so
   // they aren't attempted on other platforms where those paths don't exist.

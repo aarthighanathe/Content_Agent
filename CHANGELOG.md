@@ -15,6 +15,17 @@
 
 ---
 
+## 2026-11-11 — Render: Chrome for carousel export + safer Redis logs
+
+- **Puppeteer on Render:** `render.yaml` build installs Chrome via
+  `npx puppeteer browsers install chrome` into a project-local
+  `PUPPETEER_CACHE_DIR` (home-dir cache is not in the uploaded slug). Browser
+  pool uses min 1 / max 2 when `RENDER=true` to fit free-tier RAM.
+- **Clerk:** set `CLERK_TELEMETRY_DISABLED=1` in the Blueprint to silence the
+  development-instance telemetry banner in production logs.
+- **Redis logs:** connection bootstrap logs hostname only — never a URL
+  prefix that can include password userinfo.
+
 ## 2026-11-11 — Full-platform QA bugfixes
 
 From the full-platform feature QA pass:
