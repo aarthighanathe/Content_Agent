@@ -71,9 +71,11 @@ export function ContentDnaCard({
         className="input"
         placeholder={'Post 1:\n...\n\nPost 2:\n...\n\nPost 3:\n...'}
         value={dnaSamples}
+        maxLength={10000}
         onChange={e => onDnaSamplesChange(e.target.value)}
         style={{ minHeight: 130, marginBottom: 4 }}
       />
+
       {/* WHY: the 50-char minimum was only enforced (and surfaced as an error) on
           submit — this makes progress toward that minimum visible as the user types. */}
       <div style={{

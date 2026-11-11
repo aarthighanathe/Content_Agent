@@ -40,9 +40,11 @@ export function BenchmarkCard({ isLoading, isError, totalPosts, dimensionAverage
       <CardHeader icon={<BarChart3 size={14} style={{ color: 'var(--accent)' }} />} title="How You Compare" />
 
       {isLoading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <SkeletonBlock height={11} radius={5} width="80%" />
-          <SkeletonBlock height={9} radius={4} width="55%" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 20px', alignItems: 'center' }}>
+          <SkeletonBlock width={28} height={9} radius={4} />
+          <SkeletonBlock width={48} height={9} radius={4} />
+          <SkeletonBlock width={64} height={22} radius={6} />
+          <SkeletonBlock height={12} radius={4} width="70%" />
         </div>
       ) : !hasOwnData ? (
         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>

@@ -22,9 +22,26 @@ export function IdentityCard({
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>Identity</div>
       </div>
       <label style={label}>Brand name</label>
-      <input type="text" className="input" placeholder="Your brand name" value={brandName} onChange={e => onBrandNameChange(e.target.value)} style={{ marginBottom: 14 }} />
+      {/* WHY maxLength 100: matches brandVoiceSchema — overlong paste used to reach the
+          server and fail Save with a generic banner (QA-BRAND-003). */}
+      <input
+        type="text"
+        className="input"
+        placeholder="Your brand name"
+        value={brandName}
+        maxLength={100}
+        onChange={e => onBrandNameChange(e.target.value)}
+        style={{ marginBottom: 14 }}
+      />
       <label style={label}>Industry</label>
-      <input type="text" className="input" placeholder="e.g., SaaS, E-commerce, Education" value={industry} onChange={e => onIndustryChange(e.target.value)} />
+      <input
+        type="text"
+        className="input"
+        placeholder="e.g., SaaS, E-commerce, Education"
+        value={industry}
+        maxLength={100}
+        onChange={e => onIndustryChange(e.target.value)}
+      />
     </div>
   );
 }

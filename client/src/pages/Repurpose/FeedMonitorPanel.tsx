@@ -6,9 +6,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Rss, PlusCircle, Trash2, Play, Pause, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   getFeedMonitors, createFeedMonitor, toggleFeedMonitor,
-  deleteFeedMonitor, checkFeedMonitorNow,
+  deleteFeedMonitor,
 } from '../../api';
-import { useTrackedTimeout } from '../../hooks/useTrackedTimeout';
+import { SkeletonBlock } from '../../components/SkeletonCard';
+import { useFeedMonitorCheck } from './useFeedMonitorCheck';
 
 const PLATFORMS = [
   { id: 'linkedin_post', label: 'LinkedIn Post' },
@@ -46,58 +47,51 @@ export function FeedMonitorPanel() {
   const [form, setForm] = useState<AddFormState>(DEFAULT_FORM);
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState(false);
-  // WHY separate from `error`: that state is scoped to the add-form section and only
-  // renders while showAdd is true — a "Check now" failure needs to surface next to the
-  // specific monitor row that failed, not silently vanish (checkMutation previously had
-  // no onError at all, matching none of its sibling mutations above).
-  const [checkError, setCheckError] = useState<{ id: string; message: string } | null>(null);
-
-  // WHY tracked, not a bare setTimeout: handleCheck's refresh-after-delay timer
-  // used to be fired-and-forgotten with no cleanup — if the panel unmounted
-  // (navigating away from Repurpose) within the 2s window, the timer still
-  // fired and called setState on an unmounted component. Shared implementation
-  // (hooks/useTrackedTimeout.ts) of the same pattern used by useSocial.ts.
-  const pendingTimeouts = useTrackedTimeout();
+  const { checkMutation, checkingId, checkError } = useFeedMonitorCheck();
 
   const createMutation = useMutation({
     mutationFn: createFeedMonitor,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feedMonitors'] });
+      Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ['feedMonitors'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'feedMonitors'] }),
+      ]).catch(() => {});
       setForm(DEFAULT_FORM);
       setShowAdd(false);
       setError('');
     },
-    onError: () => setError('Failed to subscribe — check the URL and try again.'),
+    onError: (err: unknown) => {
+      // WHY surface server probe reason (QA-FEED-001): create now validates the
+      // feed is fetchable/parseable — Axios puts that message on response.data.error.
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      const serverMsg = axiosErr.response?.data?.error;
+      setError(
+        typeof serverMsg === 'string' && serverMsg.trim()
+          ? serverMsg
+          : 'Failed to subscribe — check the URL and try again.',
+      );
+    },
   });
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, active }: { id: string; active: boolean }) => toggleFeedMonitor(id, active),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['feedMonitors'] }),
+    onSuccess: () => {
+      Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ['feedMonitors'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'feedMonitors'] }),
+      ]).catch(() => {});
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteFeedMonitor(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['feedMonitors'] }),
-  });
-
-  // WHY useMutation (not a raw awaited call): checkFeedMonitorNow is a genuine
-  // server-mutating POST call exactly like create/toggle/delete above — all
-  // three of which already go through useMutation. This previously bypassed
-  // React Query entirely, getting none of the isPending/isError/cache handling
-  // its siblings get.
-  const checkMutation = useMutation({
-    mutationFn: (id: string) => checkFeedMonitorNow(id),
     onSuccess: () => {
-      setCheckError(null);
-      // Refresh after a brief pause so lastCheckedAt updates — tracked so the
-      // timeout is cleared if the panel unmounts before it fires.
-      pendingTimeouts.set(() => {
-        queryClient.invalidateQueries({ queryKey: ['feedMonitors'] });
-      }, 2000);
+      Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ['feedMonitors'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'feedMonitors'] }),
+      ]).catch(() => {});
     },
-    onError: (_err, id) => setCheckError({ id, message: 'Check failed — try again shortly.' }),
   });
-  const checkingId = checkMutation.isPending ? checkMutation.variables : null;
 
   async function handleAdd() {
     if (!form.feedUrl.trim()) { setError('Feed URL is required'); return; }
@@ -132,14 +126,17 @@ export function FeedMonitorPanel() {
   return (
     <div style={{
       background: 'var(--bg-raised)', border: '1px solid var(--rule)',
-      borderRadius: 16, overflow: 'hidden',
+      borderRadius: 16, overflow: 'hidden', flexShrink: 0,
     }}>
       {/* Header */}
-      <div
+      <button
+        type="button"
         onClick={() => setCollapsed((v) => !v)}
+        aria-expanded={!collapsed}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px', cursor: 'pointer', userSelect: 'none',
+          width: '100%', padding: '16px 20px', cursor: 'pointer', userSelect: 'none',
+          background: 'transparent', border: 'none', color: 'inherit', textAlign: 'left',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -158,12 +155,41 @@ export function FeedMonitorPanel() {
         {collapsed
           ? <ChevronDown size={13} color="var(--text-muted)" />
           : <ChevronUp size={13} color="var(--text-muted)" />}
-      </div>
+      </button>
 
       {!collapsed && (
         <div style={{ padding: '0 20px 20px' }}>
           {/* Monitor list */}
-          {loading && <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>Loading…</p>}
+          {loading && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }} aria-busy="true">
+              {['a', 'b'].map((id) => (
+                <div
+                  key={id}
+                  style={{
+                    background: 'color-mix(in srgb, var(--text-primary) 2%, transparent)',
+                    border: '1px solid var(--rule)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <SkeletonBlock width="48%" height={12} radius={4} />
+                    <SkeletonBlock width="36%" height={11} radius={4} delay={0.08} style={{ marginTop: 6 }} />
+                    <SkeletonBlock width="42%" height={10} radius={4} delay={0.12} style={{ marginTop: 6 }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <SkeletonBlock width={22} height={22} radius={6} />
+                    <SkeletonBlock width={22} height={22} radius={6} />
+                    <SkeletonBlock width={22} height={22} radius={6} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {!loading && monitors.length === 0 && !showAdd && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 12 }}>

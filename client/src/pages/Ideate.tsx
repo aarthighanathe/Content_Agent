@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Lightbulb } from 'lucide-react';
 import { generateIdeas, getCompetitorHistory, regenerateIdea } from '../api';
 import { getSubmitError } from '../lib/errorMessages';
 import { navigateToCreate, timeAgo } from '../lib/utils';
-import { SkeletonCard } from '../components/SkeletonCard';
+import { IdeaCardSkeleton } from '../components/SkeletonCard';
 import { useAppStore } from '../store';
 import type { IdeatedIdea } from '../store';
 import { IdeateControls } from './Ideate/IdeateControls';
@@ -25,6 +25,7 @@ export default function IdeatePage() {
   const unsaveIdea = useAppStore((s) => s.unsaveIdea);
 
   const [loading, setLoading] = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError] = useState('');
   const [focusTopic, setFocusTopic] = useState('');
   const [platformFilter, setPlatformFilter] = useState<string | null>(null);
@@ -50,6 +51,8 @@ export default function IdeatePage() {
   const savedTitles = useMemo(() => new Set(savedIdeas.map((s) => s.title)), [savedIdeas]);
 
   async function fetchIdeas() {
+    if (loading || submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
     setError('');
     try {
@@ -68,6 +71,7 @@ export default function IdeatePage() {
       setError(getSubmitError(err, fallback).message);
     }
     setLoading(false);
+    submittingRef.current = false;
   }
 
   function handleCreate(idea: IdeatedIdea) {
@@ -171,11 +175,11 @@ export default function IdeatePage() {
         </div>
       )}
 
-      {/* Loading skeletons — 2-column grid */}
+      {/* Loading skeletons — same 3-column grid as the idea cards */}
       {loading && (
-        <div className="ideate-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 10 }}>
-          {Array.from({ length: count }).map((_, i) => (
-            <SkeletonCard key={i} size="lines" />
+        <div className="ideate-grid">
+          {Array.from({ length: count }, (_, i) => `idea-skel-${i}`).map((id) => (
+            <IdeaCardSkeleton key={id} />
           ))}
           <style>{`
             @keyframes spin { to { transform: rotate(360deg); } }
@@ -183,9 +187,9 @@ export default function IdeatePage() {
         </div>
       )}
 
-      {/* Ideas grid — 2 columns on desktop */}
+      {/* Ideas grid — 3 columns on desktop; see .ideate-grid in index.css */}
       {!loading && visibleIdeas.length > 0 && (
-        <div className="ideate-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 12, alignItems: 'stretch' }}>
+        <div className="ideate-grid">
           {visibleIdeas.map((idea) => {
             // WHY the full-array index, not the loop-position index: filtering
             // visibleIdeas by platform reshuffles loop position on every filter

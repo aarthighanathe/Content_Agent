@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { X, CalendarDays, ExternalLink, Trash2, PlusCircle, ChevronDown, Send, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { platformMeta } from '../../lib/platformMeta';
@@ -59,18 +59,6 @@ export function DayDetailPanel({
   // WHY local draft hour: chosen before/while picking a platform so the first
   // allocate() call already carries the user's preferred time (default 9).
   const [draftHour, setDraftHour] = useState(9);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  // WHY: this panel renders below the grid inside the same scrollable .sc-cal column,
-  // so on any viewport where the grid + header already fill the visible area, opening
-  // a day silently appends content off-screen with no visual cue it exists — the user
-  // has to already know to scroll. Auto-scrolling it into view on selection closes that
-  // gap without needing to relocate the panel (which would break the click-day-to-expand
-  // mental model). Re-fires on selectedDay change (new day picked while one is already
-  // open), not just mount.
-  useEffect(() => {
-    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [selectedDay]);
 
   // WHY fetched here, not passed as a prop from Calendar.tsx: only this panel
   // needs the connected-accounts list (to populate the publish-platform
@@ -91,7 +79,7 @@ export function DayDetailPanel({
   });
 
   return (
-    <div className="sc-detail" ref={panelRef}>
+    <div className="sc-detail">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'color-mix(in srgb, var(--accent) 70%, transparent)', marginBottom: 4 }}>
@@ -209,6 +197,9 @@ export function DayDetailPanel({
                       <select
                         aria-label="Auto-publish hour"
                         value={post.publishHour ?? 9}
+                        // WHY disabled when posted (CORR-006): changing the hour
+                        // used to re-POST pending and queue a second publish.
+                        disabled={post.publishStatus === 'posted' || post.publishStatus === 'publishing'}
                         onChange={(e) => {
                           const hour = Number(e.target.value);
                           if (!Number.isFinite(hour) || !post.publishPlatform) return;
@@ -222,6 +213,7 @@ export function DayDetailPanel({
                           fontSize: 9.5,
                           fontFamily: 'var(--font-mono)',
                           padding: '2px 4px',
+                          opacity: post.publishStatus === 'posted' || post.publishStatus === 'publishing' ? 0.55 : 1,
                         }}
                       >
                         {PUBLISH_HOURS.map((h) => (

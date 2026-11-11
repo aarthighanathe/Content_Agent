@@ -4,6 +4,7 @@ import type { CompetitorAnalysisHistoryItem } from '../../types/social';
 import { timeAgo } from '../../lib/utils';
 import { deleteCompetitorAnalysis } from '../../api';
 import { useQueryClient } from '@tanstack/react-query';
+import { competitorPlatformLabel } from './platforms';
 
 interface HistoryDropdownProps {
   isLoading: boolean;
@@ -20,17 +21,19 @@ interface HistoryDropdownProps {
 export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownProps) {
   const [open, setOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState('');
   const queryClient = useQueryClient();
 
   async function handleDelete(e: React.MouseEvent, id: string) {
     e.stopPropagation();
     if (deletingId) return;
     setDeletingId(id);
+    setDeleteError('');
     try {
       await deleteCompetitorAnalysis(id);
       queryClient.invalidateQueries({ queryKey: ['competitor', 'history'] });
-    } catch (err) {
-      console.error('Failed to delete analysis:', err);
+    } catch {
+      setDeleteError('Could not delete — try again.');
     } finally {
       setDeletingId(null);
     }
@@ -73,47 +76,55 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
             role="listbox"
             style={{
               position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 11,
-              minWidth: 260, maxHeight: 320, overflowY: 'auto',
+              minWidth: 280, maxHeight: 320, overflowY: 'auto',
               background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 10,
               boxShadow: '0 8px 24px rgba(0,0,0,0.25)', padding: 6,
             }}
           >
+            {deleteError && (
+              <p style={{ fontSize: 11, color: 'var(--color-error)', margin: '4px 8px 8px' }}>
+                {deleteError}
+              </p>
+            )}
             {items.map((item) => (
-              <button
+              <div
                 key={item.id}
-                type="button"
                 role="option"
                 aria-selected={false}
-                onClick={() => { onSelect(item); setOpen(false); }}
                 style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
-                  width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
-                  borderRadius: 7, padding: '8px 10px', cursor: 'pointer', position: 'relative',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  width: '100%', borderRadius: 7, padding: '4px 4px 4px 10px',
                 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--accent) 8%, transparent)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
               >
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }}>@{item.handle}</span>
-                <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
-                  {item.industry ? `${item.industry} · ` : ''}{timeAgo(item.createdAt)}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => { onSelect(item); setOpen(false); }}
+                  style={{
+                    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+                    textAlign: 'left', background: 'transparent', border: 'none',
+                    borderRadius: 7, padding: '6px 4px', cursor: 'pointer', minWidth: 0,
+                  }}
+                >
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }}>@{item.handle}</span>
+                  <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
+                    {[competitorPlatformLabel(item.platform), item.industry, timeAgo(item.createdAt)]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </button>
                 <button
                   type="button"
                   onClick={(e) => handleDelete(e, item.id)}
                   disabled={deletingId === item.id}
                   aria-label={`Delete analysis for @${item.handle}`}
                   style={{
-                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                    background: 'transparent', border: 'none', cursor: 'pointer',
-                    padding: 4, borderRadius: 4, color: 'var(--text-muted)',
-                    opacity: 0, transition: 'opacity .15s',
+                    flexShrink: 0, background: 'transparent', border: 'none', cursor: 'pointer',
+                    padding: 6, borderRadius: 4, color: 'var(--text-muted)',
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-error)'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'; }}
                 >
                   <Trash2 size={12} />
                 </button>
-              </button>
+              </div>
             ))}
           </div>
         </>

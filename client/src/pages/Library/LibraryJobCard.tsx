@@ -38,8 +38,8 @@ export function LibraryJobCard({
 }: LibraryJobCardProps): React.JSX.Element {
   const moreRef = useRef<HTMLButtonElement>(null);
   const pm = platformMeta[job.platform] || {
-    label: job.platform, color: '#A78BFA', Icon: Layers,
-    bg: 'rgba(167,139,250,0.08)', border: 'rgba(167,139,250,0.20)', badgeClass: 'badge-purple',
+    label: job.platform, color: '#B794F6', Icon: Layers,
+    bg: 'rgba(183,148,246,0.10)', border: 'rgba(183,148,246,0.22)', badgeClass: 'badge-purple',
   };
   const sc = statusConfig[job.status] || { label: job.status, color: '#A78BFA' };
   const qs = getQualityScore(job);
@@ -72,10 +72,7 @@ export function LibraryJobCard({
         <pm.Icon size={17} style={{ color: pm.color }} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{
-          fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0, lineHeight: 1.3,
-        }}>
+        <p className="lib-card-topic">
           {job.topic}
         </p>
         <div style={{

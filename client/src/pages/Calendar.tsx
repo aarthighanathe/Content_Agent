@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CalendarSidebar } from './Calendar/CalendarSidebar';
@@ -102,6 +102,15 @@ export default function CalendarPage() {
     });
   }
 
+  useEffect(() => {
+    if (!selectedDay) return;
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setSelectedDay(null);
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selectedDay]);
+
   function prevMonth() { const d = new Date(viewDate); d.setMonth(d.getMonth()-1); setViewDate(d); setSelectedDay(null); }
   function nextMonth() { const d = new Date(viewDate); d.setMonth(d.getMonth()+1); setViewDate(d); setSelectedDay(null); }
 
@@ -116,7 +125,7 @@ export default function CalendarPage() {
   }).reduce((acc, [, ids]) => acc + ids.length, 0);
 
   return (
-    <div style={{ display: 'flex', gap: 0, height: '100%', minHeight: 0, position: 'relative' }}>
+    <div className="sc-page">
       <style>{CALENDAR_STYLES}</style>
 
       {/* WHY a fixed toast, not an inline banner: a schedule/unschedule action can
@@ -188,23 +197,33 @@ export default function CalendarPage() {
         dragJobId={dragJobId}
         onDrop={(dateKey) => { if (dragJobId) { allocate(dateKey, dragJobId); setDragJobId(null); } }}
         scheduledOnDay={scheduledOnDay}
-      >
-        {selectedDay && (
-          <DayDetailPanel
-            selectedDay={selectedDay}
-            jobs={scheduledOnDay(selectedDay)}
-            postsByJobId={postsByJobId}
-            onClose={() => setSelectedDay(null)}
-            onViewResult={(jobId) => navigate(`/result/${jobId}`)}
-            onRemove={removeFromSchedule}
-            unscheduled={unscheduled}
-            onAddContent={(jobId) => allocate(selectedDay, jobId)}
-            onSetPublishPlatform={(jobId, platform, publishHour) =>
-              allocate(selectedDay, jobId, platform, publishHour)
-            }
-          />
-        )}
-      </CalendarGrid>
+      />
+
+      {selectedDay && (
+        <div className="sc-modal-scrim" onClick={() => setSelectedDay(null)}>
+          <div
+            className="sc-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Scheduled posts"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DayDetailPanel
+              selectedDay={selectedDay}
+              jobs={scheduledOnDay(selectedDay)}
+              postsByJobId={postsByJobId}
+              onClose={() => setSelectedDay(null)}
+              onViewResult={(jobId) => navigate(`/result/${jobId}`)}
+              onRemove={removeFromSchedule}
+              unscheduled={unscheduled}
+              onAddContent={(jobId) => allocate(selectedDay, jobId)}
+              onSetPublishPlatform={(jobId, platform, publishHour) =>
+                allocate(selectedDay, jobId, platform, publishHour)
+              }
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

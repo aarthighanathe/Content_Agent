@@ -118,6 +118,16 @@ export interface SocialConnection {
   expiresAt?: number | null;
 }
 
+export interface SocialOAuthConfigured {
+  linkedin: boolean;
+  twitter: boolean;
+}
+
+export interface SocialConnectionsResponse {
+  connections: SocialConnection[];
+  oauthConfigured?: SocialOAuthConfigured;
+}
+
 export interface SSEProgress {
   type: 'progress' | 'connected' | 'slide_ready';
   stage?: string;

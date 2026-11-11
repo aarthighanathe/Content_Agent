@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Loader2, Sparkles, RotateCcw } from 'lucide-react';
@@ -10,6 +10,7 @@ import { InfoSidebar } from './Repurpose/InfoSidebar';
 import { PlatformPicker } from './Repurpose/PlatformPicker';
 import { UrlInput } from './Repurpose/UrlInput';
 import { FeedMonitorPanel } from './Repurpose/FeedMonitorPanel';
+import { SidebarScroller } from './Repurpose/SidebarScroller';
 
 const platforms = [
   { id: 'instagram_carousel', label: 'Instagram Carousel', Icon: Instagram, gradient: 'linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)', accent: '#ec4899' },
@@ -36,35 +37,12 @@ export default function RepurposePage() {
   const [tone, setTone]         = useState('professional');
   const [audience, setAudience] = useState('');
   const [loading, setLoading]   = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError]       = useState('');
   // Batch-URL mode state
   const [batchMode, setBatchMode]   = useState(false);
   const [batchUrls, setBatchUrls]   = useState('');
   const { history, addEntry, removeEntry } = useRepurposeHistory();
-
-  // WHY measure the left form's rendered height in JS and use it as a hard cap on the right
-  // column, rather than `position: sticky` + a viewport-relative `max-height` (tried first,
-  // matching Result.css's `.rp-sidebar` pattern): this page's grid sits well below the top of
-  // `.main-inner` (40px padding + the "Repurpose Anything" heading block), so a sticky box sized
-  // off `100vh` was taller than the space actually left below it in its resting scroll position —
-  // both its top and bottom content ended up clipped depending on scroll offset, never fully
-  // reachable. Measuring the left form's actual height and capping the right column there (with
-  // `overflowY: auto`) guarantees the box is never taller than what naturally fits, and every
-  // pixel of it is reachable by scrolling within its own border. ResizeObserver keeps it in sync
-  // as the form's height changes (tone pills wrapping, error/loading banners, batch mode, etc.).
-  const leftColRef = useRef<HTMLDivElement>(null);
-  const [leftColHeight, setLeftColHeight] = useState<number | undefined>(undefined);
-
-  useEffect(() => {
-    const el = leftColRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setLeftColHeight(entry.contentRect.height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
 
   // WHY separate multi-select set instead of reusing `platform` as an array:
   // the single-platform picker (one selected pill) is the common path and
@@ -140,13 +118,15 @@ export default function RepurposePage() {
   // fake that distinction, contradicting Result's own LoadingView comment about never
   // showing invented progress (audit #32). One honest state instead.
   async function handleRepurpose() {
-    if (!isValid || loading) return;
+    if (!isValid || loading || submittingRef.current) return;
+    submittingRef.current = true;
 
     // ── Batch-URL mode: N URLs → one job each ────────────────────────────────────
     if (batchMode) {
       const badUrls = parsedBatchUrls.filter((item) => { try { const p = new URL(item.url); return !['http:', 'https:'].includes(p.protocol); } catch { return true; } });
       if (badUrls.length > 0) {
         setError(`Invalid URL(s): ${badUrls.slice(0, 2).map((i) => i.url).join(', ')}${badUrls.length > 2 ? ' …' : ''}`);
+        submittingRef.current = false;
         return;
       }
       setLoading(true);
@@ -171,11 +151,18 @@ export default function RepurposePage() {
             );
           } catch { /* ignore */ }
           navigate('/batch-result', { state: { jobs, creationFailedCount: failedItems.length } });
+        } else {
+          // WHY clear loading when every URL failed: previously only the catch
+          // path called setLoading(false), so a 200 with jobs.length === 0 left
+          // the button stuck on "Processing…" until the user left the page.
+          setLoading(false);
+          submittingRef.current = false;
         }
       } catch (err: unknown) {
         const msg = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
         setError(msg || 'Batch failed — please try again.');
         setLoading(false);
+        submittingRef.current = false;
       }
       return;
     }
@@ -184,6 +171,7 @@ export default function RepurposePage() {
     const clientError = validateUrl(url);
     if (clientError) {
       setError(clientError);
+      submittingRef.current = false;
       return;
     }
     setLoading(true);
@@ -233,6 +221,7 @@ export default function RepurposePage() {
       addEntry({ url: trimmedUrl, platform, outcome: 'failed', errorMessage });
       setError(errorMessage);
       setLoading(false);
+      submittingRef.current = false;
     }
   }
 
@@ -249,6 +238,8 @@ export default function RepurposePage() {
     setTone('professional');
     setAudience('');
     setError('');
+    setLoading(false);
+    submittingRef.current = false;
   }
 
   // WHY re-fill, not re-submit: a past failure might need the user to check
@@ -265,9 +256,9 @@ export default function RepurposePage() {
   }
 
   return (
-    <div>
+    <div className="repurpose-page">
       {/* Page Header */}
-      <div style={{ marginBottom: 32 }}>
+      <div className="repurpose-page-header" style={{ marginBottom: 32 }}>
         <h1 style={{ fontFamily: "var(--font-heading)", fontSize: "clamp(20px, 5vw, 28px)", fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
           Repurpose Anything
         </h1>
@@ -278,7 +269,7 @@ export default function RepurposePage() {
       </div>
 
       {/* Two-column layout — stacks on tablet via .grid-repurpose */}
-      <div className="grid-repurpose" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 320px)', gap: 24, alignItems: 'start' }}>
+      <div className="grid-repurpose" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 320px)', gap: 24 }}>
         <style>{`
           @media (max-width: 375px) {
             .grid-repurpose {
@@ -291,23 +282,32 @@ export default function RepurposePage() {
           .repurpose-sidebar-col {
             overflow-y: auto;
             overflow-x: hidden;
-            scrollbar-width: thin;
-            scrollbar-color: color-mix(in srgb, var(--accent) 18%, transparent) transparent;
+            scrollbar-width: none;
+            flex: 1 1 auto;
+            height: 100%;
+            padding-right: 16px;
           }
-          .repurpose-sidebar-col::-webkit-scrollbar { width: 5px; }
-          .repurpose-sidebar-col::-webkit-scrollbar-track { background: transparent; }
-          .repurpose-sidebar-col::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 20%, transparent); border-radius: 3px; }
+          .repurpose-sidebar-col::-webkit-scrollbar { width: 0; height: 0; display: none; }
+          .repurpose-sidebar-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            flex-shrink: 0;
+          }
           @media (max-width: 900px) {
+            .repurpose-sidebar-wrap { height: auto; position: static; }
             .repurpose-sidebar-col {
               height: auto !important;
               max-height: none !important;
               overflow: visible !important;
+              padding-right: 0;
             }
+            .repurpose-sidebar-wrap .visible-scroll-track { display: none; }
           }
         `}</style>
 
         {/* ── Left: Form ── */}
-        <div ref={leftColRef} style={{
+        <div className="repurpose-form" style={{
           background: 'var(--bg-raised)', border: '1px solid var(--rule)',
           borderRadius: 16, padding: '28px 28px',
         }}>
@@ -396,6 +396,13 @@ export default function RepurposePage() {
             />
           </div>
 
+          <div className="repurpose-run-note">
+            <p className="repurpose-run-kicker">What happens next</p>
+            <p>
+              Reads the link, rewrites it in the tone you picked, and scores it before you see the result.
+            </p>
+          </div>
+
           {/* Error */}
           {error && (
             <div style={{
@@ -436,7 +443,7 @@ export default function RepurposePage() {
           <button
             onClick={handleRepurpose}
             disabled={!isValid || loading}
-            className="btn-primary"
+            className="btn-primary repurpose-submit"
             style={{ width: '100%', justifyContent: 'center', fontSize: 15 }}
           >
             {loading
@@ -452,22 +459,13 @@ export default function RepurposePage() {
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
 
-        {/* ── Right: Info sidebar ── height is capped to the left form's measured height
-            (leftColHeight, see the ResizeObserver above) so every pixel of FeedMonitorPanel +
-            history + InfoSidebar is reachable by scrolling within this box's own border,
-            regardless of where the grid sits on the page. Falls back to normal document flow on
-            tablet (.repurpose-sidebar-col media query above), where the columns stack. */}
-        <div
-          className="repurpose-sidebar-col"
-          style={{
-            display: 'flex', flexDirection: 'column', gap: 16, paddingRight: 4,
-            height: leftColHeight ? `${leftColHeight}px` : undefined,
-          }}
-        >
+        {/* ── Right: Info sidebar ── same height as the form. The scroller paints
+            its own track when the cards run past that height. */}
+        <SidebarScroller>
           <FeedMonitorPanel />
           <RepurposeHistoryList history={history} onRetry={handleRetryFromHistory} onRemove={removeEntry} />
           <InfoSidebar />
-        </div>
+        </SidebarScroller>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { Check, AlertCircle } from 'lucide-react';
-import { LIBRARY_STYLES } from './Library/libraryHelpers';
+import { LIBRARY_STYLES } from './Library/libraryStyles';
 import { LibraryHeader } from './Library/LibraryHeader';
 import { LibraryToolbar } from './Library/LibraryToolbar';
 import { LibraryAnalyticsPanel } from './Library/LibraryAnalyticsPanel';
@@ -16,6 +16,8 @@ export default function LibraryPage() {
 
       <LibraryHeader
         total={lib.total}
+        loading={lib.jobsLoading}
+        loadError={lib.jobsError}
         manageMode={lib.manageMode}
         onToggleManageMode={() => { lib.setManageMode(p => !p); lib.setSelectedIds(new Set()); }}
         showAnalytics={lib.showAnalytics}
@@ -27,8 +29,14 @@ export default function LibraryPage() {
         onSearchChange={lib.setSearch}
         manageMode={lib.manageMode}
         selectedCount={lib.selectedIds.size}
-        onSelectAll={() => { lib.handleSelectAllMatching().catch(() => {}); }}
-        selectingAll={lib.selectingAll}
+        pageJobCount={lib.filteredJobs.length}
+        matchingCount={lib.matchingCount}
+        pageFullySelected={lib.pageFullySelected}
+        allMatchingSelected={lib.allMatchingSelected}
+        hasActiveFilter={lib.hasActiveFilter}
+        onSelectPage={lib.handleSelectPage}
+        onSelectAllMatching={lib.handleSelectAllMatching}
+        onClearSelection={lib.handleClearSelection}
         onExportCSV={() => { lib.exportCSV().catch(() => {}); }}
         exporting={lib.exporting}
         onBulkDelete={() => lib.setBulkDeleteConfirm(true)}

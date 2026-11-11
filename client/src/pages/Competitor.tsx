@@ -4,10 +4,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { analyzeCompetitor, getCompetitorHistory, getProfile } from '../api';
 import { navigateToCreate } from '../lib/utils';
-import type { AnalyzeCompetitorResponse, CompetitorAnalysisHistoryItem } from '../types/social';
+import type {
+  AnalyzeCompetitorResponse,
+  CompetitorAnalysisHistoryItem,
+  CompetitorPlatform,
+} from '../types/social';
 import { Search, TrendingUp, Target, Lightbulb, AlertCircle, Sparkles } from 'lucide-react';
 import { BenchmarkCard } from './Competitor/BenchmarkCard';
+import { CompetitorSkeleton } from './Competitor/CompetitorSkeleton';
 import { HistoryDropdown } from './Competitor/HistoryDropdown';
+import { PlatformSelector } from './Competitor/PlatformSelector';
+import { competitorPlatformLabel } from './Competitor/platforms';
 import { CardHeader } from './Dashboard/CardHeader';
 
 // WHY no postingFrequency/avgEngagementTier: the prompt (server/src/routes/content/competitor.ts)
@@ -26,6 +33,7 @@ export default function CompetitorPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [handle, setHandle]       = useState('');
+  const [platform, setPlatform]   = useState<CompetitorPlatform | ''>('');
   const [industry, setIndustry]   = useState('');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
@@ -45,20 +53,36 @@ export default function CompetitorPage() {
 
   function handleSelectHistory(item: CompetitorAnalysisHistoryItem) {
     setHandle(item.handle);
+    setPlatform(
+      item.platform === 'linkedin' || item.platform === 'twitter' || item.platform === 'instagram'
+        ? item.platform
+        : '',
+    );
     setIndustry(item.industry || '');
     setError('');
-    setResult({ handle: item.handle, analysis: item.analysis, analysisId: item.id });
+    setResult({
+      handle: item.handle,
+      platform: item.platform === 'linkedin' || item.platform === 'twitter' || item.platform === 'instagram'
+        ? item.platform
+        : undefined,
+      analysis: item.analysis,
+      analysisId: item.id,
+    });
   }
 
   async function handleAnalyze() {
     if (loading) return;
     const trimmed = handle.trim().replace(/^@/, '');
-    if (!trimmed) return;
+    if (!trimmed || !platform) return;
     setLoading(true);
     setError('');
     setResult(null);
     try {
-      const res = await analyzeCompetitor({ handle: trimmed, industry: industry.trim() || undefined });
+      const res = await analyzeCompetitor({
+        handle: trimmed,
+        platform,
+        industry: industry.trim() || undefined,
+      });
       setResult(res);
       // WHY invalidate (not a manual cache write): the persisted row's exact
       // createdAt/id come from the server's best-effort insert, which this
@@ -98,6 +122,15 @@ export default function CompetitorPage() {
 
       {/* Input card */}
       <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent) 18%, transparent)', borderRadius: 14, padding: 24, marginBottom: 28 }}>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)', display: 'block', marginBottom: 8 }}>
+            Platform
+          </label>
+          <PlatformSelector value={platform} onChange={setPlatform} disabled={loading} />
+          <p style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 6 }}>
+            Pick where this handle lives so search doesn’t match the wrong person.
+          </p>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }} className="comp-form-grid">
           <div>
             <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)', display: 'block', marginBottom: 8 }}>
@@ -110,12 +143,24 @@ export default function CompetitorPage() {
                 value={handle}
                 onChange={(e) => setHandle(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleAnalyze(); }}
-                placeholder="garyvee, hubspot, naval…"
+                placeholder={
+                  platform === 'linkedin'
+                    ? 'vanity-slug or linkedin.com/in/…'
+                    : platform === 'twitter'
+                      ? 'handle or x.com/…'
+                      : platform === 'instagram'
+                        ? 'handle or instagram.com/…'
+                        : 'handle or profile URL'
+                }
                 style={{ paddingLeft: 28, width: '100%' }}
                 disabled={loading}
               />
             </div>
-            <p style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 5 }}>LinkedIn, Twitter/X, Instagram handle</p>
+            <p style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 5 }}>
+              {platform === 'linkedin'
+                ? 'Tip: paste your LinkedIn profile URL for the most reliable match'
+                : 'Username or full profile URL'}
+            </p>
           </div>
           <div>
             <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)', display: 'block', marginBottom: 8 }}>
@@ -140,7 +185,7 @@ export default function CompetitorPage() {
           <button
             className="btn-primary"
             onClick={handleAnalyze}
-            disabled={!handle.trim() || loading}
+            disabled={!handle.trim() || !platform || loading}
             style={{ display: 'flex', alignItems: 'center', gap: 8 }}
           >
             {loading ? (
@@ -168,16 +213,7 @@ export default function CompetitorPage() {
       </div>
 
       {/* Loading state */}
-      {loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '48px 0', color: 'var(--text-muted)' }}>
-          <div style={{ position: 'relative', width: 52, height: 52 }}>
-            <div style={{ width: 52, height: 52, borderRadius: '50%', border: '2px solid color-mix(in srgb, var(--accent) 12%, transparent)', borderTopColor: 'var(--accent)', animation: 'comp-spin .9s linear infinite' }} />
-            <div style={{ position: 'absolute', inset: 9, borderRadius: '50%', border: '1.5px solid color-mix(in srgb, var(--accent-2) 12%, transparent)', borderBottomColor: 'color-mix(in srgb, var(--accent-2) 45%, transparent)', animation: 'comp-spinR .65s linear infinite' }} />
-          </div>
-          <p style={{ fontSize: 13, margin: 0 }}>Analyzing @{handle.replace(/^@/, '')} content patterns…</p>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>This may take 10–20 seconds</p>
-        </div>
-      )}
+      {loading && <CompetitorSkeleton />}
 
       {/* Results */}
       {analysis && !loading && (
@@ -186,7 +222,18 @@ export default function CompetitorPage() {
           <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 14, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: 'var(--accent)', letterSpacing: 1.5, marginBottom: 5, textTransform: 'uppercase' }}>@{result?.handle}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: 'var(--accent)', letterSpacing: 1.5, textTransform: 'uppercase' }}>@{result?.handle}</div>
+                  {(result?.platform || platform) && (
+                    <span style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 0.8, textTransform: 'uppercase',
+                      color: 'var(--text-muted)', border: '1px solid var(--rule)', borderRadius: 20,
+                      padding: '2px 8px',
+                    }}>
+                      {competitorPlatformLabel(result?.platform || platform)}
+                    </span>
+                  )}
+                </div>
                 <h2 style={{ fontFamily: "var(--font-heading)", fontSize: 21, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{analysis.brandName}</h2>
                 <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>{analysis.estimatedNiche}</p>
               </div>
@@ -194,6 +241,11 @@ export default function CompetitorPage() {
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65, margin: 0, paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
               {analysis.keyTakeaway}
             </p>
+            {analysis.dataQualityNote && (
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+                {analysis.dataQualityNote}
+              </p>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="comp-grid">
@@ -335,14 +387,13 @@ export default function CompetitorPage() {
       {!result && !loading && !error && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '48px 24px', gap: 12, color: 'var(--text-muted)' }}>
           <div style={{ marginBottom: 4, opacity: 0.6 }}><Search size={40} /></div>
-          <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>Enter a competitor handle to analyze</p>
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>Pick a platform and handle to analyze</p>
           <p style={{ margin: 0, fontSize: 12 }}>Find their top themes, content gaps, and angles you can own.</p>
         </div>
       )}
 
       <style>{`
         @keyframes comp-spin  { to{transform:rotate(360deg)} }
-        @keyframes comp-spinR { to{transform:rotate(-360deg)} }
         @keyframes comp-fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
         @media (max-width:900px) {
           .comp-form-grid { grid-template-columns:1fr !important; }

@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { GripVertical, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { platformMeta } from '../../lib/platformMeta';
 import { ErrorState } from '../../components/ErrorState';
@@ -30,15 +29,12 @@ interface CalendarGridProps {
   dragJobId: string | null;
   onDrop: (dateKey: string) => void;
   scheduledOnDay: (dateKey: string) => CalendarJob[];
-  /** DayDetailPanel, rendered by the caller — lives in the same scrollable .sc-cal column below the grid. */
-  children?: ReactNode;
 }
 
 export function CalendarGrid({
   onToggleSidebar, year, month, totalCells, firstDayOfWeek, daysInMonth, today,
   allScheduledCount, thisMonthScheduledCount, unscheduledCount, onPrevMonth, onNextMonth, onToday,
-  isError, loading, onRetry, selectedDay, onSelectDay, dragOver, onDragOver, dragJobId, onDrop, scheduledOnDay,
-  children,
+  isError, loading, onRetry, selectedDay, onSelectDay, dragOver, onDragOver, dragJobId,   onDrop, scheduledOnDay,
 }: CalendarGridProps) {
   return (
     <div className="sc-cal">
@@ -174,8 +170,6 @@ export function CalendarGrid({
           })}
         </div>
       )}
-
-      {children}
     </div>
   );
 }

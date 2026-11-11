@@ -3,9 +3,9 @@ import { ChevronRight, Sparkles, Lightbulb, Layers, RefreshCw, X } from 'lucide-
 import { platformMeta } from '../../lib/platformMeta';
 import { timeAgo, navigateToCreate } from '../../lib/utils';
 import { QualityTierBadge } from '../../components/QualityTierBadge';
-import { SkeletonCard } from '../../components/SkeletonCard';
+import { JobRowSkeleton } from '../../components/SkeletonCard';
 import type { DashboardJob } from './dashboardTypes';
-import { getContentTotalScore } from './dashboardTypes';
+import { getLatestQualityScore } from '../../lib/qualityScore';
 
 const DASHBOARD_LIMIT = 5;
 
@@ -41,7 +41,7 @@ export function RecentGenerations({ jobs, loading, onNavigate, onRequestDelete }
 
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {[1, 2, 3].map((i) => <SkeletonCard key={i} size="md" />)}
+          {['a', 'b', 'c'].map((id) => <JobRowSkeleton key={id} />)}
         </div>
       ) : jobs.length === 0 ? (
         <div
@@ -98,10 +98,9 @@ export function RecentGenerations({ jobs, loading, onNavigate, onRequestDelete }
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {jobs.slice(0, DASHBOARD_LIMIT).map((job) => {
-            const platform = platformMeta[job.platform] || { label: job.platform, badgeClass: 'badge-purple', color: '#A78BFA', Icon: Layers, bg: 'rgba(167,139,250,0.08)', border: 'rgba(167,139,250,0.20)' }; // fixed badge-purple fallback — matches platformMeta's badge-purple semantic color, not brand accent
+            const platform = platformMeta[job.platform] || { label: job.platform, badgeClass: 'badge-purple', color: '#B794F6', Icon: Layers, bg: 'rgba(183,148,246,0.10)', border: 'rgba(183,148,246,0.22)' }; // fixed badge-purple fallback — matches platformMeta's badge-purple semantic color, not brand accent
             const statusCls = statusBadges[job.status] || 'badge-purple';
-            const critique = job.outputs?.find((o) => o.outputType === 'critique');
-            const qualityScore: number | null = critique?.qualityScore ?? getContentTotalScore(critique?.content) ?? null;
+            const qualityScore: number | null = getLatestQualityScore(job.outputs);
             return (
               <div
                 key={job.id}

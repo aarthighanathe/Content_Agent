@@ -17,6 +17,7 @@ import { DashboardSkeleton } from './Dashboard/DashboardSkeleton';
 import { DASHBOARD_STYLES } from './Dashboard/dashboardStyles';
 import type { DashboardJob } from './Dashboard/dashboardTypes';
 import { getContentScores } from './Dashboard/dashboardTypes';
+import { getLatestCritique } from '../lib/qualityScore';
 import type { ProfileStats } from '../types/api';
 
 const SCORE_TIPS: Record<string, string> = {
@@ -98,7 +99,11 @@ export default function Dashboard() {
   const deleteMutation = useMutation({
     mutationFn: (jobId: string) => deleteJob(jobId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] });
+      Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
+        queryClient.invalidateQueries({ queryKey: ['calendar', 'jobs'] }),
+      ]).catch(() => {});
       setDeleteConfirm(null);
       setDeleteError('');
     },
@@ -129,7 +134,7 @@ export default function Dashboard() {
     const counts: Record<string, number> = { ...sums };
 
     jobs.forEach((job) => {
-      const critique = job.outputs?.find((o) => o.outputType === 'critique');
+      const critique = getLatestCritique(job.outputs);
       const scores = getContentScores(critique?.content) || critique?.scores;
       if (scores) {
         Object.keys(sums).forEach((k) => {

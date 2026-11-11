@@ -15,8 +15,13 @@ interface SocialConnection {
 
 interface PublishingConnectionsCardProps {
   socialConnections: SocialConnection[];
+  /** Server-reported whether LINKEDIN_/TWITTER_CLIENT_ID are set — undefined while loading. */
+  oauthConfigured?: { linkedin: boolean; twitter: boolean };
   disconnectingPlatform: string | null;
   onDisconnect: (platform: string) => void;
+  /** Authenticated Connect — must not be a bare /api href (Vercel SPA rewrite + no Bearer). */
+  onConnect: (platform: string) => void;
+  connectingPlatform: string | null;
   /** WHY added: a failed or not-yet-loaded connections fetch previously rendered
       identically to "nothing connected" — every platform showed its disconnected
       "Connect" state either way, with no way to tell the two apart. */
@@ -32,7 +37,8 @@ const platformMeta = [
 ];
 
 export function PublishingConnectionsCard({
-  socialConnections, disconnectingPlatform, onDisconnect, isLoading, isError, onRetry,
+  socialConnections, oauthConfigured, disconnectingPlatform, onDisconnect, onConnect, connectingPlatform,
+  isLoading, isError, onRetry,
 }: PublishingConnectionsCardProps) {
   // Check for expired or near-expiry LinkedIn tokens
   // WHY a frozen `now` captured once per mount instead of Date.now() at render:
@@ -75,9 +81,10 @@ export function PublishingConnectionsCard({
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 11, padding: '13px 16px' }}>
               <SkeletonBlock width={38} height={38} radius={9} delay={i * 0.1} />
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <SkeletonBlock width="40%" height={10} />
-                <SkeletonBlock width="60%" height={8} delay={0.1} />
+                <SkeletonBlock width="40%" height={13} />
+                <SkeletonBlock width="60%" height={10} delay={0.1} />
               </div>
+              <SkeletonBlock width={88} height={30} radius={8} delay={0.15} />
             </div>
           ))}
         </div>
@@ -86,6 +93,17 @@ export function PublishingConnectionsCard({
         {platformMeta.map(({ platform, label: pLabel, Icon: PlatIcon, color, bg, border, desc, soon }) => {
           const conn = socialConnections.find(c => c.platform === platform);
           const isConnected = conn?.connected;
+          // WHY treat missing CLIENT_ID like Instagram's soon state: empty OAuth
+          // env makes /connect return 501 — show Coming soon instead of a dead
+          // Connect button or an internal "Not configured" env hint (QA-BRAND-004).
+          const configuredFlag =
+            platform === 'linkedin'
+              ? oauthConfigured?.linkedin
+              : platform === 'twitter'
+                ? oauthConfigured?.twitter
+                : true;
+          const comingSoon =
+            Boolean(soon) || (!isConnected && oauthConfigured != null && configuredFlag === false);
           return (
             <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 14, background: isConnected ? bg : 'var(--bg-raised)', border: `1px solid ${isConnected ? border : 'var(--rule)'}`, borderRadius: 11, padding: '13px 16px', transition: 'all .2s' }}>
               <div style={{ width: 38, height: 38, borderRadius: 9, background: isConnected ? bg : 'color-mix(in srgb, var(--text-primary) 4%, transparent)', border: `1px solid ${isConnected ? border : 'var(--rule)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: isConnected ? color : 'var(--text-muted)' }}>
@@ -94,11 +112,15 @@ export function PublishingConnectionsCard({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: isConnected ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{pLabel}</div>
                 <div style={{ fontSize: 10.5, color: isConnected ? color : 'var(--text-muted)', fontFamily: "var(--font-mono)", marginTop: 1 }}>
-                  {isConnected ? (conn?.displayName || 'Connected') : (soon ? 'Coming soon — requires app approval' : desc)}
+                  {isConnected
+                    ? (conn?.displayName || 'Connected')
+                    : comingSoon
+                      ? 'Coming soon'
+                      : desc}
                 </div>
               </div>
-              {soon ? (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'color-mix(in srgb, var(--text-primary) 4%, transparent)', border: '1px solid var(--rule)', borderRadius: 20, padding: '3px 9px', fontFamily: "var(--font-mono)" }}>Soon</span>
+              {comingSoon ? (
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'color-mix(in srgb, var(--text-primary) 4%, transparent)', border: '1px solid var(--rule)', borderRadius: 20, padding: '3px 9px', fontFamily: "var(--font-mono)", flexShrink: 0 }}>Soon</span>
               ) : isConnected ? (
                 <Button
                   variant="danger"
@@ -110,12 +132,21 @@ export function PublishingConnectionsCard({
                   Disconnect
                 </Button>
               ) : (
-                <a
-                  href={`/api/social/connect/${platform}`}
-                  style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5, background: bg, border: `1px solid ${border}`, color, borderRadius: 8, padding: '7px 13px', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, textDecoration: 'none', transition: 'all .18s' }}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={connectingPlatform === platform}
+                  disabled={connectingPlatform !== null}
+                  onClick={() => onConnect(platform)}
+                  style={{
+                    flexShrink: 0,
+                    background: bg,
+                    border: `1px solid ${border}`,
+                    color,
+                  }}
                 >
                   <Zap size={11} /> Connect
-                </a>
+                </Button>
               )}
             </div>
           );

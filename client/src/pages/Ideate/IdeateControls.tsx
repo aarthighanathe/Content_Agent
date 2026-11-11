@@ -3,6 +3,7 @@ import { RefreshCw, Loader2, Search } from 'lucide-react';
 import { platformMeta } from '../../lib/platformMeta';
 import { Dropdown } from '../../components/Dropdown';
 import type { CompetitorAnalysisHistoryItem } from '../../types/social';
+import { competitorPlatformLabel } from '../Competitor/platforms';
 
 const FILTERABLE_PLATFORMS = Object.keys(platformMeta);
 const COUNT_OPTIONS = [5, 10, 15, 20].map((n) => ({ value: n, label: `${n} ideas` }));
@@ -34,7 +35,10 @@ export function IdeateControls({
   competitorAnalyses, useCompetitorGaps, onUseCompetitorGapsChange,
   competitorAnalysisId, onCompetitorAnalysisIdChange,
 }: IdeateControlsProps) {
-  const analysisOptions = competitorAnalyses.map((a) => ({ value: a.id, label: `@${a.handle}` }));
+  const analysisOptions = competitorAnalyses.map((a) => {
+    const platform = competitorPlatformLabel(a.platform);
+    return { value: a.id, label: platform ? `@${a.handle} · ${platform}` : `@${a.handle}` };
+  });
   // WHY fallback to first analysis when competitorAnalysisId is undefined: when the user
   // first enables the competitor-gap toggle, we auto-select the most recent analysis
   // rather than forcing them to manually pick one. This provides a smoother UX.

@@ -42,19 +42,29 @@ export function LibraryFamilyChip({
 }: LibraryFamilyChipProps): React.JSX.Element {
   const moreRef = useRef<HTMLButtonElement>(null);
   const pm = platformMeta[job.platform] || {
-    label: job.platform, color: '#A78BFA', Icon: Layers,
+    label: job.platform,
+    color: '#B794F6',
+    Icon: Layers,
+    bg: 'rgba(183,148,246,0.10)',
+    border: 'rgba(183,148,246,0.22)',
   };
   const qs = getQualityScore(job);
   const sc = scoreColor(qs);
+  const accented = selected || menuOpen;
 
   return (
     <div
       role="listitem"
       className={`lib-chip${selected ? ' on' : ''}${menuOpen ? ' menu-on' : ''}`}
       style={{
-        borderColor: selected || menuOpen
+        // WHY: platform tint on bg + soft border; neon full-label color made
+        // clustered chips read as a candy rainbow on dark themes.
+        borderColor: accented
           ? 'color-mix(in srgb, var(--accent) 40%, transparent)'
-          : `${pm.color}40`,
+          : pm.border,
+        background: accented
+          ? 'color-mix(in srgb, var(--accent) 8%, var(--bg-card))'
+          : pm.bg,
       }}
     >
       <button
@@ -77,7 +87,7 @@ export function LibraryFamilyChip({
           </span>
         )}
         <pm.Icon size={13} style={{ color: pm.color, flexShrink: 0 }} />
-        <span className="lib-chip-label" style={{ color: pm.color }}>{pm.label}</span>
+        <span className="lib-chip-label">{pm.label}</span>
         <span className="lib-chip-score" style={{ color: sc }}>
           {qs !== null ? qs : '—'}
         </span>

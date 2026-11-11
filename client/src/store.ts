@@ -5,23 +5,6 @@
 import { create } from 'zustand';
 import type { SSEEvent } from './types/job';
 
-interface AgentLog {
-  agentName: string;
-  action: string;
-  inputSummary?: string;
-  outputSummary?: string;
-  durationMs?: number;
-}
-
-interface CurrentJob {
-  jobId: string;
-  status: string;
-  progress: number;
-  stage: string;
-  message?: string;
-  agentLogs: AgentLog[];
-}
-
 // WHY prediction/sourceUrl are optional, not added to isIdeatedIdea's
 // required-field checks below: existing localStorage data from before this
 // change (I3/I4) has neither field — making them required would silently
@@ -74,7 +57,7 @@ function readStoredTheme(): ThemeName {
 
 const IDEATED_IDEAS_STORAGE_KEY = 'contentagent-ideated-ideas';
 
-// WHY persisted (unlike currentJob/sseConnection): the user asked for generated
+// WHY persisted (unlike sseConnection): the user asked for generated
 // ideas to survive a hard refresh, not just in-app navigation — they should only
 // change when "Suggest 10 topics" / "Regenerate ideas" is clicked again.
 function isIdeatedIdea(value: unknown): value is IdeatedIdea {
@@ -167,15 +150,15 @@ function writeStoredSavedIdeas(ideas: SavedIdea[]): void {
 }
 
 interface AppState {
-  currentJob: CurrentJob | null;
+  // WHY no currentJob (REACT-001): Result/useJobData already owns live SSE
+  // progress in React state. Writing a parallel Zustand copy doubled re-renders
+  // and was never read after M1 — keep only the EventSource handle here.
   sseConnection: EventSource | null;
   ideatedIdeas: IdeatedIdea[];
   ideasGeneratedAt: string | null;
   savedIdeas: SavedIdea[];
   themeName: ThemeName;
 
-  setCurrentJob: (job: CurrentJob | null) => void;
-  updateFromSSE: (data: SSEEvent) => void;
   connectToStream: (jobId: string, token?: string, onEvent?: (data: SSEEvent) => void, onError?: () => void) => void;
   disconnectStream: () => void;
   setIdeatedIdeas: (ideas: IdeatedIdea[]) => void;
@@ -187,57 +170,11 @@ interface AppState {
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export const useAppStore = create<AppState>((set, get) => ({
-  currentJob: null,
   sseConnection: null,
   ideatedIdeas: readStoredIdeas(),
   ideasGeneratedAt: readStoredGeneratedAt(),
   savedIdeas: readStoredSavedIdeas(),
   themeName: readStoredTheme(),
-
-  setCurrentJob: (job) => set({ currentJob: job }),
-
-  updateFromSSE: (data) => {
-    const current = get().currentJob;
-
-    // If currentJob isn't set yet (e.g. hard refresh), bootstrap it from the event
-    if (!current) {
-      if (data.type === 'progress' || data.type === 'state') {
-        set({
-          currentJob: {
-            jobId: data.jobId || '',
-            status: data.stage || 'pending',
-            progress: data.progress ?? 0,
-            stage: data.stage || 'pending',
-            message: data.message || '',
-            agentLogs: data.agent
-              ? [{ agentName: data.agent, action: data.message || '', durationMs: data.durationMs }]
-              : [],
-          },
-        });
-      }
-      return;
-    }
-
-    set({
-      currentJob: {
-        ...current,
-        status: data.stage || current.status,
-        progress: data.progress ?? current.progress,
-        stage: data.stage || current.stage,
-        message: data.message || current.message,
-        agentLogs: data.agent
-          ? [
-              ...current.agentLogs,
-              {
-                agentName: data.agent,
-                action: data.message || data.stage || '',
-                durationMs: data.durationMs,
-              },
-            ]
-          : current.agentLogs,
-      },
-    });
-  },
 
   connectToStream: (jobId: string, token?: string, onEvent?: (data: SSEEvent) => void, onError?: () => void) => {
     const existing = get().sseConnection;
@@ -245,9 +182,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       existing.close();
     }
 
-    // WHY ?token= query param: the EventSource API (SSE) does not support custom
-    // request headers — Clerk JWTs can't be sent the normal way. The server verifies
-    // the JWT from the query param instead. Short-lived tokens mitigate the exposure.
+    // WHY ?token= query param: EventSource cannot send Authorization headers.
+    // The token is a short-lived Redis UUID from POST /stream-token (not a Clerk
+    // session JWT) — verifySSEToken() looks it up server-side.
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     const url = `${API_BASE}/api/jobs/${jobId}/stream${tokenParam}`;
     const eventSource = new EventSource(url);
@@ -260,11 +197,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         const parsed: unknown = JSON.parse(event.data);
         if (typeof parsed !== 'object' || parsed === null) return;
         const data = parsed as SSEEvent;
-        get().updateFromSSE(data);
+        // WHY onEvent only (no Zustand job mirror): useJobData merges into jobData.
         onEvent?.(data);
 
-        if (data.stage === 'done' || data.stage === 'failed' || data.type === 'state') {
-          // Don't close — let the component handle it
+        // WHY close on terminal (CORR-013): leaving EventSource open after
+        // done/failed kept auto-retrying an expired stream-token forever.
+        if (data.stage === 'done' || data.stage === 'failed') {
+          eventSource.close();
+          set({ sseConnection: null });
         }
       } catch (_e) {
         // NOTE: SSE parse errors are logged server-side; no need for console.error in production
@@ -282,20 +222,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       onError?.();
     };
 
-    const prev = get().currentJob;
-    const sameJobReconnect = prev?.jobId === jobId;
-    set({
-      sseConnection: eventSource,
-      currentJob: sameJobReconnect
-        ? prev
-        : {
-            jobId,
-            status: 'pending',
-            progress: 0,
-            stage: 'pending',
-            agentLogs: [],
-          },
-    });
+    set({ sseConnection: eventSource });
   },
 
   disconnectStream: () => {

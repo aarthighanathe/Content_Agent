@@ -255,7 +255,7 @@ export function QualityTrendChart({ loading, dimensionAverages, dimensionTrend }
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0' }}>
-          <SkeletonBlock width={200} height={200} radius={100} />
+          <SkeletonBlock width={220} height={220} radius={110} />
         </div>
       ) : !hasAnyData ? (
         <div style={{ textAlign: 'center', padding: '36px 12px', color: 'var(--text-muted)', fontSize: 12 }}>

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { EmptyStateIllustration } from '../../components/EmptyStateIllustration';
 import { ErrorState } from '../../components/ErrorState';
-import { SkeletonCard } from '../../components/SkeletonCard';
+import { LibraryRowSkeleton } from '../../components/SkeletonCard';
 import type { LibraryJob } from './libraryHelpers';
 import { groupLibraryJobs } from './libraryHelpers';
 import { LibraryJobCard } from './LibraryJobCard';
@@ -50,8 +50,8 @@ export function ContentTab({
 
   if (isLoading) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} size="md" />)}
+      <div className="lib-feed">
+        {['a', 'b', 'c', 'd'].map((id) => <LibraryRowSkeleton key={id} />)}
       </div>
     );
   }
@@ -66,6 +66,18 @@ export function ContentTab({
           </p>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
             Try a different search term
+          </p>
+        </div>
+      );
+    }
+    if (activeCollectionId) {
+      return (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 'clamp(2.5rem,8vw,4rem) 1.5rem', textAlign: 'center', gap: 10 }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', margin: 0 }}>
+            Nothing in this folder yet
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+            Add pieces from the library menu, or clear filters if you narrowed the list
           </p>
         </div>
       );
@@ -108,7 +120,7 @@ export function ContentTab({
 
   return (
     <>
-      <div className="lib-feed" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="lib-feed">
         {groups.map((group, gi) => {
           if (group.jobs.length === 1) {
             const job = group.jobs[0]!;
@@ -150,16 +162,25 @@ export function ContentTab({
             ← Prev
           </button>
           <div className="lib-page-nums">
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => i + 1).map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={`lib-page-num${p === page ? ' on' : ''}`}
-                onClick={() => onPageChange(p)}
-              >
-                {p}
-              </button>
-            ))}
+            {(() => {
+              // WHY a window around the current page: always rendering 1–5 left
+              // page 6+ with no highlighted number while Next still advanced.
+              const windowSize = Math.min(5, totalPages);
+              const half = Math.floor(windowSize / 2);
+              let start = Math.max(1, page - half);
+              const end = Math.min(totalPages, start + windowSize - 1);
+              start = Math.max(1, end - windowSize + 1);
+              return Array.from({ length: end - start + 1 }, (_, i) => start + i).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={`lib-page-num${p === page ? ' on' : ''}`}
+                  onClick={() => onPageChange(p)}
+                >
+                  {p}
+                </button>
+              ));
+            })()}
           </div>
           <button
             type="button"

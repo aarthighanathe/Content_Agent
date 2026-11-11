@@ -11,7 +11,7 @@
 // job could in principle be scheduled to auto-publish to Twitter too, so
 // conflating the two would be misleading even though they overlap in name.
 export type PublishPlatform = 'linkedin' | 'twitter';
-export type PublishStatus = 'pending' | 'posted' | 'failed';
+export type PublishStatus = 'pending' | 'publishing' | 'posted' | 'failed';
 
 export interface ScheduledPost {
   id: string;

@@ -1,11 +1,10 @@
 import { Layers } from 'lucide-react';
+import { VOICE_OPTIONS } from './brandVoices';
 
 const label = {
   display: 'block', fontSize: 11.5, color: 'var(--text-muted)',
   marginBottom: 7, fontFamily: "var(--font-mono)", letterSpacing: 0.4,
 } as const;
-
-const voiceOptions = ['Professional', 'Casual', 'Witty', 'Educational', 'Direct', 'Inspirational'];
 
 interface VoiceCardProps {
   selectedVoices: string[];
@@ -32,7 +31,7 @@ export function VoiceCard({
 
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12, fontFamily: "var(--font-mono)" }}>Select default tone(s)</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
-        {voiceOptions.map(voice => {
+        {VOICE_OPTIONS.map(voice => {
           const sel = selectedVoices.includes(voice);
           return (
             <button
@@ -46,9 +45,25 @@ export function VoiceCard({
       </div>
 
       <label style={label}>Phrases to use</label>
-      <textarea className="input" placeholder="e.g., data-driven, innovative, game-changer" value={phrasesUse} onChange={e => onPhrasesUseChange(e.target.value)} style={{ minHeight: 72, marginBottom: 14 }} />
+      {/* WHY maxLength 1000: matches brandVoiceSchema — without it the browser lets the
+          user type past the server cap and Save fails with a generic error (QA-BRAND-003). */}
+      <textarea
+        className="input"
+        placeholder="e.g., data-driven, innovative, game-changer"
+        value={phrasesUse}
+        maxLength={1000}
+        onChange={e => onPhrasesUseChange(e.target.value)}
+        style={{ minHeight: 72, marginBottom: 14 }}
+      />
       <label style={label}>Phrases to avoid</label>
-      <textarea className="input" placeholder="e.g., synergy, disruption, pivot, guru" value={phrasesAvoid} onChange={e => onPhrasesAvoidChange(e.target.value)} style={{ minHeight: 72 }} />
+      <textarea
+        className="input"
+        placeholder="e.g., synergy, disruption, pivot, guru"
+        value={phrasesAvoid}
+        maxLength={1000}
+        onChange={e => onPhrasesAvoidChange(e.target.value)}
+        style={{ minHeight: 72 }}
+      />
     </div>
   );
 }

@@ -27,16 +27,23 @@ const RouteSpinner = () => (
   </div>
 );
 
-// WHY warn instead of silently falling back: the fallback key belongs to a shared dev
-// Clerk instance — any deploy that forgets to set VITE_CLERK_PUBLISHABLE_KEY would
-// otherwise authenticate real users against it with no signal in the console at all.
-if (!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY) {
-  console.warn(
-    'VITE_CLERK_PUBLISHABLE_KEY is not set — falling back to the shared dev Clerk instance. ' +
-    'Set this env var before deploying to production.',
+// SECURITY (SEC-018): never ship a production bundle aimed at a shared
+// pk_test_ Clerk instance. Local DEV may use the documented fallback so
+// `npm run dev` still works without a client .env; PROD must set the env var.
+const DEV_CLERK_FALLBACK = 'pk_test_YWRhcHRlZC1wdW1hLTY3LmNsZXJrLmFjY291bnRzLmRldiQ';
+const envClerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+if (import.meta.env.PROD && !envClerkKey) {
+  throw new Error(
+    'VITE_CLERK_PUBLISHABLE_KEY is required in production builds. ' +
+    'Set it in the Vercel (or host) environment before deploying.',
   );
 }
-const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || 'pk_test_YWRhcHRlZC1wdW1hLTY3LmNsZXJrLmFjY291bnRzLmRldiQ';
+if (!envClerkKey && import.meta.env.DEV) {
+  console.warn(
+    'VITE_CLERK_PUBLISHABLE_KEY is not set — using the shared local-dev Clerk instance.',
+  );
+}
+const PUBLISHABLE_KEY = envClerkKey || DEV_CLERK_FALLBACK;
 
 const queryClient = new QueryClient({
   defaultOptions: {

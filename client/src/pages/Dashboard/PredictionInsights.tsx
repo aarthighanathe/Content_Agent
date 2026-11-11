@@ -38,9 +38,16 @@ export function PredictionInsights({ loading, predictionTierCounts, latestPredic
       />
 
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <SkeletonBlock height={10} radius={5} width="100%" />
-          <SkeletonBlock height={8} radius={4} width="70%" />
+        <div>
+          <SkeletonBlock height={8} radius={4} width="100%" style={{ marginBottom: 14 }} />
+          <div style={{ display: 'flex', gap: 14 }}>
+            {['high', 'mid', 'low'].map((id) => (
+              <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <SkeletonBlock width={36} height={18} radius={4} />
+                <SkeletonBlock width={48} height={9} radius={4} />
+              </div>
+            ))}
+          </div>
         </div>
       ) : total === 0 ? (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>

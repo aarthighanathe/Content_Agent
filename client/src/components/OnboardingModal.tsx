@@ -3,10 +3,10 @@
 // ensures users understand the value before completing setup.
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, ArrowRight, Check, Briefcase, Smile, Zap, BookOpen, Star } from 'lucide-react';
 import { getOnboardingStatus, completeOnboarding } from '../api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
-import { useIsMountedRef } from '../hooks/useTrackedTimeout';
 
 const TONES = [
   { id: 'professional',  label: 'Professional', Icon: Briefcase  },
@@ -23,54 +23,61 @@ const SAMPLE_POST = {
   score: 87,
 };
 
+const ONBOARDING_QUERY_KEY = ['users', 'onboarding'] as const;
+
 export function OnboardingModal() {
-  const [show, setShow]           = useState(false);
   const [step, setStep]           = useState(1);
   const [brandName, setBrandName] = useState('');
   const [tone, setTone]           = useState('professional');
-  const [saving, setSaving]       = useState(false);
+  const [saveError, setSaveError] = useState('');
+  // WHY local dismiss: session skip shouldn't wait on a refetch that may 401 mid-logout.
+  const [dismissed, setDismissed] = useState(
+    () => sessionStorage.getItem('ca_onboarding_dismissed') === '1',
+  );
   const modalRef = useRef<HTMLDivElement>(null);
-  const isMountedRef = useIsMountedRef();
   // WHY gated on authLoaded && isSignedIn: same race Dashboard.tsx/AuthLayout.tsx's
   // own profile queries guard against — without this, the request could fire before
-  // window.Clerk.session is hydrated, get no Authorization header, and 401 (silently
-  // swallowed below as "stay hidden", but still a wasted round-trip on every mount).
+  // window.Clerk.session is hydrated, get no Authorization header, and 401.
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!authLoaded || !isSignedIn) return;
-    // Skip if already dismissed in this session
-    if (sessionStorage.getItem('ca_onboarding_dismissed')) return;
+  const statusQuery = useQuery({
+    queryKey: ONBOARDING_QUERY_KEY,
+    queryFn: getOnboardingStatus,
+    enabled: authLoaded && !!isSignedIn && !dismissed,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
 
-    getOnboardingStatus()
-      .then(({ completed }) => {
-        // WHY guarded: a slow request resolving after this component has
-        // already unmounted (e.g. the user navigated away quickly) would
-        // otherwise call setShow on an unmounted component — same pattern as
-        // HashtagPanel.tsx's fetchHashtags.
-        if (!isMountedRef.current) return;
-        if (!completed) setShow(true);
-      })
-      .catch(() => { /* no auth yet or network fail — stay hidden */ });
-  }, [isMountedRef, authLoaded, isSignedIn]);
+  const completeMutation = useMutation({
+    mutationFn: completeOnboarding,
+    onSuccess: () => {
+      sessionStorage.setItem('ca_onboarding_dismissed', '1');
+      setDismissed(true);
+      void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard', 'profile'] });
+    },
+    onError: () => {
+      // WHY keep open on failure: dismissing anyway left Brand without the
+      // name the user typed, and this session would never show the modal again.
+      setSaveError("Couldn't save — try again.");
+    },
+  });
 
-  async function handleComplete() {
-    setSaving(true);
-    try {
-      await completeOnboarding({ brandName: brandName.trim(), preferredTone: tone });
-    } catch { /* non-blocking */ } finally {
-      setSaving(false);
-    }
-    sessionStorage.setItem('ca_onboarding_dismissed', '1');
-    setShow(false);
+  const show = !dismissed && statusQuery.isSuccess && statusQuery.data.completed === false;
+  const saving = completeMutation.isPending;
+
+  function handleComplete(): void {
+    setSaveError('');
+    completeMutation.mutate({ brandName: brandName.trim(), preferredTone: tone });
   }
 
-  function handleSkip() {
+  function handleSkip(): void {
     // WHY: without this, dismissing via Escape/backdrop/"Skip for now" never marked
     // userOnboarding.completed in the DB, so the modal reappeared on every new session.
     completeOnboarding({}).catch(() => { /* non-blocking */ });
     sessionStorage.setItem('ca_onboarding_dismissed', '1');
-    setShow(false);
+    setDismissed(true);
   }
 
   // SECURITY/ACCESSIBILITY: Escape-to-close, cleaned up on unmount/deactivation.
@@ -287,6 +294,10 @@ export function OnboardingModal() {
                 </div>
               ))}
             </div>
+
+            {saveError && (
+              <div style={{ fontSize: 12, color: 'var(--color-error)', marginBottom: 12 }}>{saveError}</div>
+            )}
 
             <div className="onboarding-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <button onClick={() => setStep(1)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>

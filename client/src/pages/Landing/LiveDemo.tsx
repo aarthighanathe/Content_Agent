@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, ImageIcon, Sparkles, Video } from 'lucide-react';
 import { Instagram, Linkedin, XTwitter } from '../../components/BrandIcons';
 import { SectionDivider } from './SectionDivider';
-import { SkeletonCard } from '../../components/SkeletonCard';
+import { SkeletonBlock } from '../../components/SkeletonCard';
 
 interface DemoPlatform {
   id: string;
@@ -257,7 +257,12 @@ export function LiveDemo() {
               <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 22%, transparent)', borderRadius: 15, overflow: 'hidden', marginBottom: 20 }}>
                 <div style={{ height: 3, background: 'linear-gradient(90deg,var(--accent-2),var(--accent))' }} />
                 <div style={{ padding: '22px 24px' }}>
-                  <SkeletonCard size="lines" />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <SkeletonBlock width="38%" height={12} radius={5} />
+                    <SkeletonBlock width="100%" height={11} radius={4} delay={0.05} />
+                    <SkeletonBlock width="92%" height={11} radius={4} delay={0.1} />
+                    <SkeletonBlock width="70%" height={11} radius={4} delay={0.15} />
+                  </div>
                 </div>
               </div>
             </div>

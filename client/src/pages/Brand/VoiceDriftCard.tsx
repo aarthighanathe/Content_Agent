@@ -67,9 +67,12 @@ export function VoiceDriftCard({ isLoading, isError, onRetry, dimensionTrend }: 
       </div>
 
       {isLoading ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <SkeletonBlock width={64} height={40} radius={8} />
-          <SkeletonBlock width="45%" height={11} radius={5} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          <SkeletonBlock width={72} height={34} radius={8} />
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <SkeletonBlock width="100%" height={12} radius={5} />
+            <SkeletonBlock width="62%" height={11} radius={4} delay={0.1} style={{ marginTop: 8 }} />
+          </div>
         </div>
       ) : recentPercent === null ? (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>

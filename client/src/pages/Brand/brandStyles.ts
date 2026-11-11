@@ -2,9 +2,6 @@
 // 400-line limit (same pattern as Dashboard/dashboardStyles.ts, Calendar/calendarStyles.ts).
 // Pure CSS string — no logic — safe to colocate outside the component file.
 export const BRAND_STYLES = `
-  .brand-page-container {
-    padding: 0 20px;
-  }
   .brand-card-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -13,15 +10,7 @@ export const BRAND_STYLES = `
   @media (max-width: 768px) {
     .brand-card-grid { grid-template-columns: 1fr; }
   }
-  @media (max-width: 480px) {
-    .brand-page-container {
-      padding: 0 16px !important;
-    }
-  }
   @media (max-width: 375px) {
-    .brand-page-container {
-      padding: 0 12px !important;
-    }
     .brand-card-grid {
       gap: 12px !important;
     }

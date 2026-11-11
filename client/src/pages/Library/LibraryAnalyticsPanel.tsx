@@ -94,7 +94,7 @@ export function LibraryAnalyticsPanel({ jobs }: LibraryAnalyticsPanelProps): Rea
             <BarChart3 size={13} />
           </span>
           <span className="lib-analytics-heading">Page insights</span>
-          <span className="lib-analytics-sub">{jobs.length} on this page</span>
+          <span className="lib-analytics-sub">{jobs.length} loaded</span>
         </div>
         <div className="lib-analytics-kpis" aria-label="Summary metrics">
           <span className="lib-kpi accent">

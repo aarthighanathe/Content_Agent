@@ -19,7 +19,7 @@ interface CollectionsPanelProps {
 export function CollectionsPanel({
   collections, activeCollectionId, onSelectCollection,
   onCreateCollection, creating, onRequestDeleteCollection, deletingId, loading,
-}: CollectionsPanelProps): React.JSX.Element | null {
+}: CollectionsPanelProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [showInput, setShowInput] = useState(false);
   const [draft, setDraft] = useState('');
@@ -49,7 +49,17 @@ export function CollectionsPanel({
     setShowInput(false);
   }
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="lib-folders-wrap" aria-hidden="true">
+        <button type="button" className="lib-folders-btn" disabled style={{ cursor: 'default' }}>
+          <Folder size={12} style={{ flexShrink: 0 }} />
+          Folders
+          <ChevronDown size={11} style={{ opacity: 0.65 }} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="lib-folders-wrap" ref={wrapRef}>

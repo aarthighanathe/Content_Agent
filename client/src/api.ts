@@ -8,8 +8,6 @@ import type {
 } from './types/api';
 import type {
   PostToSocialResponse,
-  SchedulePostInput,
-  SchedulePostResponse,
   AnalyzeCompetitorResponse,
   CompetitorAnalysisHistoryResponse,
 } from './types/social';
@@ -41,6 +39,9 @@ function isClerkWindow(w: unknown): w is ClerkWindow {
 
 const api = axios.create({
   baseURL: `${API_BASE}/api`,
+  // WHY credentials: social OAuth /connect sets an HttpOnly CSRF cookie on the
+  // API origin that /callback must read — cross-origin Vercel→Render needs this.
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -255,7 +256,10 @@ export async function getStreamToken(jobId: string): Promise<{ token: string }> 
   return response.data;
 }
 
-export async function getSocialConnections(): Promise<{ connections: SocialConnection[] }> {
+export async function getSocialConnections(): Promise<{
+  connections: SocialConnection[];
+  oauthConfigured?: { linkedin: boolean; twitter: boolean };
+}> {
   const response = await api.get('/social/connections');
   return response.data;
 }
@@ -264,17 +268,18 @@ export async function disconnectSocial(platform: string): Promise<void> {
   await api.delete(`/social/disconnect/${platform}`);
 }
 
+/** Start LinkedIn/Twitter OAuth — returns provider authorize URL (cookie set server-side). */
+export async function startSocialConnect(platform: string): Promise<{ authorizeUrl: string }> {
+  const response = await api.get<{ authorizeUrl: string }>(`/social/connect/${platform}`);
+  return response.data;
+}
+
 export async function postToSocial(
   platform: string,
   content: PlatformContent | PlatformContent[] | string,
   jobId?: string,
 ): Promise<PostToSocialResponse> {
   const response = await api.post('/social/post', { platform, content, jobId });
-  return response.data;
-}
-
-export async function schedulePost(data: SchedulePostInput): Promise<SchedulePostResponse> {
-  const response = await api.post('/social/schedule', data);
   return response.data;
 }
 
@@ -353,7 +358,11 @@ export async function generateSlideImage(prompt: string, mode?: 'background' | '
 }
 
 // ── Competitor Analysis ───────────────────────────────────────────────────────
-export async function analyzeCompetitor(data: { handle: string; industry?: string }): Promise<AnalyzeCompetitorResponse> {
+export async function analyzeCompetitor(data: {
+  handle: string;
+  platform: 'linkedin' | 'twitter' | 'instagram';
+  industry?: string;
+}): Promise<AnalyzeCompetitorResponse> {
   const response = await api.post('/content/competitor', data);
   return response.data;
 }

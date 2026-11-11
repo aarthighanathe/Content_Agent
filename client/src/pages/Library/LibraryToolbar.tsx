@@ -1,8 +1,9 @@
-import { Search, X, CheckSquare, Square, Download, Trash2, ArrowUpDown, Check, Tag } from 'lucide-react';
+import { Search, X, ArrowUpDown, Check, Tag } from 'lucide-react';
 import { platformMeta } from '../../lib/platformMeta';
 import type { SortKey } from './libraryHelpers';
 import { SORT_OPTS } from './libraryHelpers';
 import { CollectionsPanel } from './CollectionsPanel';
+import { LibraryManageBar } from './LibraryManageBar';
 import type { Collection } from '../../types/collection';
 
 interface LibraryToolbarProps {
@@ -10,8 +11,14 @@ interface LibraryToolbarProps {
   onSearchChange: (value: string) => void;
   manageMode: boolean;
   selectedCount: number;
-  onSelectAll: () => void;
-  selectingAll?: boolean;
+  pageJobCount: number;
+  matchingCount: number;
+  pageFullySelected: boolean;
+  allMatchingSelected: boolean;
+  hasActiveFilter: boolean;
+  onSelectPage: () => void;
+  onSelectAllMatching: () => void;
+  onClearSelection: () => void;
   onExportCSV: () => void;
   exporting?: boolean;
   onBulkDelete: () => void;
@@ -41,7 +48,9 @@ interface LibraryToolbarProps {
 
 export function LibraryToolbar({
   search, onSearchChange, manageMode, selectedCount,
-  onSelectAll, selectingAll, onExportCSV, exporting, onBulkDelete, jobsLoading, jobsError,
+  pageJobCount, matchingCount, pageFullySelected, allMatchingSelected, hasActiveFilter,
+  onSelectPage, onSelectAllMatching, onClearSelection,
+  onExportCSV, exporting, onBulkDelete, jobsLoading, jobsError,
   platformFilters, platformFilter, onPlatformFilterChange, platformCounts, total,
   sort, onSortChange, showSortMenu, onToggleSortMenu,
   pageTags, tagFilter, onTagFilterChange,
@@ -50,92 +59,27 @@ export function LibraryToolbar({
 }: LibraryToolbarProps): React.JSX.Element {
   return (
     <div className="lib-controls">
-      <div className="lib-search-wrap">
-        <Search size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-        <input
-          placeholder="Search by topic…"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          aria-label="Search library by topic"
-        />
-        {search && (
-          <button
-            type="button"
-            className="lib-search-clear"
-            onClick={() => onSearchChange('')}
-            aria-label="Clear search"
-          >
-            <X size={13} />
-          </button>
-        )}
-      </div>
-
-      {manageMode && (
-        <div className="lib-manage-bar">
-          <div className="lib-manage-left">
+      <div className="lib-controls-top">
+        <div className="lib-search-wrap">
+          <Search size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+          <input
+            placeholder="Search by topic…"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            aria-label="Search library by topic"
+          />
+          {search && (
             <button
               type="button"
-              className="lib-manage-select"
-              onClick={onSelectAll}
-              disabled={selectingAll}
+              className="lib-search-clear"
+              onClick={() => onSearchChange('')}
+              aria-label="Clear search"
             >
-              {selectedCount > 0
-                ? <CheckSquare size={14} color="var(--accent)" />
-                : <Square size={14} />}
-              {selectingAll ? 'Selecting…' : 'Select all matching'}
+              <X size={13} />
             </button>
-            <span className="lib-manage-count">{selectedCount} selected</span>
-          </div>
-          <div className="lib-manage-actions">
-            <button
-              type="button"
-              className="lib-manage-export"
-              onClick={onExportCSV}
-              disabled={exporting}
-            >
-              <Download size={13} /> {exporting ? 'Exporting…' : 'Export CSV'}
-            </button>
-            {selectedCount > 0 && (
-              <button type="button" className="lib-manage-delete" onClick={onBulkDelete}>
-                <Trash2 size={13} /> Delete {selectedCount}
-              </button>
-            )}
-          </div>
+          )}
         </div>
-      )}
-
-      {!jobsLoading && !jobsError && (
-        <div className="lib-filter-row">
-          <div className="lib-filters" role="group" aria-label="Filter by platform">
-            {platformFilters.map((f) => {
-              const meta = platformMeta[f];
-              const label = f === 'all' ? 'All' : (meta?.label || f);
-              const color = meta?.color || 'var(--accent)';
-              const active = platformFilter === f;
-              const count = f === 'all' ? total : (platformCounts[f] || 0);
-              return (
-                <button
-                  key={f}
-                  type="button"
-                  className={`lib-pill${active ? ' on' : ''}`}
-                  onClick={() => onPlatformFilterChange(f)}
-                  style={{
-                    borderColor: active
-                      ? (f === 'all' ? 'color-mix(in srgb, var(--accent) 40%, transparent)' : `${color}45`)
-                      : undefined,
-                    background: active
-                      ? (f === 'all' ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : `${color}14`)
-                      : undefined,
-                    color: active ? (f === 'all' ? 'var(--accent)' : color) : undefined,
-                  }}
-                >
-                  {f !== 'all' && meta && <meta.Icon size={12} style={{ flexShrink: 0 }} />}
-                  {label}
-                  {count > 0 && <span className="lib-pill-count">{count}</span>}
-                </button>
-              );
-            })}
-          </div>
+        {!jobsError && (
           <div className="lib-filter-tools">
             <CollectionsPanel
               collections={collections}
@@ -172,6 +116,62 @@ export function LibraryToolbar({
                 </div>
               )}
             </div>
+          </div>
+        )}
+      </div>
+
+      {manageMode && (
+        <LibraryManageBar
+          selectedCount={selectedCount}
+          pageJobCount={pageJobCount}
+          matchingCount={matchingCount}
+          pageFullySelected={pageFullySelected}
+          allMatchingSelected={allMatchingSelected}
+          hasActiveFilter={hasActiveFilter}
+          onSelectPage={onSelectPage}
+          onSelectAllMatching={onSelectAllMatching}
+          onClearSelection={onClearSelection}
+          onExportCSV={onExportCSV}
+          exporting={exporting}
+          onBulkDelete={onBulkDelete}
+        />
+      )}
+
+      {!jobsError && (
+        <div className="lib-filter-row">
+          <div className="lib-filters" role="group" aria-label="Filter by platform">
+            {platformFilters.map((f) => {
+              const meta = platformMeta[f];
+              const label = f === 'all' ? 'All' : (meta?.label || f);
+              const color = meta?.color || 'var(--accent)';
+              const active = platformFilter === f;
+              const count = f === 'all' ? total : (platformCounts[f] || 0);
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  className={`lib-pill${active ? ' on' : ''}`}
+                  onClick={() => onPlatformFilterChange(f)}
+                  style={{
+                    borderColor: active
+                      ? (f === 'all'
+                        ? 'color-mix(in srgb, var(--accent) 40%, transparent)'
+                        : (meta?.border ?? `${color}45`))
+                      : undefined,
+                    background: active
+                      ? (f === 'all'
+                        ? 'color-mix(in srgb, var(--accent) 10%, transparent)'
+                        : (meta?.bg ?? `${color}14`))
+                      : undefined,
+                    color: active ? (f === 'all' ? 'var(--accent)' : color) : undefined,
+                  }}
+                >
+                  {f !== 'all' && meta && <meta.Icon size={12} style={{ flexShrink: 0 }} />}
+                  {label}
+                  {count > 0 && <span className="lib-pill-count">{count}</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

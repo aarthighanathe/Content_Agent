@@ -1,8 +1,6 @@
-import type { PlatformContent } from './job';
-
-// WHY reuse PlatformContent: the content posted to a social platform is always a job's
-// final output content (carousel slide / thread / caption), same shape already modeled
-// in job.ts for Result rendering — no need for a second parallel shape.
+// WHY reuse PlatformContent on the wire: the content posted to a social platform is
+// always a job's final output content — PostToSocialResponse doesn't need the type
+// imported here (only the request body in api.ts does).
 export interface PostToSocialResponse {
   ok: boolean;
   postId?: string;
@@ -10,20 +8,6 @@ export interface PostToSocialResponse {
   // platform ID isn't one on its own) — see server/src/routes/social.ts's
   // POST /post handler. FUNCTIONAL_AUDIT_2026-07.md finding #10.
   postUrl?: string;
-}
-
-export interface SchedulePostInput {
-  platform: string;
-  content: PlatformContent | PlatformContent[] | string;
-  scheduledAt: string;
-  jobId?: string;
-}
-
-export interface SchedulePostResponse {
-  ok: boolean;
-  scheduleId: string;
-  scheduledAt: string;
-  platform: string;
 }
 
 // WHY these exact fields, not a looser shape: mirrors server/src/schemas/contentResponses.ts's
@@ -45,8 +29,17 @@ export interface CompetitorAnalysis {
   dataQualityNote?: string;
 }
 
+// WHY mirrored from server COMPETITOR_PLATFORMS: client/server are separate
+// TS projects — keep in sync with server/src/schemas/content.ts.
+export type CompetitorPlatform = 'linkedin' | 'twitter' | 'instagram';
+
 export interface AnalyzeCompetitorResponse {
   handle: string;
+  // Present on new analyses; may be absent when reloading a pre-platform
+  // history row that never stored one.
+  platform?: CompetitorPlatform;
+  // Canonical profile URL the server resolved (e.g. linkedin.com/in/slug).
+  profileUrl?: string;
   analysis: CompetitorAnalysis;
   // WHY optional: absent when persistence failed server-side (best-effort —
   // see server/src/routes/content/competitor.ts's non-fatal DB-write catch)
@@ -63,6 +56,7 @@ export interface AnalyzeCompetitorResponse {
 export interface CompetitorAnalysisHistoryItem {
   id: string;
   handle: string;
+  platform?: CompetitorPlatform | string;
   industry?: string;
   analysis: CompetitorAnalysis;
   createdAt: string;

@@ -66,3 +66,81 @@ export function SkeletonCard({ size = 'md' }: SkeletonCardProps) {
     </div>
   );
 }
+
+/** Same shell as a library job row: icon, title, meta, score, menu. */
+export function LibraryRowSkeleton(): React.JSX.Element {
+  return (
+    <div className="lib-card" aria-hidden="true" style={{ cursor: 'default', animation: 'none' }}>
+      <div className="lib-card-inner">
+        <SkeletonBlock width={38} height={38} radius={10} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <SkeletonBlock height={14} radius={5} width="58%" style={{ marginBottom: 8 }} />
+          <SkeletonBlock height={10} radius={8} width="26%" delay={0.1} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <SkeletonBlock width={72} height={22} radius={20} delay={0.15} />
+          <SkeletonBlock width={48} height={9} radius={4} delay={0.2} />
+        </div>
+        <SkeletonBlock width={30} height={30} radius={9} delay={0.25} />
+      </div>
+    </div>
+  );
+}
+
+/** Same shell as a dashboard recent-generation row. */
+export function JobRowSkeleton(): React.JSX.Element {
+  return (
+    <div aria-hidden="true" style={{ background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 13 }}>
+      <div className="dash-job-row" style={{ borderColor: 'transparent', cursor: 'default' }}>
+        <SkeletonBlock width={36} height={36} radius={10} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <SkeletonBlock height={13} radius={5} width="54%" style={{ marginBottom: 6 }} />
+          <SkeletonBlock height={9} radius={4} width="30%" delay={0.1} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <SkeletonBlock width={72} height={22} radius={20} delay={0.15} />
+          <SkeletonBlock width={44} height={9} radius={4} delay={0.2} />
+        </div>
+        <SkeletonBlock width={26} height={26} radius={8} delay={0.25} />
+        <SkeletonBlock width={26} height={26} radius={8} delay={0.3} />
+      </div>
+    </div>
+  );
+}
+
+/** Same shell as an Ideate card: number, copy, action column. */
+export function IdeaCardSkeleton(): React.JSX.Element {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        background: 'var(--bg-raised)',
+        border: '1px solid var(--rule)',
+        borderRadius: 13,
+        padding: '16px 18px',
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 14,
+        height: '100%',
+        boxSizing: 'border-box',
+      }}
+    >
+      <SkeletonBlock width={28} height={28} radius={8} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <SkeletonBlock height={14} radius={5} width="92%" style={{ marginBottom: 6 }} />
+        <SkeletonBlock height={14} radius={5} width="68%" delay={0.05} style={{ marginBottom: 10 }} />
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <SkeletonBlock width={52} height={18} radius={20} delay={0.1} />
+          <SkeletonBlock width={64} height={18} radius={20} delay={0.12} />
+        </div>
+        <SkeletonBlock height={10} radius={4} width="100%" delay={0.15} style={{ marginBottom: 6 }} />
+        <SkeletonBlock height={10} radius={4} width="78%" delay={0.18} />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {['save', 'copy', 'regen', 'dismiss', 'open'].map((id) => (
+          <SkeletonBlock key={id} width={22} height={22} radius={6} />
+        ))}
+      </div>
+    </div>
+  );
+}

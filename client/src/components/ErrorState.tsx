@@ -4,9 +4,9 @@ interface ErrorStateProps {
   /** Optional heading above the message (e.g. "Generation failed"). Omitted by default. */
   title?: string;
   message?: string;
-  /** Label for the retry button. Defaults to "Retry". */
+  /** Label for the retry button. Defaults to "Retry". Omitted with onRetry when no retry. */
   retryLabel?: string;
-  onRetry: () => void;
+  onRetry?: () => void;
 }
 
 /**
@@ -45,9 +45,11 @@ export function ErrorState({ title, message = 'Something went wrong while loadin
       <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, maxWidth: 340, lineHeight: 1.6 }}>
         {message}
       </p>
-      <button className="btn-secondary" onClick={onRetry} style={{ marginTop: 4 }}>
-        {retryLabel}
-      </button>
+      {onRetry && (
+        <button className="btn-secondary" onClick={onRetry} style={{ marginTop: 4 }}>
+          {retryLabel}
+        </button>
+      )}
     </div>
   );
 }

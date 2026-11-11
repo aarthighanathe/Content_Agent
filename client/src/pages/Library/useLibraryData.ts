@@ -2,21 +2,16 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getJobs, deleteJob, tagJob,
+  deleteJob, tagJob,
   getCollections, createCollection, deleteCollection, getCollectionJobs,
   addJobToCollection, removeJobFromCollection,
 } from '../../api';
 import type { GetJobsOptions } from '../../api';
 import { platformMeta } from '../../lib/platformMeta';
 import type { SortKey, LibraryJob } from './libraryHelpers';
-import { getQualityScore } from './libraryHelpers';
-
-// WHY a bounded multi-page fetch, not just `jobs` (the current page): CSV export
-// used to silently only cover whatever page was on screen (FUNCTIONAL_AUDIT_2026-07.md
-// finding #4). This fetches every page matching the active search/platform filter,
-// capped at 20 pages (200 jobs) so a very large library can't turn one export click
-// into an unbounded number of requests — same rationale as Calendar's FETCH_PAGES cap.
-const MAX_EXPORT_PAGES = 20;
+import { getQualityScore, jobsForTopicPage } from './libraryHelpers';
+import { fetchAllMatchingJobPages, MAX_LIBRARY_JOB_PAGES } from './libraryFetch';
+import { buildLibraryCsv, downloadLibraryCsv, exportCapNote } from './libraryExport';
 
 // WHY this hook exists: Library.tsx's data layer (mutations, queries, CSV
 // export, select-all-matching, debounced search/page-reset effects) previously
@@ -34,6 +29,9 @@ export function useLibraryData() {
 
   // Content (jobs) state
   const [page, setPage] = useState(1);
+  // WHY declared with other list filters: the page-reset effect below depends on
+  // it, and hooks can't reference state declared later in the component body.
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('');
   const [sort, setSort] = useState<SortKey>('date');
@@ -83,7 +81,7 @@ export function useLibraryData() {
   useEffect(() => {
     const t = setTimeout(() => setPage(1), 0);
     return () => clearTimeout(t);
-  }, [debouncedSearch, platformFilter, sort, tagFilter]);
+  }, [debouncedSearch, platformFilter, sort, tagFilter, activeCollectionId]);
 
   const jobsQueryOptions: GetJobsOptions = {
     search: debouncedSearch,
@@ -91,9 +89,23 @@ export function useLibraryData() {
     sort,
     tag: tagFilter || undefined,
   };
+  // WHY page is not in the queryKey: list pagination is client-side over topic
+  // groups (see jobsForTopicPage). Refetching on every page click would re-download
+  // the same job set. Filters still re-query.
   const jobsQuery = useQuery({
-    queryKey: ['library', 'jobs', page, debouncedSearch, platformFilter, sort, tagFilter],
-    queryFn: () => getJobs(page, jobsQueryOptions),
+    queryKey: ['library', 'jobs', debouncedSearch, platformFilter, sort, tagFilter],
+    queryFn: () => fetchAllMatchingJobPages(jobsQueryOptions),
+    // WHY poll while in-flight (QA-LIB-001): Library cached Pending/Processing
+    // from mid-batch visits and stayed stale after BatchResult/Result flipped
+    // those jobs to done — there was no invalidate on the Library mount path
+    // and no interval. Stop polling once every visible job is terminal.
+    refetchInterval: (query) => {
+      const jobs = query.state.data?.jobs ?? [];
+      const inFlight = jobs.some(
+        (j) => j.status === 'pending' || j.status === 'processing',
+      );
+      return inFlight ? 4000 : false;
+    },
   });
 
   // ── Collections (folders) ───────────────────────────────────────────────
@@ -101,9 +113,8 @@ export function useLibraryData() {
   // jobsQueryOptions: a collection has no pagination/search/sort of its own
   // (routes/collections.ts's GET /:id/jobs returns the full membership list
   // in one shot) — viewing a collection is a different data source, not an
-  // extra filter on the paginated GET /jobs query.
-  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
-
+  // extra filter on the paginated GET /jobs query. activeCollectionId state
+  // lives with the other list filters above (page-reset effect dependency).
   const collectionsQuery = useQuery({
     queryKey: ['library', 'collections'],
     queryFn: getCollections,
@@ -176,7 +187,6 @@ export function useLibraryData() {
     () => (inCollectionView ? collectionJobsQuery.data?.jobs : jobsQuery.data?.jobs) || [],
     [inCollectionView, collectionJobsQuery.data, jobsQuery.data],
   );
-  const totalPages = inCollectionView ? 1 : (jobsQuery.data?.totalPages || 1);
   const total = inCollectionView ? jobs.length : (jobsQuery.data?.total || 0);
   const jobsLoading = inCollectionView ? collectionJobsQuery.isLoading : jobsQuery.isLoading;
   const jobsError = inCollectionView ? collectionJobsQuery.isError : jobsQuery.isError;
@@ -184,7 +194,11 @@ export function useLibraryData() {
   const deleteJobMutation = useMutation({
     mutationFn: (jobId: string) => deleteJob(jobId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] });
+      Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] }),
+        queryClient.invalidateQueries({ queryKey: ['calendar', 'jobs'] }),
+      ]).catch(() => {});
       setDeleteJobConfirm(null);
       setDeleteJobError('');
       setOpenJobMenu(null);
@@ -247,79 +261,35 @@ export function useLibraryData() {
   }
 
   async function fetchAllMatchingJobs(): Promise<{ jobs: LibraryJob[]; hitCap: boolean }> {
-    const first = await getJobs(1, jobsQueryOptions);
-    const totalPagesForExport = first.totalPages || 1;
-    const pagesToFetch = Math.min(totalPagesForExport, MAX_EXPORT_PAGES);
-    const rest = await Promise.allSettled(
-      Array.from({ length: pagesToFetch - 1 }, (_, i) => getJobs(i + 2, jobsQueryOptions)),
-    );
-    const restJobs = rest.flatMap((r) => (r.status === 'fulfilled' ? r.value.jobs : []));
-    return { jobs: [...first.jobs, ...restJobs], hitCap: totalPagesForExport > MAX_EXPORT_PAGES };
+    const payload = await fetchAllMatchingJobPages(jobsQueryOptions);
+    // Server list page size is fixed at 10 jobs (routes/jobs/list.ts).
+    const serverPages = Math.ceil((payload.total || 0) / 10) || 1;
+    return { jobs: payload.jobs, hitCap: serverPages > MAX_LIBRARY_JOB_PAGES };
   }
 
   const [exporting, setExporting] = useState(false);
 
   async function exportCSV() {
-    // WHY try/catch (#45): Blob construction or URL.createObjectURL can throw in
-    // restricted environments (private browsing on some browsers, storage quota
-    // exhaustion). Without this, failures were silent. flashToast surfaces both
-    // outcomes — success confirmation and error — without a modal.
+    // WHY try/catch (#45): Blob/download can throw in restricted environments.
     setExporting(true);
     try {
-      // A selection is explicit user intent — export exactly those rows, even
-      // though they may span pages, without needing to fetch anything further.
       let toExport: LibraryJob[];
       let hitCap = false;
       if (selectedIds.size > 0) {
-        toExport = jobs.filter(j => selectedIds.has(j.id));
+        toExport = jobs.filter((j) => selectedIds.has(j.id));
       } else {
         const all = await fetchAllMatchingJobs();
         toExport = all.jobs;
         hitCap = all.hitCap;
       }
-      const rows = [['Topic', 'Platform', 'Status', 'Score', 'Date', 'URL']];
-      toExport.forEach(j => {
-        rows.push([
-          `"${(j.topic || '').replace(/"/g, '""')}"`,
-          j.platform, j.status,
-          String(getQualityScore(j) ?? ''),
-          new Date(j.createdAt).toLocaleDateString(),
-          `${window.location.origin}/result/${j.id}`,
-        ]);
-      });
-      const csv = rows.map(r => r.join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'content_library.csv';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      const capNote = hitCap ? ` (capped at ${MAX_EXPORT_PAGES * 10} most recent matches)` : '';
-      flashToast(`Exported ${toExport.length} row${toExport.length !== 1 ? 's' : ''} to CSV${capNote}`);
+      downloadLibraryCsv(buildLibraryCsv(toExport));
+      flashToast(
+        `Exported ${toExport.length} row${toExport.length !== 1 ? 's' : ''} to CSV${exportCapNote(hitCap)}`,
+      );
     } catch {
       flashToast('Export failed — please try again.', true);
     } finally {
       setExporting(false);
-    }
-  }
-
-  const [selectingAll, setSelectingAll] = useState(false);
-
-  // WHY fetch-then-select rather than just selecting `jobs` (current page): the
-  // toolbar's "Select all" previously only ever selected the current page's rows,
-  // even when a search/filter was active with matches on other pages — the same
-  // page-scoping bug as CSV export (finding #4).
-  async function handleSelectAllMatching() {
-    if (selectedIds.size > 0) { setSelectedIds(new Set()); return; }
-    setSelectingAll(true);
-    try {
-      const { jobs: allMatching, hitCap } = await fetchAllMatchingJobs();
-      setSelectedIds(new Set(allMatching.map((j) => j.id)));
-      if (hitCap) flashToast(`Selected the first ${MAX_EXPORT_PAGES * 10} matches — narrow your search to select more precisely.`);
-    } catch {
-      flashToast('Failed to select all — please try again.', true);
-    } finally {
-      setSelectingAll(false);
     }
   }
 
@@ -331,13 +301,98 @@ export function useLibraryData() {
     });
   }
 
-  // WHY `jobs` used directly: search/platform/sort/tag are real GET /jobs query params —
-  // the server already returns the matching page. Collection view still uses its own
-  // membership list (no server-side tag filter on that endpoint).
-  const filteredJobs = useMemo(() => {
-    if (!inCollectionView || !tagFilter) return jobs;
-    return jobs.filter((j) => j.tag === tagFilter);
-  }, [jobs, tagFilter, inCollectionView]);
+  // WHY filter then topic-page: search/platform/sort/tag hit GET /jobs for the
+  // main list. Collection membership is a full one-shot list with no server
+  // filters, so apply search/platform/tag/sort client-side here — otherwise
+  // typing in search inside a folder did nothing.
+  // Grouping collapses Adapt/same-topic siblings into one Library row, so
+  // pagination is 10 topics per page — not 10 raw jobs.
+  const jobsForPaging = useMemo(() => {
+    let list = jobs;
+    if (inCollectionView) {
+      const q = debouncedSearch.toLowerCase();
+      if (q) {
+        list = list.filter((j) =>
+          j.topic.toLowerCase().includes(q)
+          || (j.tag || '').toLowerCase().includes(q),
+        );
+      }
+      if (platformFilter && platformFilter !== 'all') {
+        list = list.filter((j) => j.platform === platformFilter);
+      }
+      if (tagFilter) {
+        list = list.filter((j) => j.tag === tagFilter);
+      }
+      // WHY getQualityScore (not job.qualityScore): LibraryJob has no top-level
+      // score field — quality lives on critique outputs (see libraryHelpers).
+      if (sort === 'score') {
+        list = [...list].sort((a, b) => (getQualityScore(b) ?? 0) - (getQualityScore(a) ?? 0));
+      } else if (sort === 'platform') {
+        list = [...list].sort((a, b) => a.platform.localeCompare(b.platform));
+      } else {
+        list = [...list].sort((a, b) => {
+          const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return bt - at;
+        });
+      }
+    } else if (tagFilter) {
+      list = list.filter((j) => j.tag === tagFilter);
+    }
+    return list;
+  }, [jobs, tagFilter, inCollectionView, debouncedSearch, platformFilter, sort]);
+
+  const topicPage = useMemo(
+    () => jobsForTopicPage(jobsForPaging, page),
+    [jobsForPaging, page],
+  );
+  const filteredJobs = topicPage.pageJobs;
+  const totalPages = topicPage.totalPages;
+
+  // WHY page-first selection (not "select entire library"): Manage's old
+  // "Select all matching" grabbed every job when no search was set — easy to
+  // mass-delete by accident. Gmail-style: select this page by default; offer
+  // "select all N" only as an explicit second step once the page is selected.
+  const pageFullySelected = filteredJobs.length > 0
+    && filteredJobs.every((j) => selectedIds.has(j.id));
+  const allMatchingSelected = jobsForPaging.length > 0
+    && jobsForPaging.every((j) => selectedIds.has(j.id));
+  const matchingCount = jobsForPaging.length;
+  const listHitCap = !inCollectionView && matchingCount < total;
+  const hasActiveFilter = Boolean(
+    debouncedSearch
+    || (platformFilter && platformFilter !== 'all')
+    || tagFilter
+    || activeCollectionId,
+  );
+
+  function handleSelectPage(): void {
+    setSelectedIds(new Set(filteredJobs.map((j) => j.id)));
+  }
+
+  function handleClearSelection(): void {
+    setSelectedIds(new Set());
+  }
+
+  function handleSelectAllMatching(): void {
+    // WHY use already-loaded jobsForPaging: the list query already fetched the
+    // filtered set (capped). No second network round-trip for selection.
+    setSelectedIds(new Set(jobsForPaging.map((j) => j.id)));
+    if (listHitCap) {
+      flashToast(
+        `Selected the first ${matchingCount} loaded pieces — narrow your search to select more precisely.`,
+      );
+    }
+  }
+
+  // WHY clamp after delete/filter: staying on page 3 when only 1 topic-page remains
+  // would show an empty feed even though matches exist.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (page > totalPages) setPage(totalPages);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [page, totalPages]);
 
   const platformFilters = ['all', ...Object.keys(platformMeta)];
   const platformCounts = jobsQuery.data?.platformCounts || {};
@@ -368,7 +423,9 @@ export function useLibraryData() {
     toast,
     jobs, totalPages, total, jobsLoading, jobsError, jobsQuery,
     deleteJobMutation, bulkDeleteJobsMutation, tagJobMutation,
-    handleConfirmBulkDelete, exportCSV, exporting, handleSelectAllMatching, selectingAll,
+    handleConfirmBulkDelete, exportCSV, exporting,
+    handleSelectPage, handleClearSelection, handleSelectAllMatching,
+    pageFullySelected, allMatchingSelected, matchingCount, hasActiveFilter,
     toggleSelect, filteredJobs, platformFilters, platformCounts, pageTags,
     flashToast,
     // ── Collections ──
