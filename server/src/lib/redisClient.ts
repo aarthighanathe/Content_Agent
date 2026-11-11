@@ -119,6 +119,7 @@ export function getRedisClient(): IORedis | null {
     console.warn('[RedisClient] Failed to create Redis client:', err);
     return null;
   }
+}
 
 /**
  * Returns a dedicated ioredis connection for BullMQ Queue/Worker use, cloned
