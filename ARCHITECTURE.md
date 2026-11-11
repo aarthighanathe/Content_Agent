@@ -44,7 +44,7 @@ Redis available? ──NO──▶ runPipelineDirect()           │  processCon
 
 **Which path runs depends only on whether Redis is configured** (`UPSTASH_REDIS_URL`/`UPSTASH_REDIS_TOKEN` or `REDIS_URL`) — checked at request time in `create.ts` via `addJobToQueue()`'s return value, not at server boot. If Redis is up when the server starts but drops mid-session, `addJobToQueue()` catches the failure and returns `false`, and `create.ts` falls back to `runPipelineDirect()` for that request only.
 
-**Content Multiplication** (`POST /:jobId/multiply` in `manage.ts`) goes through the same `runAndPersistPipeline()` as every other job — it is **not** a separate inline copy. `pipeline.ts` (`runContentPipeline`/`runAndPersistPipeline`) exposes a `skipResearch` option that lets `/multiply` start directly at the Writer stage, reusing the source job's cached research/task-plan/platform-rules instead of re-running Orchestrator+Researcher (the whole point of multiplication is skipping re-research). Everything else — the retry loop, `isSoftDeleted()` guard, progress emission, PerformancePredictor stage — is the canonical shared implementation, so a bug fixed in `pipeline.ts` is automatically fixed for `/multiply` too; there is no second copy to keep in sync (see `CHANGELOG.md` §1.11 for when this was consolidated).
+**Content Multiplication** (`POST /:jobId/multiply` in `routes/jobs/regenerate.ts`) goes through the same `runAndPersistPipeline()` as every other job — it is **not** a separate inline copy. `pipeline.ts` (`runContentPipeline`/`runAndPersistPipeline`) exposes a `skipResearch` option that lets `/multiply` start directly at the Writer stage, reusing the source job's cached research/task-plan/platform-rules instead of re-running Orchestrator+Researcher (the whole point of multiplication is skipping re-research). Everything else — the retry loop, `isSoftDeleted()` guard, progress emission, PerformancePredictor stage — is the canonical shared implementation, so a bug fixed in `pipeline.ts` is automatically fixed for `/multiply` too; there is no second copy to keep in sync (see `CHANGELOG.md` §1.11 for when this was consolidated).
 
 ---
 
@@ -69,10 +69,11 @@ client/src/ssr/renderSlideHtml.tsx        ← the actual slide markup (React), u
               from the bundle, then stripScriptsAndEventHandlers()
                       │
                       ▼
-              server/src/lib/carousel.ts: renderSlideWithCache() → Puppeteer browser pool
+              server/src/lib/carousel.ts: renderSlideWithCache() → browserPool + pngCache
               → setJavaScriptEnabled(false) → request interception (blocks
                 script/xhr/fetch/websocket) → screenshot → base64 PNG
-              (24h cache, keyed by sha256 content hash + jobId + slideIndex + theme + viewport)
+              (24h cache, keyed by sha256 content hash + jobId + slideIndex + theme + viewport;
+               bounded ~40MB / 100 entries with active sweep — see `lib/pngCache.ts`)
                       │
                       ▼
               routes/jobs/render.ts: POST /:jobId/export/carousel-png
@@ -86,13 +87,13 @@ security surface is smaller than it looks — but `stripScriptsAndEventHandlers(
 that get interpolated into inline SVG are hex-validated at the schema boundary
 (`colorSystemSchema` in `server/src/schemas/jobs.ts`) rather than trusted as arbitrary strings.
 
-**`lib/carousel.ts` today (331 lines — grew from 247 during the 2026-07 Render/Puppeteer Chrome-detection fixes; see `git log` on this file) contains ONLY:**
-- The Puppeteer browser pool (min 2 / max 8, see §4 below)
-- The PNG cache (24h TTL, content-hash keyed)
-- `stripScriptsAndEventHandlers()` — the one canonical HTML sanitizer, used by both this file and `carouselSsr.ts`
-- `renderSlideWithPuppeteer()` / `renderSlideWithCache()` — the actual screenshot calls
+**Carousel render modules today:**
+- `lib/carousel.ts` — `renderSlideWithPuppeteer()` / `renderSlideWithCache()` +
+  `stripScriptsAndEventHandlers()`; re-exports pool/cache shutdown helpers
+- `lib/browserPool.ts` — Puppeteer browser pool (min 2 / max 8)
+- `lib/pngCache.ts` — bounded PNG cache (~40MB / 100 entries, 24h TTL, 45-min sweep)
 
-It does **not** contain theme metadata, prompt templates, or anything Gemini-related anymore.
+None of these contain theme metadata, prompt templates, or anything Gemini-related anymore.
 
 ---
 
@@ -128,11 +129,11 @@ clear error.
 
 | Pool / Map | File | Bound | Eviction |
 |---|---|---|---|
-| Puppeteer browser pool | `lib/carousel.ts` | min 2, max 8 | Browsers are reused across requests; a broken one is replaced via `replaceBrokenBrowser()` in the `catch` path, never left dangling |
-| PNG cache | `lib/carousel.ts` | Unbounded `Map`, but entries are content-hash keyed so re-rendering identical content is a hit, not a new entry; 24h TTL checked on read | Never actively swept — old entries stay in memory until process restart. Acceptable today given typical job volume; worth revisiting if memory profiling ever shows this as a factor |
-| `jobsMemory` Map | `routes/jobs/ownership.ts` | Unbounded | Evicted 10 min after completion via `setTimeout(() => store.evict(id), 10 * 60 * 1000)` in `pipeline.ts` |
+| Puppeteer browser pool | `lib/browserPool.ts` (used via `carousel.ts`) | min 2, max 8 | Browsers are reused across requests; a broken one is replaced via `replaceBrokenBrowser()` in the `catch` path, never left dangling |
+| PNG cache | `lib/pngCache.ts` (used via `carousel.ts`) | ~40MB / 100 entries; content-hash keyed; 24h TTL | Active 45-min sweep + size/count eviction on write |
+| `jobsMemory` Map | `routes/jobs/ownership.ts` | Unbounded | Evicted 10 min after terminal persist via generation-safe `scheduleJobEviction()` in `lib/jobEviction.ts` (called from `pipeline.ts`) |
 | `jobStore` Map (BullMQ worker) | `workers/contentWorker.ts` | Unbounded | Same 10-min eviction pattern, called from the same shared `runAndPersistPipeline()` |
-| Auth cache | `middleware/auth.ts` | Unbounded `Map`, keyed by Clerk ID | Entries expire on read (checked against `expiresAt`) but a stale entry for a user who never returns stays in memory forever — bounded in practice by total distinct users who've ever signed in during this process's lifetime |
+| Auth cache | `middleware/auth.ts` | Size-capped `Map`, keyed by Clerk ID | Entries expire on read (checked against `expiresAt`); oldest entries evicted when the size cap is hit |
 | SSE clients | `lib/sse.ts` | Unbounded `Map<jobId, SSEClient[]>` | Correctly cleaned up via `res.on('close', ...)` — verified during this review, no leak |
 | Redis rate-limit client | `middleware/rateLimit.ts` | Single lazy singleton per process | N/A — one connection, reused |
 

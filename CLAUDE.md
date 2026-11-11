@@ -23,7 +23,7 @@
 
 ### LLM Output Safety
 - ALWAYS pass LLM-generated HTML through stripScriptsAndEventHandlers() before rendering or storing
-- NEVER pass raw user input directly into a prompt string — always wrap user content in XML delimiters: `<user_input>${sanitizedInput}</user_input>`
+- NEVER pass raw user input directly into a prompt string — always wrap user content in XML delimiters with a field-specific tag (e.g. `<topic>`, `<brand_voice>`, `<source_article>`, `<critic_feedback>`) and treat tagged content as data, not instructions
 - NEVER use dangerouslySetInnerHTML with LLM output unless it has been sanitized first
 
 ### Puppeteer Safety
@@ -132,7 +132,7 @@
 
 ### Performance
 - NEVER make sequential API calls that can be parallelized — use Promise.allSettled()
-- NEVER create a new Puppeteer browser instance per request — always use the existing browser pool from lib/carousel.ts
+- NEVER create a new Puppeteer browser instance per request — always use the existing browser pool from lib/browserPool.ts (via carousel.ts)
 - ALWAYS evict completed jobs from memory after DB persist (10-minute TTL setTimeout pattern from contentWorker.ts)
 - ALWAYS cache auth lookups (5-minute TTL from middleware/auth.ts)
 
@@ -257,7 +257,7 @@ roadmap document is tracked; see `CHANGELOG.md` for shipped work.
 **Core value props:**
 - Brand voice learning (persist tone, vocabulary, phrases)
 - Multi-step research → write → critique loop with quality scoring
-- Visual carousel rendering (HTML → Puppeteer → 1080×1080 PNG)
+- Visual carousel rendering (HTML → Puppeteer → 1080×1350 PNG)
 - Content multiplication (reuse one research session across 5 platforms)
 - Social OAuth posting (LinkedIn, Twitter)
 - Real-time SSE progress tracking
@@ -369,11 +369,11 @@ carouselSsr.ts: buildSlideHtml(slide, ...)
 stripScriptsAndEventHandlers()  →  defense-in-depth sanitize (React already escapes text;
                                      inline SVG built from hex-validated palette values)
         │
-renderSlideWithCache()  →  lib/carousel.ts Puppeteer pool: acquire browser
-                            → setJavaScriptEnabled(false) → request interception
-                              (blocks script/xhr/fetch/websocket)
-                            → screenshot at 1080×1350 → base64 PNG
-                              (cached 24h, keyed by content-hash + theme + viewport)
+renderSlideWithCache()  →  lib/carousel.ts → browserPool.acquire + pngCache
+ → setJavaScriptEnabled(false) → request interception
+ (blocks script/xhr/fetch/websocket)
+ → screenshot at 1080×1350 → base64 PNG
+ (cached 24h, keyed by content-hash + theme + viewport; ~40MB/100-entry bound)
         │
 All slides render in parallel (Promise.allSettled) → zipped with jszip → downloaded
 ```
@@ -381,7 +381,9 @@ All slides render in parallel (Promise.allSettled) → zipped with jszip → dow
 **Key files:**
 - `client/src/ssr/renderSlideHtml.tsx` — the React slide component, source of truth for both the on-screen preview and the exported PNG
 - `client/scripts/build-ssr.mjs` — esbuild bundles the above into `server/src/generated/slideRenderer.js` (run via `npm run build:ssr`, part of `server`'s `npm run build`)
-- `server/src/lib/carousel.ts` (331 lines) — Puppeteer browser pool + PNG cache + `stripScriptsAndEventHandlers()` only; no longer generates HTML
+- `server/src/lib/carousel.ts` — `renderSlideWithCache()` + `stripScriptsAndEventHandlers()`; delegates pool/cache to the modules below
+- `server/src/lib/browserPool.ts` — Puppeteer browser pool (min 2 / max 8)
+- `server/src/lib/pngCache.ts` — bounded PNG cache (~40MB / 100 entries, 24h TTL, active sweep)
 - `server/src/lib/carouselSsr.ts` — bridges the SSR bundle to the Puppeteer renderer above
 - `server/src/routes/jobs/render.ts` — the single remaining route: `POST /:jobId/export/carousel-png`
 
@@ -510,16 +512,18 @@ e:/AGContentAgent/
 │           ├── Repurpose.tsx           ← URL → content (skips research phase)
 │           ├── Repurpose/
 │           │   └── FeedMonitorPanel.tsx   ← RSS/Atom feed subscription manager — React Query-backed CRUD + on-demand check, see §5's Feed Monitors row
-│           ├── Competitor.tsx          ← @handle competitor analysis
-│           └── Result.tsx              ← Main result viewer (thin orchestrator)
-│               └── Result/
+│           ├── Competitor.tsx          ← platform + @handle competitor analysis
+│           ├── Competitor/             ← PlatformSelector, HistoryDropdown, BenchmarkCard, …
+│           ├── Result.tsx              ← Main result viewer (thin orchestrator)
+│           └── Result/
 │                   ├── Result.css
 │                   ├── constants.ts
 │                   ├── hooks/
 │                   │   ├── useJobData.ts       ← SSE + polling + job fetch
 │                   │   ├── useExport.ts        ← PDF + TXT download
 │                   │   ├── useMultiplier.ts    ← Content multiplication mutation
-│                   │   └── useSocial.ts        ← OAuth redirect + post
+│                   │   ├── useSocial.ts        ← OAuth redirect + post
+│                   │   └── useQualityAside.ts  ← Quality column width (ease open ↔ 48px rail)
 │                   └── components/
 │                       ├── ActionDrawer.tsx        ← Consolidated drawer: feedback/post/hashtags
 │                       ├── ContentColumn.tsx       ← Dispatches to platform renderer by job.platform
@@ -634,10 +638,13 @@ e:/AGContentAgent/
         │
         ├── lib/
         │   ├── ai.ts                   ← Gemini wrapper + Groq fallback + retry logic
-        │   ├── carousel.ts             ← Puppeteer browser pool + PNG cache + stripScriptsAndEventHandlers() (331 lines — rewritten 2026-07 to drop HTML generation; grew from 247 during later Render/Puppeteer Chrome-detection fixes)
+        │   ├── carousel.ts             ← renderSlideWithCache + stripScriptsAndEventHandlers (pool/cache extracted)
+        │   ├── browserPool.ts          ← Puppeteer browser pool (min 2 / max 8)
+        │   ├── pngCache.ts             ← Bounded PNG cache (~40MB / 100 entries, 24h TTL, active sweep)
         │   ├── carouselSsr.ts          ← Bridges the prebuilt React SSR bundle (server/src/generated/slideRenderer.js) to the Puppeteer renderer in carousel.ts
         │   ├── logger.ts               ← Structured JSON logger (info/warn/error) — use instead of console.log per code style rules
-        │   ├── persistJob.ts           ← Insert agent outputs to contentOutputs
+        │   ├── persistJob.ts           ← Insert pending + terminal agent outputs to contentJobs/contentOutputs
+        │   ├── jobEviction.ts          ← Generation-safe 10-min memory eviction after terminal persist
         │   ├── queue.ts                ← BullMQ Queue + createRedisConnection()
         │   ├── publishQueue.ts         ← BullMQ 'scheduled-publish' delayed queue (Calendar auto-publish)
         │   ├── socialPublish.ts        ← Shared LinkedIn/Twitter posting logic — used by both routes/social.ts's POST /post and workers/publishWorker.ts
@@ -683,7 +690,7 @@ e:/AGContentAgent/
 |---|---|---|
 | 5-agent content pipeline | `agents/`, `workers/contentWorker.ts`, `routes/jobs/create.ts` | Gemini primary, Groq fallback |
 | 5 platforms | `agents/writer.ts`, `agents/formatter.ts` | carousel, linkedin, twitter, instagram, video |
-| 9 carousel themes | `lib/carousel.ts`, `CarouselContent.tsx` | Puppeteer renders 1080×1080 PNG |
+| 9 carousel themes | `lib/carousel.ts` + `browserPool.ts`/`pngCache.ts`, `CarouselContent.tsx` | Puppeteer renders 1080×1350 PNG |
 | Brand voice | `routes/users.ts`, `agents/writer.ts` | Injected into writer + critic prompts |
 | Real-time SSE | `lib/sse.ts`, `LoadingView.tsx`, `hooks/useJobData.ts` | Fallback to polling on reconnect |
 | Critic loop | `agents/critic.ts` | Score ≥ 70 to approve; max 2 retries |
@@ -775,7 +782,7 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 | 404 on ownership mismatch (not 403) | 403 confirms the resource exists — IDOR information leakage. |
 | 5-min auth cache | Avoids a Neon DB round-trip on every request while keeping user data reasonably fresh. |
 | Browser pool (min 2, max 8) | Chromium launch costs ~800ms + ~150MB. Pre-warm 2; cap at 8 to prevent OOM. |
-| Template cache (24h TTL) | Gemini template gen costs ~$0.002 and takes 3-8s. Themes rarely change between requests. |
+| PNG cache (24h TTL, ~40MB/100) | Export screenshots are content-hash keyed; Gemini no longer invents slide HTML (SSR bundle is the source of truth). |
 | BullMQ concurrency 2 | Cost control — each job burns Gemini + Tavily quota. Two concurrent is the deliberate cap. |
 | Social tokens AES-256-GCM | OAuth tokens grant write access to social accounts — plaintext storage is unacceptable. |
 | Single brand profile per user (no multi-workspace) | Intentional scope decision (2026-08-04) — `brandName`/`brandVoice`/`industry`/`contentDna` live directly as columns on `users`, no separate brand/workspace table. Do not build multi-brand/agency support unless this is explicitly revisited. |
@@ -786,25 +793,30 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 
 - Puppeteer pool max 8 — renders beyond this queue, timeout at 60s
 - BullMQ concurrency 2 — at most 2 jobs run simultaneously
-- **Worker-crash recovery is configured but not yet live-verified (as of 2026-08-10).**
-  `lib/queue.ts`'s `content-generation` queue sets `attempts: 3` with exponential backoff
-  (1s base delay); `workers/contentWorker.ts`'s `Worker` leaves BullMQ's `stalledInterval`/
-  `maxStalledCount` at library defaults (30s / 1) — on paper this means a worker process killed
-  mid-job should have that job detected as stalled within ~30s and automatically requeued onto
-  another worker, up to 3 total attempts before landing in `failed`. **Pipeline business
-  failures are intentionally NOT retried** — `contentWorker` swallows errors after
-  `runAndPersistPipeline` has already persisted `status:'failed'` + terminal SSE (rethrowing
-  would burn quota on an already-terminal job). **Worker-crash / stalled recovery has not been
-  confirmed against a real killed process** — on staging, `kill -9` the worker mid-pipeline and
-  confirm the job requeues cleanly or fails visibly rather than silently vanishing. Update this
-  entry with the actual outcome once run.
+- **Worker-crash recovery is configured but not yet live-verified (as of 2026-08-10; pending-row
+  durability CORR-001 + REL-001 2026-11-08).** `lib/queue.ts`'s `content-generation` queue sets
+  `attempts: 3` with exponential backoff (1s base delay); `workers/contentWorker.ts`'s `Worker`
+  leaves BullMQ's `stalledInterval`/`maxStalledCount` at library defaults (30s / 1). Note:
+  stalled recovery requeues the job — `attempts` counts failed *executions*, not stall
+  detections alone. Create inserts a durable `pending` DB row up front. The worker `failed`
+  handler plus a **periodic 15-min-age stale sweep from the web process** (`startStaleJobSweep`
+  in `persistJob.ts`, also covers no-Redis / direct mode) mark abandoned in-flight rows
+  `failed` and emit terminal SSE. Result also times out a silent non-terminal job after
+  20 min by `createdAt` (durable pending never 404s). **Pipeline business failures are
+  intentionally NOT retried** — `contentWorker` swallows errors after `runAndPersistPipeline`
+  has already persisted `status:'failed'` + terminal SSE. **Live `kill -9` verification on
+  staging is still outstanding** — run the checklist below and record the outcome in
+  `CHANGELOG.md`.
 
   **Staging checklist (L9):**
-  1. Ensure Redis + at least one content worker process are running on staging.
-  2. Submit a Create job and note the jobId while status is still `processing`.
+  1. Ensure Redis + at least one content worker process are running on staging
+     (`npm run worker` now actually calls `startWorker()`).
+  2. Submit a Create job and note the jobId while status is still `processing`
+     (confirm a `pending`/`processing` row exists in `content_jobs`).
   3. `kill -9 <worker-pid>` mid-pipeline (before terminal SSE).
-  4. Within ~30–60s, confirm BullMQ requeues (worker log / Redis) or the job ends `failed`
-     with a visible Result error — never stuck forever as `pending` with no SSE.
+  4. Within ~30–60s, confirm BullMQ requeues (worker log / Redis), or within ~15–20 min
+     confirm the row ends `failed` with a visible Result error — never stuck forever as
+     `pending` with a spinning UI.
   5. Record date + outcome in `CHANGELOG.md` and replace this paragraph with the result.
 - Demo: 5 generations/hour per IP (one sample per landing-page platform)
 - Writer enforces 45-60 word limit per carousel slide body; critic also
@@ -827,7 +839,7 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   (`publishWorker.ts` → `socialPublish.ts`). Day-only `scheduledDate` + optional local
   `publishHour` (0–23, default 9, L10/F12) + `timezoneOffsetMinutes` compute the delay.
   Reminder-only rows (no platform) skip the worker. Result PostPanel schedules into the
-  same table (not the old in-memory social schedule Map).
+  same table (`POST /api/social/schedule` in-memory Map removed 2026-11).
 ---
 
 ## 10. Docs Reference
@@ -986,10 +998,9 @@ section is retained only so existing pre-template carousels keep rendering corre
 
 ## 12. Deployment (Production)
 
-> This repo is not yet under version control (`git init` has not been run). Deploying via
-> Vercel/Render's git-based auto-deploy requires pushing to a GitHub/GitLab remote first —
-> that's a one-time setup step, not something either platform needs repo config for beyond
-> what's already here.
+> This repo has a local `.git` history. Deploying via Vercel/Render's git-based auto-deploy
+> still requires a GitHub/GitLab (or Origin) remote — that's a one-time setup step beyond
+> the Blueprint/`vercel.json` config already here.
 
 **Target stack — free tier, shareable public link, no self-hosted infra to maintain:**
 
@@ -1016,9 +1027,9 @@ scripts, not from a Dockerfile).
   `server/src/config.ts` validates the full required/optional schema at boot and fails fast with
   a clear error if something required is missing (see that file for the authoritative list).
 - `OAUTH_STATE_SECRET` has an insecure hardcoded dev default that `config.ts` explicitly rejects
-  when `NODE_ENV=production` — Render's env var for this **must** be set to a real generated
-  value or the server refuses to start (this is intentional, not a bug — see the `SECURITY:`
-  comment in `config.ts`).
+  when `NODE_ENV=production` **or** when `APP_URL` is not localhost — Render's env var for this
+  **must** be set to a real generated value or the server refuses to start. Production also
+  rejects a localhost `APP_URL` default (see the `SECURITY:` comment in `config.ts`).
 - `server/Dockerfile` used to `COPY .env.example .env` into the image (baking placeholder/empty
   values in) — removed, since the container runtime (Render's env var injection, or
   docker-compose's `environment:` block for local dev) is the correct source of runtime config,

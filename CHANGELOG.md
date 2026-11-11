@@ -15,6 +15,464 @@
 
 ---
 
+## 2026-11-11 — Full-platform QA bugfixes
+
+From the full-platform feature QA pass:
+
+- **QA-FEED-001:** Feed monitor Check now / cron no longer dies on a single
+  opaque undici `fetch failed`. `fetchWithSsrfGuard` unwraps `error.cause`
+  into `lastError`; feed XML fetch retries up to 3 times on transient network
+  classes; create probes the feed before insert so dead/blocked URLs fail at
+  subscribe; Check now UI polls monitors for ~15s so `lastCheckedAt` /
+  `lastError` actually appear after the async worker finishes.
+- **QA-LIB-001:** Library polls every 4s while any listed job is
+  `pending`/`processing`, and BatchResult invalidates library/dashboard/
+  calendar job queries when the batch settles — so completed jobs no longer
+  stick on “Pending” after Batch/Result already show Done.
+- **QA-BRAND-001:** Brand Voice pills now case-normalize stored tones
+  (`professional` ↔ `Professional`) so onboarding/default profiles highlight
+  the matching pill instead of leaving all deselected after load/reset.
+- **QA-BRAND-002:** Deselecting the last voice pill is blocked (and Save falls
+  back to Professional) so `brandVoice` cannot be persisted as an empty string.
+- **QA-BRAND-003:** Identity/Voice inputs enforce schema `maxLength`; Save
+  surfaces the server validation `error` via `getSubmitError` instead of a
+  generic “Failed to save” banner.
+- **QA-BRAND-004:** Brand Connect no longer looks “broken” when OAuth env
+  vars are empty — `GET /social/connections` returns `oauthConfigured` for
+  when the Publishing Connections card returns; for now that card is hidden
+  from Brand entirely until social OAuth is ready to ship in the UI.
+- **COST-001 (repurpose + batch refund):** `/repurpose` and `/repurpose/batch`
+  reserve generation budget before creating jobs (same fail-closed pattern as
+  Create batch/feed); batch Create refunds a successful reserve if the handler
+  throws after reserve (e.g. profile load failure).
+
+## 2026-11-08 — Create → Result QA bugfixes
+
+From the Create → Result full-flow QA pass:
+
+- **QA-C2-002:** Invalid / unowned `jobId` no longer flips from “Job not found”
+  to “Generation lost” after poll 404s. Polling stops on `not_found`; mid-run
+  vanish still uses `lost` only when we previously held job data
+  (`useJobData.ts`). Header title/badge no longer show fake “Generating…” /
+  Pending on load errors (`ResultHeader.tsx`).
+- **QA-C2-001:** “Generation lost” no longer stacks a second “Generation failed”
+  + Regen — lost/stale paths set `loadError` only; failed ErrorState is gated
+  with `!loadError` (`Result.tsx`).
+- **QA-A3-003:** Single-mode Create validates topic ≥ 3 chars client-side (inline
+  + disabled Generate); `parseBody` returns the first zod issue message instead
+  of opaque “Invalid request body”.
+- **QA-A3-002:** Recent topics localStorage updates only after a successful
+  `createJob`.
+- **QA-I-001:** Mobile Create Generate button gets scroll-margin + extra step
+  padding so the fixed bottom tab bar no longer intercepts clicks.
+- **QA-D3-001:** Twitter Tweet 1 A/B now persists like LinkedIn (swap into
+  `tweets[0]` / `tweetOneAlt`) so Copy / Export / header Copy match the pick.
+- **QA-A9-001:** Topic-only Create handoffs (e.g. Competitor) collapse the
+  platform grid; Change still expands it.
+
+---
+
+## 2026-11-08 — Full-codebase review Batch 5 (availability / security / prompts)
+
+REL-001 → MAINT-001 from the follow-up full-codebase review:
+
+- **REL-001:** Stale in-flight sweep default is 15 min (was 1h); web process runs
+  it on an interval (covers no-Redis / direct mode); swept jobs emit terminal
+  SSE. Result client marks a silent non-terminal job “lost” after 20 min by
+  `createdAt` (durable pending never 404s).
+- **SEC-015:** Feed monitor reads RSS with a 500KB streaming byte cap (same class
+  as repurpose HTML), not unbounded `.text()`.
+- **COST-001:** Generation budget uses atomic Redis Lua reserve; fail closed when
+  Redis is missing. Batch/feed reserve before create and refund unused hits.
+- **AI-001:** Writer / critic / orchestrator / predictor wrap+`escapeXml` topic,
+  audience, brand voice, research facts, task plan, content DNA, and content
+  summaries (not only `<source_article>` / critic feedback).
+- **SEC-016:** `/api/ready` returns `{ ok }` only — dependency error text stays
+  in server logs.
+- **SEC-017:** Image Gen only downloads from allowlisted hosts and
+  `image/png|jpeg|webp` content-types.
+- **SEC-018:** Production client build throws if `VITE_CLERK_PUBLISHABLE_KEY` is
+  missing (dev fallback only).
+- **SEC-019:** Export schema requires raster `data:image/...;base64,...` for
+  `imageDataUrl` and enums `theme` to legacy+template ids.
+- **SEC-020:** OAuth connect requires `dbUserId`; callback requires UUID
+  `state.userId` and `state.platform ===` URL platform (no `'demo'` fallback).
+- **OPS-001:** `TOKEN_ENCRYPTION_KEY` must match `/^[0-9a-fA-F]{64}$/` at boot.
+- **MAINT-001 (partial):** Writer platform prompts → `writerPlatformPrompts.ts`
+  (writer.ts back under 400 lines). Larger Brand/api/pipeline splits remain.
+- **Doc:** `index.ts` SSE comment corrected (Redis stream token, not Clerk JWT).
+
+## 2026-11-08 — Plain-text export uses Slide 1 / Slide 2 headers
+
+`.txt` and Copy-all used raw `[cover]` / `[content]` tags and dropped points
+and CTAs. Carousel flattening now writes `Slide N of M — Type`, then headline,
+body, numbered points, and CTA — same scannable structure as the PDF/HTML
+outlines.
+
+## 2026-11-08 — Slide Outline HTML: readable document, not a left-rail of cards
+
+The HTML export was a dark left column (`max-width: 600px`) with only
+headline/body. It is now a centered reading document: topic + meta, linked
+contents, numbered slides with points/CTA, print styles, and offline-safe
+system fonts.
+
+## 2026-11-08 — PDF export: consistent type styles, no stretched tracking
+
+The PDF mashed each slide's headline and body into one Helvetica run, so
+curly quotes/dashes from the LLM made Preview render some lines with
+stretched letter-spacing, and points/CTAs were dropped. Export now uses a
+fixed hierarchy (label / bold headline / body / numbered points), sanitizes
+text to WinAnsi-safe ASCII, and page-breaks cleanly across all slides.
+
+## 2026-11-08 — Carousel PNG export ships every slide, with padding
+
+Clean Corporate 2×2 point grids clipped through the bottom cards in the PNG
+because export screenshots with JavaScript off used a height guess that
+ignored card chrome, and the export document missed the preview's margin
+reset. The guess now models that grid (including the wider pre-scale layout),
+and the export CSS matches the preview.
+
+Incomplete ZIP downloads: rendering all slides at once exhausted the browser
+pool, so only the winners were zipped, and CORS hid `X-Export-Warning` so the
+client treated a partial set as success. Export now renders two slides at a
+time, refuses to download unless every slide rendered, exposes the warning
+header, and surfaces the server error message in the export modal.
+
+## 2026-11-08 — Full-codebase review Batch 4 (maintainability / UX)
+
+SEC-014 + REACT-001 + dead schedule Map + Onboarding RQ + file-cap splits:
+
+- **SEC-014:** OAuth callback redirects use stable `social_error` codes; Brand
+  toast maps only allowlisted codes (never raw query-string text) and clears
+  the params after toasting.
+- **REACT-001:** Removed unused Zustand `currentJob` / `updateFromSSE` mirror —
+  SSE progress lives only in `useJobData`/`jobData`.
+- **Dead schedule Map:** Deleted `POST /api/social/schedule` +
+  `socialScheduleIntents` + client `schedulePost` helpers; Calendar publish
+  remains on `scheduled_posts` + `publishWorker`.
+- **Onboarding:** `OnboardingModal` status/complete now use React Query
+  (keeps modal open + shows error on save failure).
+- **File caps:** Split `LIBRARY_STYLES` → `libraryStyles.ts`; ExportModal
+  downloaders → `exportDownloaders.ts`; Result content/template helpers →
+  `resultDerived.ts` / `useResultTemplate.ts`.
+
+## 2026-11-08 — Full-codebase review Batch 3 (deploy / SSR / ops)
+
+DEPLOY-001 / DEPLOY-002 + Blueprint/doc drift from the review:
+
+- **DEPLOY-001:** Regenerated `server/src/generated/slideRenderer.js`; added
+  `client/scripts/check-ssr-fresh.mjs` (`npm run check:ssr`) and wired it into
+  `server`'s `npm run build` so a stale SSR bundle fails the build.
+- **DEPLOY-002:** `npm run worker` now calls `startWorker()` when
+  `contentWorker.ts` is the process entrypoint (SIGINT/SIGTERM shut down cleanly).
+- **`render.yaml`:** declares `CLERK_PUBLISHABLE_KEY` (`sync: false`) — required by
+  `config.ts` at boot; was missing from the Blueprint env list.
+- **Doc drift:** CLAUDE.md / ARCHITECTURE.md updated for `browserPool.ts` +
+  `pngCache.ts`, multiply in `regenerate.ts`, 1080×1350 export, bounded PNG cache,
+  XML prompt tags (not literal `<user_input>`), local `.git`, SSE stream-token
+  (not Clerk JWT in query), and L9 pending-row durability notes.
+
+## 2026-11-08 — Full-codebase review Batch 2 (correctness)
+
+CORR-001 → CORR-014 from the full-codebase review correctness batch:
+
+- **CORR-001:** Insert durable `pending` `content_jobs` row at create/batch/repurpose/
+  multiply; BullMQ `failed` marks in-flight rows failed + terminal SSE; startup
+  sweeps stale in-flight jobs; Result poll treats 5 consecutive 404s (no fresh SSE)
+  as a recoverable "lost" state.
+- **CORR-002 / CORR-014:** Generation-safe eviction registry (`jobEviction.ts`) —
+  cancel on re-entry; schedule after both done and failed terminal persists.
+- **CORR-005:** Regenerate 409 when memory status is in-progress (no-Redis path);
+  Adapt refuses a second in-flight sibling for the same platform.
+- **CORR-003:** Persist merges live memory `templateId`/`paletteId`/`tag` so mid-run
+  PATCH is not overwritten by the queue/create payload.
+- **CORR-006:** Atomic `pending→publishing` claim before social publish; hour-only
+  upsert on already-posted rows does not re-arm; Calendar hour select disabled when
+  posted/publishing. Migration `0018_publish_publishing_status`.
+- **CORR-013:** SSE state events include `jobId`; client accepts `id` or `jobId`;
+  EventSource closes on terminal done/failed.
+- **CORR-012:** Already fixed in Batch 1 (oldest unseen + no cursor advance on extract fail).
+- **CORR-004:** Shared `getLatestQualityScore` / `getLatestCritique` on client + server;
+  Library/list/manage/Result/Dashboard/ownership aligned on latest critique/final.
+
+## 2026-11-08 — Full-codebase review Batch 1 (security)
+
+SEC-001 → SEC-013 from the full-codebase review security batch:
+
+- **SEC-002:** `OAUTH_STATE_SECRET` rejects the hardcoded dev default when
+  `NODE_ENV=production` (even if `APP_URL` still defaults to localhost); production
+  also refuses a localhost `APP_URL`.
+- **SEC-001 + SEC-006:** `/social/connect` returns `{ authorizeUrl }` JSON and sets
+  an HttpOnly CSRF cookie bound to the OAuth nonce; `/callback` requires the cookie
+  to match. Brand Connect uses authenticated `startSocialConnect` + navigate (no
+  bare `/api` `<a href>`). Axios sends `withCredentials` for the cookie. OAuth nonce
+  Redis consume fails closed in production.
+- **SEC-004:** `sanitizeGenerationInput` walks nested `items[]` fields; feed-monitors
+  mount the sanitizer; batch zod caps `targetAudience` / `paletteId`.
+- **SEC-003:** Repurpose/feed jobs pass article text as `sourceMaterial` →
+  `<source_article>` (not critic feedback). Entity decode runs before tag strip;
+  summary prompt is XML-escaped; `sanitizeSearchText` shares the full injection list.
+- **SEC-005:** Feed monitors pre-check + charge the hourly generation budget, use a
+  Redis single-flight lock, process oldest unseen after the first check, and do not
+  advance the cursor on extract failure. Batch create asserts budget before fan-out.
+- **SEC-011:** Publish worker skips soft-deleted / ownership-mismatched jobs; job
+  DELETE cancels BullMQ publish jobs before deleting `scheduled_posts` rows.
+- **SEC-013:** Production CORS drops hardcoded localhost origins; Clerk
+  `authorizedParties` mirrors the CORS allowlist.
+
+## 2026-11-08 — Full-codebase review Batch 0 (CI unblock)
+
+Unblocks client build and the red server suite from the review pass:
+
+- Library collection sort uses `getQualityScore(job)` and handles `platform`
+  (was reading a non-existent `job.qualityScore` and a dead `topic` branch that
+  broke `tsc -b`).
+- Brand Save button gates on `isHydrated` state instead of a ref read during
+  render (`react-hooks/refs`); `applyProfileToForm` is `useCallback`-stable.
+- `pipeline.test.ts` stubs `getJobFromStore` on the ownership mock (pipeline
+  imports it there now — the contentWorker-only stub left it undefined).
+- Repurpose route tests mock `Response.body.getReader()` so the byte-capped
+  extract path no longer returns `FETCH_FAILED` on every happy-path case.
+- `agentResponses` carousel test expects `''` for a numeric headline under
+  `CS()` (`z.string().catch('')`, not coerce).
+
+## 2026-11-08 — Reverify: persist / regenerate wipe edge cases
+
+Follow-up pass on the full-codebase review fixes — residual failure modes:
+
+- Success persist no longer falls into the pipeline-failed path (which wrote
+  `failed` + empty outputs and wiped a regenerate’s previous final). Retries
+  the DB write inline (3 attempts) and keeps the done result in memory without
+  eviction when save still fails; does not rethrow into BullMQ (would re-burn
+  the full LLM run while `contentWorker` swallows errors).
+- Empty `failed` persists no longer delete prior `content_outputs` rows.
+- Failed regenerates rehydrate prior DB finals into the memory snapshot so
+  memory-first `GET /:jobId` still returns the last good post.
+- Conflict updates on persist only write template/palette/tag/lineage when the
+  snapshot actually carries them (mid-run Library tag / template PATCH no
+  longer cleared by a thin queue payload).
+- Queue re-add returns `active` if an existing BullMQ job could not be removed
+  (avoids silently re-attaching the old payload).
+- Result poll no longer treats bare `status:'failed'` with empty outputs as
+  “keep previous,” so rehydrated finals from the server can land after a
+  failed regenerate.
+
+## 2026-11-08 — Full-codebase review: data loss, publishing, quality, UI fixes
+
+Confirmed issues from the full-code review, fixed in one pass.
+
+**Data / pipeline**
+- `persistJobToDB` rethrows on failure; done SSE and the 10-minute eviction only
+  run after a successful commit (a Neon blip no longer looks like success then 404s).
+- Create/batch queue payloads and the BullMQ worker now carry
+  `templateId`/`paletteId`/`sourceUrl`/lineage; regenerate copies them too;
+  conflict updates write them back.
+- Account deletion deletes `collection_jobs` before `collections` (and by
+  collection id), so a Library folder no longer makes `DELETE /me` 500.
+- `chargeGenerationBudget` uses the Clerk id the limiter keys on; repurpose
+  charges full job count (`alreadyCounted: false`).
+- Regenerate returns 409 while a BullMQ job is active instead of wiping the UI
+  / starting a second pipeline.
+- Adapt walks deleted ancestors with a soft lookup (no child 404) and runs
+  through `runPipelineDirect` so it respects the direct-pipeline slot cap.
+- SSE no longer accepts a Clerk session JWT in the query string; stream-token
+  is required.
+- Puppeteer `replaceBrokenBrowser` can leave `busy` true so a failed render
+  cannot free a slot another export holds.
+- Repurpose HTML fetch is capped at ~500KB.
+
+**Publishing**
+- Twitter threads post as a reply chain (every tweet), each capped at 280 chars.
+- Scheduling rejects a past/current hour; queue failure returns 503 and clears
+  auto-publish on the row instead of claiming success.
+
+**Quality**
+- `CS()` no longer uses `z.coerce.string()` (omitted fields were saved as the
+  word `"undefined"`); critic scores use coerce+catch; feedback null no longer
+  replaces a real scorecard with 50.
+- Critic word-count ranges match the writer’s per-slide targets
+  (feature/how-to/quote/CTA).
+- Empty Zod `.catch({})` slides no longer count toward the 6-slide minimum;
+  formatter scrubs coerce junk; Result shows a banner when the saved final is
+  `partial`.
+
+**UI / UX**
+- Repurpose batch unlocks after total failure; Clear resets loading;
+  double-submit guards on Create/batch/Repurpose/Ideate.
+- Brand Save disabled until profile hydrates; onboarding stays open if save fails.
+- Adapt polls clear on jobId change; failed regen keeps the previous post;
+  failed SSE sets `status: 'failed'` immediately.
+- Library search/platform/sort work inside folders; empty-folder copy; page
+  numbers window around the current page; deletes invalidate Library/Dashboard/
+  Calendar.
+- Schedule picker uses local min time; PostPanel refuses the current hour;
+  schedule invalidates calendar caches.
+- Feed Monitors header is a button; competitor history delete is visible and
+  reports errors; failed batch rows link to See error; Create handoff seeds the
+  draft (including competitor context).
+
+## 2026-11-08 — Carousel PNG export downloads, and the rendering row stays compact
+
+`page.setContent` waited on `networkidle2`, but slide HTML is self-contained
+(fonts are inlined data-URLs), so Puppeteer never saw a network-idle event and
+every slide timed out at 25s. The ZIP never downloaded. Export now waits for
+`load`. The export modal keeps a fixed-width button ("Rendering") and puts the
+slide count on one description line, so that row no longer wraps open.
+
+## 2026-11-08 — AI Quality Analysis: restore content inset from the card edge
+
+`--card-padding-compact` (16px) left labels and critic quotes flush with the
+border, and `VisibleScroller`'s overflow gutter overwrote `paddingRight` to
+10px so the right edge got worse when the track showed. Sidebar scroller
+padding is now 20×22; the gutter pads the inner stack instead of crushing the
+scroller's own padding.
+
+## 2026-11-08 — AI Quality Analysis opens and closes without a layout flicker
+
+The wide Result grid could not interpolate `minmax()` / `fr` into `48px`, and
+the open card was unmounted for a separate rail, so the column snapped and the
+score card repainted. The quality column is now a registered length
+(`--rp-aside`) that eases between the measured open width and 48px. The same
+card stays mounted and is clipped at that open width, and the rail fades in
+over it.
+
+## 2026-11-08 — Template + Adapt: shared column floors so both stay usable
+
+Beside the carousel, Adapt sized to all tiles and starved Template to a
+clipped one-row sliver. Both cards now share the side column with min/max
+heights (Template ≥220px / ≤56%, Adapt ≥200px / ≤48%), compact padding, and
+Adapt’s list scrolls via `VisibleScroller` like Template.
+
+## 2026-11-08 — AI Quality Analysis: less padding, scrollbar on the border
+
+InsightsSidebar stacked `.card-glow`'s default 24px padding with another
+`--card-padding` on `VisibleScroller`, so score bars looked squeezed and the
+painted track sat ~24px inside the card instead of on the edge. Sidebar
+`.card-glow` is now `padding: 0`; the scroller uses `--card-padding-compact`
+plus the default gutter so % labels clear the thumb.
+
+## 2026-11-08 — Template list: scrollbar no longer covers the checkmark
+
+Result's Template switcher used `VisibleScroller` with `gutter={false}`, so the
+painted thumb sat on top of the selected row's Check. Restored the default
+gutter so overflowing lists get right padding and clear the track.
+
+## 2026-11-08 — Neon pool: stop idle disconnects crashing the server
+
+Idle Neon WebSocket clients were emitting `pool` `'error'` with no listener,
+so Node treated `Error: Unhandled error. ()` (from `idleListener`) as fatal
+and killed `tsx watch`. `db/index.ts` now attaches a pool error handler
+(log + discard), shortens `idleTimeoutMillis`, and `closeDb()` runs on
+SIGTERM/SIGINT shutdown.
+
+## 2026-11-08 — Create draft toast: visible info icon
+
+The sessionStorage draft disclosure on Create used a 12px `AlertCircle` on a
+near-transparent accent wash, so the icon read as a missing glyph on dark
+themes. Switched to an accent `Info` icon on `--bg-raised` with a clearer
+border, with the icon vertically centered and matching the text color.
+
+## 2026-11-08 — Library platform chips: calmer brand colors
+
+Content Library topic chips were painting LinkedIn/Twitter/Carousel labels in
+neon sky/cyan/pink, which read oddly on dark themes when several platforms sat
+in one row. `platformMeta` now uses brand-aligned tones (LinkedIn light blue,
+Twitter `#1DA1F2`, Instagram magenta, soft violet caption, coral video); family
+chips keep color on the icon + tinted shell and use `--text-secondary` for the
+label. Filter pills reuse the same soft `bg`/`border` tokens when active.
+
+## 2026-11-08 — Dark-theme autofill for `.input`
+
+Browser autofill was painting handle/username fields bright white/yellow on
+dark themes. Shared `.input` / `.raw-input-focus-visible` rules now override
+`:-webkit-autofill` with an inset theme fill and matching text color.
+
+## 2026-11-08 — Competitor LinkedIn: require Tavily + accept profile URLs
+
+LinkedIn analysis was returning “insufficient evidence” because
+`TAVILY_API_KEY` was unset (search silently skipped) and LinkedIn pages are
+poorly indexed. Competitor now returns `SEARCH_UNAVAILABLE` with a clear
+message when Tavily isn’t configured; accepts pasted `linkedin.com/in/…`
+URLs; uses Tavily `include_domains` + advanced depth for LinkedIn; constructs
+a canonical profile URL for search grounding.
+
+## 2026-11-08 — Competitor Content Lens: required platform + scoped search
+
+Competitor analysis previously took only a handle (+ optional industry) and
+ran vague Tavily queries across social media — so `@ghanatheaarthi` could
+match the wrong person/network. Users must now pick LinkedIn, Twitter/X, or
+Instagram; search uses platform `site:` filters; the LLM prompt refuses
+wrong-person / cross-platform invention when evidence is weak; results and
+history show the platform; `dataQualityNote` is surfaced. DB column
+`competitor_analyses.platform` added (migration `0017_competitor_platform`).
+
+## 2026-11-08 — Thinner painted scrollbars (Feed Monitors)
+
+The shared `VisibleScroller` track was an 8px solid accent strip — heavy on the
+Repurpose Feed Monitors column. Track/thumb are now 3px (same as the global
+native bar) with a softer accent mix.
+
+## 2026-11-08 — Library Manage: safer select UX
+
+Manage mode is for bulk export/delete. Its old "Select all matching" button selected
+the entire library whenever no search/filter was set, which felt like a trap next to
+Delete. Selection is now Gmail-style: **Select this page** by default, **Clear** when
+anything is selected, and an explicit **Select all N** only after the page is selected
+(and more pieces match). Copy explains scope; Export labels selected vs all.
+
+## 2026-11-08 — Library pagination is 10 topics per page
+
+Library was paging by raw jobs (10), then collapsing Adapt siblings and same-topic
+pieces into family cards — so a page often showed only a few topic rows. The list
+now loads the filtered job set (same 200-job cap as CSV export), groups by topic/
+family, and paginates that grouped list at 10 topics per page.
+
+## 2026-10-25 — Result page shows a scrollbar when a region scrolls
+
+Quality analysis, long posts, the template list, the action dialog, the export and edit dialogs, the post preview, and the loading activity feed were using a hidden or hairline bar. Each of those regions now paints the same track as Repurpose when its content is taller than the space it has.
+
+## 2026-10-24 — Repurpose form gap and a visible sidebar scrollbar
+
+The form’s extra height was an empty band above the generate button. That band now holds a short line about what the run does. The sidebar scrollbar is a visible track, so it is clear that Feed Monitors continues into the cards below.
+
+## 2026-10-24 — Repurpose columns fill the page
+
+The form and the sidebar sized to their content and left empty space under the heading. On a wide screen both columns now stretch to the same remaining viewport height. The form scrolls inside its card when the fields outgrow that space, and the sidebar scrolls when its cards do. Narrow screens still stack and scroll with the page.
+
+## 2026-10-24 — Calendar fills the page; a day opens in a modal
+
+The content library and the month were a short block inside the page inset, and choosing a day appended its posts under the grid. Both columns now stretch to the same viewport height, and the day's posts open in a modal.
+
+## 2026-10-24 — Feed Monitors stays visible on Repurpose
+
+The right column is capped to the form height. Feed Monitors uses `overflow: hidden`, so the flex column crushed that card to zero height and only Supported Sources and How it works remained. The monitor card no longer shrinks, and the column scrolls when the stack is taller than the form.
+
+## 2026-10-24 — Calendar view restored
+
+The month layout, sidebar cards, and day styling are back to the previous calendar. The later pass that restacked Schedule, dropped the day notch, and changed today/past styling was reverted.
+
+## 2026-10-24 — Loading placeholders match the real layout
+
+Library rows, idea cards, dashboard job rows, calendar cells, brand connection rows, competitor results, feed monitors, and version history were using a generic card or a spinner. Each placeholder now uses the same shell as the component it stands in for, so the page does not jump when the data arrives.
+
+## 2026-10-24 — Content Library reads as a gallery
+
+The library title sat beside an icon the other pages don't use, and search sat in its own tall box. The title now lines up with Create and Dashboard, and search sits on one row with folders and sort. A topic can wrap to two lines instead of cutting off. Cards stay one column so a single piece is the same width as a topic group.
+
+## 2026-10-24 — Create platform row meets both side edges
+
+The platform picker used auto-fit at 240px, so a desktop row held four cards and Video Script sat alone at one column wide, short of the form's right edge. Wide screens now use five equal columns; narrower screens use two, with the last card spanning the row.
+
+## 2026-10-24 — Brand settings uses the shared page inset
+
+Brand Settings still added 20px of its own side padding on top of `.main-inner`, so the page sat tighter than Create and the other authenticated pages. That extra inset is gone; Brand now uses the same shell padding.
+
+## 2026-10-24 — Ideate cards: 3 per row
+
+The idea grid used `auto-fill` with a 260px minimum, so a wide content
+column fit four or more cards. Desktop is now a fixed 3-column grid,
+two columns below 1100px, and one column on mobile.
+
 ## 2026-10-24 — Client build: hashtag insert type
 
 `tsc -b` failed on `handleInsertHashtags`: after skipping carousel arrays,

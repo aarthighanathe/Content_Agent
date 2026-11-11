@@ -20,6 +20,11 @@ services:
         sync: false
       - key: CLERK_SECRET_KEY
         sync: false
+      # WHY required: server/src/config.ts hard-requires CLERK_PUBLISHABLE_KEY at
+      # boot (clerkMiddleware). Omitting it from the Blueprint left deploys
+      # failing until the key was added manually in the Render dashboard.
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GROQ_API_KEY
