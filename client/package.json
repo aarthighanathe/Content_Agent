@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:ssr": "node scripts/build-ssr.mjs",
+    "check:ssr": "node scripts/check-ssr-fresh.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",

@@ -1,7 +1,9 @@
 ﻿import React, { useState, useMemo } from 'react';
 import axios from 'axios';
+import { useQueryClient } from '@tanstack/react-query';
 import { Send, Clock, CheckCircle, AlertCircle, RefreshCw, ExternalLink, Calendar, ChevronRight, ChevronLeft } from 'lucide-react';
 import { scheduleJob } from '../../../../api';
+import { VisibleScroller } from '../../../../components/VisibleScroller';
 import { flattenContentToPreview } from '../../../../lib/contentFlattener.js';
 import type { SocialConnection } from '../../../../types/api';
 import type { ContentJob } from '../../../../types/job';
@@ -60,13 +62,21 @@ const PLATFORM_COLORS: Record<string, string> = {
 
 const SCHEDULE_SUPPORTED = ['linkedin', 'twitter'];
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+// WHY local wall-clock parts, not toISOString(): datetime-local is local time.
+// toISOString() is UTC, so in timezones ahead of UTC the picker accepted times
+// that were already past locally (and the server then published immediately).
 function getMinDateTime(): string {
   const d = new Date();
   d.setMinutes(d.getMinutes() + 5);
-  return d.toISOString().slice(0, 16);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 export function PostPanel({ connections, content, jobId, jobData: _jobData, postingTo, postResult, postLinks = {}, onPost, onClose }: Props) {
+  const queryClient = useQueryClient();
   const [selectedPlatform, setSelectedPlatform] = useState<string>(connections[0]?.platform || '');
   const [view, setView] = useState<'select' | 'preview' | 'schedule' | 'done'>('select');
   const [scheduleDate, setScheduleDate] = useState('');
@@ -98,6 +108,11 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
       // jobId is required here so we can upsert into the real scheduled_posts table
       // with optional auto-publish on the chosen platform (fires ~9am user TZ).
       const local = new Date(scheduleDate);
+      if (Number.isNaN(local.getTime()) || local.getTime() < Date.now() + 5 * 60_000) {
+        setScheduleError('Pick a time at least 5 minutes from now');
+        setScheduling(false);
+        return;
+      }
       const yyyy = local.getFullYear();
       const mm = String(local.getMonth() + 1).padStart(2, '0');
       const dd = String(local.getDate()).padStart(2, '0');
@@ -105,6 +120,16 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
       // WHY hour from datetime-local (L10/F12): Calendar publish worker fires at
       // a whole hour in the user's TZ — minutes are floored to the selected hour.
       const publishHour = local.getHours();
+      // WHY refuse the current hour when it's already underway: the worker fires
+      // at :00 of publishHour, so picking 15:40 when it is 15:40 would queue a
+      // past instant and (before the server fix) publish immediately.
+      const topOfHour = new Date(local);
+      topOfHour.setMinutes(0, 0, 0);
+      if (topOfHour.getTime() <= Date.now()) {
+        setScheduleError('That hour has already started — pick a later hour');
+        setScheduling(false);
+        return;
+      }
       const res = await scheduleJob({
         jobId,
         scheduledDate: scheduledDateKey,
@@ -116,6 +141,10 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         ok: true,
         scheduledAt: res.scheduledPost.scheduledDate,
       });
+      // WHY invalidate calendar/dashboard schedule caches: otherwise a post
+      // scheduled from Result stayed invisible on Calendar for up to 5 minutes.
+      queryClient.invalidateQueries({ queryKey: ['calendar', 'schedule'] }).catch(() => {});
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'nextScheduled'] }).catch(() => {});
       setView('done');
     } catch (err: unknown) {
       const message = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
@@ -203,9 +232,13 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         {/* Content preview */}
         <div style={{ background: 'color-mix(in srgb, var(--text-primary) 3%, transparent)', border: '1px solid var(--rule)', borderRadius: 10, padding: 12 }}>
           <div style={{ fontSize: 9.5, letterSpacing: 1, textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginBottom: 6 }}>Preview</div>
-          <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto' }}>
+          <VisibleScroller
+            frameStyle={{ maxHeight: 160 }}
+            gutter={false}
+            style={{ maxHeight: 160, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}
+          >
             {preview || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No preview available for this platform</span>}
-          </div>
+          </VisibleScroller>
           {preview.length >= 297 && (
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>…truncated for preview</div>
           )}

@@ -4,7 +4,7 @@ import type { SlideData } from '../../IGSlide';
 import type { ColorSystem } from '../../../../../../../lib/colorSystem';
 import type { CarouselTemplate } from '../../../../../../../lib/templateSystem';
 import { FitFrame } from './FitFrame';
-import { estimateFitScale, slidePointCopy } from './fitScale';
+import { estimateFitScale, pointFitLayoutForTemplate, slidePointCopy } from './fitScale';
 
 interface TemplateLayoutProps {
   slide: SlideData;
@@ -38,6 +38,7 @@ interface TemplateLayoutProps {
  */
 export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutProps>(
   function TemplateLayout({ width, height, template, slide, children }, ref) {
+    const pointCount = slide.points?.length ?? 0;
     const fitScale = estimateFitScale({
       width,
       height,
@@ -48,8 +49,12 @@ export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutPro
       sectionSpacing: template.spacing.sectionSpacing,
       headline: slide.headline ?? '',
       body: slide.body ?? '',
-      pointCount: slide.points?.length ?? 0,
+      pointCount,
       pointCopy: slidePointCopy(slide.points),
+      points: slide.points,
+      // WHY: export screenshots with JavaScript disabled, so the scale baked
+      // into the markup is the only thing keeping a card grid inside the frame.
+      pointLayout: pointFitLayoutForTemplate(template.id, pointCount, template.spacing.gap),
     });
     const imageDataUrl = typeof slide.imageDataUrl === 'string' && slide.imageDataUrl.startsWith('data:image/')
       ? slide.imageDataUrl

@@ -44,15 +44,18 @@ export interface RenderSlideParams {
 // would drag in Tailwind and all the app chrome, so the value is redeclared verbatim
 // instead. If IGSlide starts using another var, it must be added here or it renders
 // unstyled.
+// WHY margin/padding/line-height: the preview's index.css resets every element and
+// sets body line-height to 1.6. Without the same reset, exported h2/p keep browser
+// default margins and the last cards fall past the bottom of the PNG.
 const DOCUMENT_CSS = `
 @font-face{font-family:'Plus Jakarta Sans';src:url(${jakartaRegular}) format('woff2');font-weight:200 800;font-style:normal;font-display:block}
 @font-face{font-family:'Plus Jakarta Sans';src:url(${jakartaItalic}) format('woff2');font-weight:200 800;font-style:italic;font-display:block}
 @font-face{font-family:'Playfair Display';src:url(${playfairRegular}) format('woff2');font-weight:400 900;font-style:normal;font-display:block}
 @font-face{font-family:'Playfair Display';src:url(${playfairItalic}) format('woff2');font-weight:400 900;font-style:italic;font-display:block}
 :root{--font-heading:'Playfair Display',Georgia,serif}
-*,*::before,*::after{box-sizing:border-box}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{margin:0;padding:0;background:transparent}
-body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{line-height:1.6;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 `;
 
 /**

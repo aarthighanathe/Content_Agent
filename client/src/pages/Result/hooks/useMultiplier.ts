@@ -87,7 +87,12 @@ export function useMultiplier(jobId: string | undefined) {
   // WHY reset + reload when jobId changes: Result reuses this component across
   // /result/:jobId navigations — leftover session state from job A would show
   // wrong Open links on job B.
+  // WHY clear intervals here too: the unmount cleanup never runs on a same-
+  // route jobId change (Result does not remount), so Adapt polls from job A
+  // kept writing into job B's multiplyJobs after navigation.
   useEffect(() => {
+    activeIntervals.current.forEach((handle) => clearInterval(handle));
+    activeIntervals.current.clear();
     setMultiplyJobs({});
     if (!jobId) return;
     void refreshFamily(jobId);

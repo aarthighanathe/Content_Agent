@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Sparkles, Timer, CalendarDays, AlertTriangle } from 'lucide-react';
 import { getJobStatus } from '../api';
 import { platformMeta } from '../lib/platformMeta';
@@ -62,6 +63,7 @@ function readPersistedBatch(): PersistedBatch | null {
 export default function BatchResultPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const navState = location.state as { jobs?: BatchJobRef[]; creationFailedCount?: number } | null;
   const persisted = (!navState?.jobs || navState.jobs.length === 0) ? readPersistedBatch() : null;
   const initialJobs = (navState?.jobs && navState.jobs.length > 0)
@@ -88,6 +90,18 @@ export default function BatchResultPage() {
     itemsRef.current = items;
   }, [items]);
   const allDone = items.length > 0 && items.every((i) => i.status === 'done' || i.status === 'failed');
+
+  // WHY invalidate when the batch settles (QA-LIB-001): Library may already
+  // have cached Pending rows from an earlier visit during generation; without
+  // this, "View in Library" shows stale Pending until a manual refetch.
+  useEffect(() => {
+    if (!allDone) return;
+    Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] }),
+      queryClient.invalidateQueries({ queryKey: ['calendar', 'jobs'] }),
+    ]).catch(() => {});
+  }, [allDone, queryClient]);
 
   useEffect(() => {
     if (items.length === 0 || allDone) return undefined;
@@ -265,13 +279,18 @@ export default function BatchResultPage() {
                     </>
                   )}
                   {item.status === 'failed' && (
-                    <span style={{
-                      fontSize: 11, color: 'var(--color-error)', background: 'color-mix(in srgb, var(--color-error) 6%, transparent)',
-                      border: '1px solid color-mix(in srgb, var(--color-error) 20%, transparent)', borderRadius: 8,
-                      padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5,
-                    }}>
-                      <AlertTriangle size={10} /> Failed
-                    </span>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => navigate(`/result/${item.jobId}`)}
+                      style={{
+                        padding: '5px 10px', fontSize: 11, color: 'var(--color-error)',
+                        background: 'color-mix(in srgb, var(--color-error) 6%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--color-error) 20%, transparent)',
+                        borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 5,
+                      }}
+                    >
+                      <AlertTriangle size={10} /> See error
+                    </button>
                   )}
                   {(item.status === 'processing' || item.status === 'pending') && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

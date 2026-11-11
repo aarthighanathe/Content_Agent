@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, CalendarRange, ArrowLeft } from 'lucide-react';
+import { AlertCircle, CalendarRange, ArrowLeft, Info } from 'lucide-react';
 import { createJob, getProfile, getAudienceDefaults } from '../api';
 import { posthog } from '../main';
 import { TopicStep } from './Create/TopicStep';
@@ -81,11 +81,17 @@ export default function CreatePage() {
   const [tone,           setTone]           = useState(draft.tone || '');
   const [targetAudience, setTargetAudience] = useState(draft.targetAudience || '');
 
-  // Platform grid is shown on first arrival (no prefill/draft platform chosen) or
-  // whenever the user clicks "Change" on the compact summary row.
-  const [showPlatformGrid, setShowPlatformGrid] = useState(!prefill.platform && !draft.platform);
+  // Platform grid is shown on first empty arrival, or whenever the user clicks
+  // "Change". Topic-only handoffs (Competitor) still collapse — the default
+  // platform is already set and the user can expand via Change (QA-A9-001).
+  const [showPlatformGrid, setShowPlatformGrid] = useState(
+    !prefill.platform && !draft.platform && !(prefill.topic || draft.topic),
+  );
 
   const [loading, setLoading] = useState(false);
+  // WHY ref in addition to state: a fast double-click sees loading===false twice
+  // before the next paint, so both requests fire. The ref flips synchronously.
+  const submittingRef = useRef(false);
   const [errorMsg,     setErrorMsg]     = useState('');
   const [retryAfterMs, setRetryAfterMs] = useState<number | null>(null);
 
@@ -199,12 +205,35 @@ export default function CreatePage() {
   // generation behavior — it only stops the UI from claiming a choice was made.
   const effectiveTone = tone || 'professional';
 
+  // WHY seed the draft from Ideate/Competitor handoff: prefill was only applied
+  // in useState initializers, so an untouched topic was never written to
+  // sessionStorage. Opening Brand and coming back cleared it. Competitor gap
+  // text lived only on location.state and was lost even after editing the topic.
+  useEffect(() => {
+    if (!prefill.topic && !prefill.platform && !prefill.competitorContext && !prefill.competitorAnalysisId) {
+      return;
+    }
+    setDraft({
+      ...(prefill.topic ? { topic: prefill.topic } : {}),
+      ...(prefill.platform ? { platform: prefill.platform } : {}),
+      ...(prefill.competitorContext ? { competitorContext: prefill.competitorContext } : {}),
+      ...(prefill.competitorAnalysisId ? { competitorAnalysisId: prefill.competitorAnalysisId } : {}),
+      ...(prefill.industry ? { industry: prefill.industry } : {}),
+    });
+  // Only on mount for this handoff — don't re-write on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional once-per-mount seed
+  }, []);
+
   async function handleSubmit() {
-    if (!topic.trim() || loading) return;
+    if (!topic.trim() || loading || submittingRef.current) return;
     const trimmed = topic.trim();
-    const updated  = [trimmed, ...recentTopics.filter((r) => r !== trimmed)].slice(0, 10);
-    localStorage.setItem(RECENT_TOPICS_KEY, JSON.stringify(updated));
-    setRecentTopics(updated);
+    // WHY client min-3 before POST: matches createJobSchema / BatchTopicList and
+    // avoids a round-trip that used to surface only "Invalid request body" (QA-A3-003).
+    if (trimmed.length < 3) {
+      setErrorMsg('Topic must be at least 3 characters');
+      return;
+    }
+    submittingRef.current = true;
     setLoading(true);
     setErrorMsg('');
     try {
@@ -213,15 +242,23 @@ export default function CreatePage() {
       // competitorContext/competitorAnalysisId — this is the "simplest option
       // that doesn't require new UI" the task calls for, matching how
       // focusTopic already flows into ideate.ts as plain extra prompt text.
-      const competitorContext = [prefill.industry ? `Industry: ${prefill.industry}` : '', prefill.competitorContext || '']
+      const industry = prefill.industry || draft.industry || '';
+      const gapContext = prefill.competitorContext || draft.competitorContext || '';
+      const analysisId = prefill.competitorAnalysisId || draft.competitorAnalysisId;
+      const competitorContext = [industry ? `Industry: ${industry}` : '', gapContext]
         .filter(Boolean)
         .join(' — ') || undefined;
       const { jobId } = await createJob({
         topic: trimmed, platform, tone: effectiveTone, targetAudience: effectiveAudience,
         competitorContext,
-        competitorAnalysisId: prefill.competitorAnalysisId,
+        competitorAnalysisId: analysisId,
         ...(platform === 'instagram_carousel' ? { templateId, paletteId } : {}),
       });
+      // WHY after success only: a failed/rate-limited submit used to pollute
+      // recent topics before the job existed (QA-A3-002).
+      const updated = [trimmed, ...recentTopics.filter((r) => r !== trimmed)].slice(0, 10);
+      localStorage.setItem(RECENT_TOPICS_KEY, JSON.stringify(updated));
+      setRecentTopics(updated);
       posthog.capture('content_generated', { platform, tone: effectiveTone });
       clearDraft();
       navigate(`/result/${jobId}`);
@@ -231,6 +268,7 @@ export default function CreatePage() {
       setErrorMsg(message);
       setRetryAfterMs(retryAfterMs ?? null);
       setLoading(false);
+      submittingRef.current = false;
     }
   }
 
@@ -334,11 +372,34 @@ export default function CreatePage() {
         </div>
       )}
 
-      {/* Cross-tab navigation warning: drafts are sessionStorage-specific (per-tab) */}
+      {/* Cross-tab navigation warning: drafts are sessionStorage-specific (per-tab).
+          WHY solid raised bg + align center: icon must sit mid-height of the wrapped copy,
+          not pinned to the first line (that read as top-heavy). */}
       {hasDraft && (
-        <div className="toast" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', color: 'color-mix(in srgb, var(--accent) 85%, transparent)' }}>
-          <AlertCircle size={12} />
-          Draft is saved in this tab only — opening Create in another tab won't see this draft.
+        <div
+          className="toast"
+          role="status"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.75rem 1rem',
+            background: 'var(--bg-raised)',
+            border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--rule))',
+            color: 'var(--text-secondary)',
+            lineHeight: 1.4,
+            boxShadow: '0 12px 40px rgba(0, 0, 0, 0.55)',
+          }}
+        >
+          <Info
+            size={15}
+            strokeWidth={2.25}
+            aria-hidden="true"
+            style={{ flexShrink: 0, color: 'currentColor' }}
+          />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            Draft is saved in this tab only — opening Create in another tab won't see this draft.
+          </span>
         </div>
       )}
     </div>

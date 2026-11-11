@@ -5,6 +5,12 @@ export interface CreateDraft {
   topic: string;
   tone: string;
   targetAudience: string;
+  // WHY optional competitor fields: Ideate/Competitor handoffs used to live
+  // only on location.state, so a Brand round-trip dropped gap context even when
+  // the topic survived in the draft.
+  competitorContext?: string;
+  competitorAnalysisId?: string;
+  industry?: string;
 }
 
 const DRAFT_KEY = 'ca_create_draft';

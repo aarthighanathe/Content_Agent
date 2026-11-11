@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { VisibleScroller } from '../../../../../components/VisibleScroller';
 import { Check } from 'lucide-react';
 import {
   TEMPLATES, getTemplate, getDefaultPalette, isTemplateId,
@@ -41,10 +42,13 @@ export function CarouselTemplateSwitcher({ templateId, paletteId, onChange }: Pr
   }, [currentId]);
 
   return (
-    <section className="rp-side-card" aria-label="Carousel template">
+    <section className="rp-side-card rp-template" aria-label="Carousel template">
       <div className="rp-side-kicker">Template</div>
       <p className="rp-side-help">Changes the look. Your words stay the same.</p>
-      <div className="rp-template-list" ref={listRef} role="group" aria-label="Templates">
+      {/* WHY gutter on: the painted thumb sits over the right edge; without it
+          the selected Check collides with the gold scrollbar (see screenshot). */}
+      <VisibleScroller ref={listRef} frameClassName="rp-template-scroll" stackClassName="rp-template-list">
+      <div role="group" aria-label="Templates" style={{ display: 'contents' }}>
         {Object.values(TEMPLATES).map((template) => {
           const selected = template.id === currentId;
           const swatch = getDefaultPalette(template.id)?.colors.primary || 'var(--accent)';
@@ -64,6 +68,7 @@ export function CarouselTemplateSwitcher({ templateId, paletteId, onChange }: Pr
           );
         })}
       </div>
+      </VisibleScroller>
       {palettes.length > 0 && (
         <div className="rp-color-row" role="group" aria-label="Colors">
           {palettes.map((palette) => {

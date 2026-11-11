@@ -29,6 +29,8 @@ interface Props {
   onToggleAdapt:  () => void;
   /** Highlights the open tool in the strip while its panel is showing. */
   activePanel?:   ActionTab | null;
+  /** When set, suppress the fake "Generating…" title / Pending badge (QA-C2-002). */
+  loadError?:     'not_found' | 'error' | 'lost' | null;
   social: {
     socialConnections: SocialConnection[];
     postingTo:         string | null;
@@ -61,12 +63,20 @@ export function ResultHeader({
   onOpenPanel,
   onToggleAdapt,
   activePanel = null,
+  loadError = null,
   social: _social,
 }: Props) {
   const platform = (jobData?.platform && platNames[jobData.platform]) || jobData?.platform || '';
   const audience = jobData?.targetAudience || '';
   const tone     = jobData?.tone || '';
   const sourceUrl = jobData?.sourceUrl && isSafeHttpUrl(jobData.sourceUrl) ? jobData.sourceUrl : null;
+  const titleFallback = loadError === 'not_found'
+    ? 'Job not found'
+    : loadError === 'lost'
+      ? 'Generation lost'
+      : loadError === 'error'
+        ? 'Could not load job'
+        : 'Generating content…';
 
   // WHY only when done: versions are snapshots taken on regenerate — empty while
   // the first generation is still running. Header affordance opens the History panel.
@@ -94,11 +104,11 @@ export function ResultHeader({
 
         <div className="rp-title" style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
           <h1 className="rp-topic" style={{ flex: '1 1 auto' }}>
-            {jobData?.topic || 'Generating content…'}
+            {jobData?.topic || titleFallback}
           </h1>
           {isDone && !regenerating && criticResult ? (
             <QualityTierBadge score={criticResult.totalScore} size="md" />
-          ) : !isDone && currentStage ? (
+          ) : !loadError && !isDone && currentStage ? (
             <span
               className="badge badge-blue"
               style={{

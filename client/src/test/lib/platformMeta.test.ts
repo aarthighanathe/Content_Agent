@@ -14,35 +14,35 @@ describe('platformMeta', () => {
   it('has correct metadata for instagram_carousel', () => {
     const meta = platformMeta.instagram_carousel;
     expect(meta.label).toBe('Carousel');
-    expect(meta.color).toBe('#EC4899');
+    expect(meta.color).toBe('#E1306C');
     expect(meta.badgeClass).toBe('badge-pink');
   });
 
   it('has correct metadata for linkedin_post', () => {
     const meta = platformMeta.linkedin_post;
     expect(meta.label).toBe('LinkedIn');
-    expect(meta.color).toBe('#60A5FA');
+    expect(meta.color).toBe('#70B5F9');
     expect(meta.badgeClass).toBe('badge-blue');
   });
 
   it('has correct metadata for twitter_thread', () => {
     const meta = platformMeta.twitter_thread;
     expect(meta.label).toBe('Twitter');
-    expect(meta.color).toBe('#22D3EE');
+    expect(meta.color).toBe('#1DA1F2');
     expect(meta.badgeClass).toBe('badge-cyan');
   });
 
   it('has correct metadata for instagram_caption', () => {
     const meta = platformMeta.instagram_caption;
     expect(meta.label).toBe('Caption');
-    expect(meta.color).toBe('#A78BFA');
+    expect(meta.color).toBe('#B794F6');
     expect(meta.badgeClass).toBe('badge-purple');
   });
 
   it('has correct metadata for video_script', () => {
     const meta = platformMeta.video_script;
     expect(meta.label).toBe('Video');
-    expect(meta.color).toBe('#F87171');
+    expect(meta.color).toBe('#E8846A');
     expect(meta.badgeClass).toBe('badge-red');
   });
 

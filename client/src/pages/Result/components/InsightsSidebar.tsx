@@ -1,6 +1,8 @@
 ﻿// Sidebar defaults to open (see Result.tsx) so users see the AI Quality Analysis
 // exists; user can collapse it via onToggle if they prefer it out of the way.
+import type { ReactElement } from 'react';
 import { Check, AlertTriangle, Sparkles, Zap } from 'lucide-react';
+import { VisibleScroller } from '../../../components/VisibleScroller';
 import type { CriticResult, CriticScores } from '../../../types/job';
 
 interface Props {
@@ -23,7 +25,14 @@ const RING_SIZE = 84;
 const RING_R    = 32;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
-export function InsightsSidebar({ criticResult, className, onSteer, collapsed = false, onToggle }: Props) {
+export function InsightsSidebar({ criticResult, className, onSteer, collapsed = false, onToggle }: Props): ReactElement {
+  // WHY one tree for open and closed: swapping to a separate 48px strip
+  // unmounted the card mid-toggle, so the column snapped and the scores
+  // repainted. The rail is always mounted; CSS fades it in over the same card.
+  const shellClass = ['rp-sidebar', collapsed ? 'rp-sidebar-collapsed' : '', className]
+    .filter(Boolean)
+    .join(' ');
+
   // WHY an explanatory empty state, not `return null`: this used to render
   // nothing at all — no header, no message — whenever a job had no critic
   // result yet (e.g. still generating, or an older job predating the critic
@@ -31,37 +40,21 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
   // broken (a fully blank pane) rather than "there's genuinely nothing here
   // yet" — violates the AGENT RULES "never leave a user staring at nothing."
   if (!criticResult?.scores) {
-    if (collapsed) {
-      return (
-        <div className={['rp-sidebar', className].filter(Boolean).join(' ')} style={{ width: 48 }}>
-          <div
-            className="card-glow"
-            role="button"
-            tabIndex={0}
-            style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, flex: 1, cursor: 'pointer', userSelect: 'none' }}
-            onClick={onToggle}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle?.(); } }}
-            title="Show AI insights"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-            <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-              AI Insights
-            </div>
-          </div>
-        </div>
-      );
-    }
     return (
-      <div className={['rp-sidebar', className].filter(Boolean).join(' ')}>
-        <div className="card-glow" style={{ padding: 'var(--card-padding)', flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
+      <div className={shellClass}>
+        <div className="rp-sidebar-panel" inert={collapsed ? true : undefined} aria-hidden={collapsed || undefined}>
+        <div className="card-glow" style={{ flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
+          {/* WHY padding on the scroller (card-glow is padding:0): keeps the
+              painted track on the border while copy stays inset from the edge. */}
+          <VisibleScroller style={{ padding: '20px 22px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>AI Quality Analysis</div>
             {onToggle && (
               <button
+                type="button"
                 onClick={onToggle}
                 title="Collapse insights"
+                aria-expanded={!collapsed}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center', lineHeight: 1 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -76,40 +69,25 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
               No quality insights available for this content yet.
             </p>
           </div>
+          </VisibleScroller>
         </div>
-      </div>
-    );
-  }
-
-  // Collapsed: thin strip showing score + toggle
-  if (collapsed) {
-    return (
-      <div
-        className={['rp-sidebar', className].filter(Boolean).join(' ')}
-        style={{ width: 48 }}
-      >
-        <div
-          className="card-glow"
-          role="button"
-          tabIndex={0}
-          style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, flex: 1, cursor: 'pointer', userSelect: 'none' }}
-          onClick={onToggle}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle?.(); } }}
-          title="Show AI insights"
-        >
-          {/* Chevron pointing left (expand) */}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          {/* Rotated label */}
-          <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-            AI Insights
-          </div>
-          {/* Score pill */}
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
-            {criticResult.totalScore}
-          </div>
         </div>
+        {onToggle && (
+          <button
+            type="button"
+            className="rp-sidebar-rail"
+            onClick={onToggle}
+            title="Show AI Quality Analysis"
+            aria-expanded={false}
+            aria-hidden={!collapsed}
+            tabIndex={collapsed ? 0 : -1}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span className="rp-sidebar-rail-label">AI Insights</span>
+          </button>
+        )}
       </div>
     );
   }
@@ -122,19 +100,24 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
   const showTip = (criticResult.scores[worst.k] || 0) < 17;
 
   return (
-    <div className={['rp-sidebar', className].filter(Boolean).join(' ')}>
-      {/* card-glow fills the full sidebar height via flex:1; scrolls internally
-          (see .rp-sidebar > .card-glow in Result.css) so the scrollbar sits inside
-          the card's own border/padding instead of on the outer sidebar wrapper. */}
-      <div className="card-glow" style={{ padding: 'var(--card-padding)', flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
+    <div className={shellClass}>
+      <div className="rp-sidebar-panel" inert={collapsed ? true : undefined} aria-hidden={collapsed || undefined}>
+      {/* card-glow fills the sidebar; padding:0 (Result.css) so the painted
+          track sits on the border. Content inset is on the scroller only. */}
+      <div className="card-glow" style={{ flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
+      {/* WHY 20×22 (not compact 16): 16px left copy flush against the card
+          border — critic quote marks and score % labels read as colliding. */}
+      <VisibleScroller style={{ padding: '20px 22px' }}>
 
         {/* Section label + collapse toggle */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--text-muted)' }}>AI Quality Analysis</div>
           {onToggle && (
             <button
+              type="button"
               onClick={onToggle}
               title="Collapse insights"
+              aria-expanded={!collapsed}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center', lineHeight: 1 }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -200,7 +183,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
 
         {/* Critic feedback */}
         {criticResult.feedback && (
-          <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--rule)', flex: 1, minHeight: 0, overflow: 'auto' }}>
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--rule)' }}>
             <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 8 }}>Critic Feedback</div>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.65, margin: 0 }}>"{criticResult.feedback}"</p>
           </div>
@@ -223,7 +206,26 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
             <Zap size={12} /> Fix with AI
           </button>
         )}
+      </VisibleScroller>
       </div>
+      </div>
+      {onToggle && (
+        <button
+          type="button"
+          className="rp-sidebar-rail"
+          onClick={onToggle}
+          title="Show AI Quality Analysis"
+          aria-expanded={false}
+          aria-hidden={!collapsed}
+          tabIndex={collapsed ? 0 : -1}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          <span className="rp-sidebar-rail-label">AI Insights</span>
+          <span className="rp-sidebar-rail-score">{criticResult.totalScore}</span>
+        </button>
+      )}
     </div>
   );
 }

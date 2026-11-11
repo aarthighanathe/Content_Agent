@@ -87,7 +87,14 @@ export function TopicStep({
             maxLength={250}
             onChange={(e) => onTopicChange(e.target.value)}
             onFocus={onFocusTopic}
-            style={{ minHeight: 92, paddingBottom: 22 }}
+            aria-invalid={topic.trim().length > 0 && topic.trim().length < 3}
+            style={{
+              minHeight: 92,
+              paddingBottom: 22,
+              ...(topic.trim().length > 0 && topic.trim().length < 3
+                ? { borderColor: 'rgba(239,68,68,0.45)' }
+                : {}),
+            }}
           />
           {/* WHY overlaid inside the textarea, not a block row below it: a trailing
               row here added extra height only this section had, making the gap
@@ -108,6 +115,12 @@ export function TopicStep({
             inputRef={topicRef}
           />
         </div>
+        {/* WHY match BatchTopicList: server min is 3 chars — show it before submit. */}
+        {topic.trim().length > 0 && topic.trim().length < 3 && (
+          <p style={{ margin: '6px 0 0', fontSize: 11.5, color: 'var(--color-error)' }}>
+            Topic must be at least 3 characters
+          </p>
+        )}
       </div>
 
       {/* Tone Selector — no pill pre-selected; an unpicked tone silently falls back to
@@ -215,11 +228,13 @@ export function TopicStep({
         </div>
       )}
 
-      {/* Generate Button */}
+      {/* Generate Button
+          WHY scroll-margin-bottom: on ≤768px the fixed bottom nav covers the
+          button when scrollIntoView lands it at the viewport edge (QA-I-001). */}
       <button
         type="button"
-        className="btn-primary"
-        disabled={!topic.trim() || loading || !!countdownText}
+        className="btn-primary create-generate-btn"
+        disabled={!topic.trim() || topic.trim().length < 3 || loading || !!countdownText}
         onClick={onSubmit}
         style={{
           width: '100%',
@@ -227,6 +242,7 @@ export function TopicStep({
           padding: '13px 20px',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           letterSpacing: 0.2,
+          scrollMarginBottom: 'calc(88px + env(safe-area-inset-bottom, 0px))',
         }}
       >
         {loading ? (

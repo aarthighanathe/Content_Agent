@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getJobVersions, restoreJobVersion } from '../../../../api';
 import { timeAgo } from '../../../../lib/utils';
 import { Button } from '../../../../components/Button';
+import { SkeletonBlock } from '../../../../components/SkeletonCard';
 
 interface Props {
   jobId: string | undefined;
@@ -41,10 +42,17 @@ export function HistoryPanel({ jobId, onClose, onRestored }: Props) {
   return (
     <div className="rp-history-panel">
       {versionsQuery.isLoading && (
-        <div className="rp-panel-status">
-          <span className="rp-panel-spinner" aria-hidden />
-          <span>Loading history…</span>
-        </div>
+        <ul className="rp-history-list" aria-busy="true" aria-label="Loading history">
+          {['a', 'b', 'c'].map((id) => (
+            <li key={id} className="rp-history-row">
+              <div className="rp-history-meta" style={{ flex: 1 }}>
+                <SkeletonBlock width="46%" height={13} radius={4} />
+                <SkeletonBlock width="32%" height={11} radius={4} delay={0.1} style={{ marginTop: 6 }} />
+              </div>
+              <SkeletonBlock width={92} height={28} radius={8} />
+            </li>
+          ))}
+        </ul>
       )}
 
       {versionsQuery.isError && (

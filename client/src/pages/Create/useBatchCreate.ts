@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createBatchJobs } from '../../api';
 import { posthog } from '../../main';
@@ -25,11 +25,15 @@ export function useBatchCreate(
   const [batchAudience, setBatchAudience] = useState('');
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchError, setBatchError] = useState('');
+  // WHY ref: same double-click race as Create's handleSubmit — both clicks
+  // see batchLoading===false before the next paint.
+  const submittingRef = useRef(false);
 
   async function handleBatchSubmit() {
-    if (batchLoading) return;
+    if (batchLoading || submittingRef.current) return;
     const validRows = batchRows.filter((r) => r.topic.trim().length >= 3);
     if (validRows.length === 0) return;
+    submittingRef.current = true;
     setBatchLoading(true);
     setBatchError('');
     try {
@@ -65,6 +69,7 @@ export function useBatchCreate(
         // form with each row's specific error visible instead.
         setBatchError('All items in the batch failed to process — see errors below.');
         setBatchLoading(false);
+        submittingRef.current = false;
         return;
       }
       // WHY also sessionStorage (L12): BatchResult used to rely only on router
@@ -86,6 +91,7 @@ export function useBatchCreate(
       setBatchError(message);
       onRateLimited?.(retryAfterMs ?? null);
       setBatchLoading(false);
+      submittingRef.current = false;
     }
   }
 

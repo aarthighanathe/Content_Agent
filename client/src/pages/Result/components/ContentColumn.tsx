@@ -7,6 +7,7 @@ import { InstagramContent }    from './content/InstagramContent';
 import { VideoScriptContent }  from './content/VideoScriptContent';
 import { ContentMultiplier }   from './ContentMultiplier';
 import { CarouselTemplateSwitcher } from './content/carousel/CarouselTemplateSwitcher';
+import { VisibleScroller } from '../../../components/VisibleScroller';
 import type { ColorSystem } from '../../../lib/colorSystem';
 import type { MultiplyEntry }  from '../hooks/useMultiplier';
 import type { ContentJob, PlatformContent, VideoScriptContentData } from '../../../types/job';
@@ -106,6 +107,7 @@ export function ContentColumn({
       {/* WHY Adapt lives inside .rp-copy-stage: keeps caption/thread and Adapt
           on the same full-width column (the old 720px reading cap was removed). */}
       {!isCarousel && (
+        <VisibleScroller frameClassName="rp-copy-scroll">
         <div className="rp-copy-stage">
           {!('segments' in content) && content.hook && !content.tweets && !content.caption && (
             <LinkedInContent content={content} onSave={onSave} />
@@ -121,6 +123,7 @@ export function ContentColumn({
           )}
           {multiplier}
         </div>
+        </VisibleScroller>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Instagram, Linkedin, XTwitter } from '../../../components/BrandIcons';
+import { VisibleScroller } from '../../../components/VisibleScroller';
 import {
   Sparkles, Check, AlertTriangle, Undo2, ExternalLink, RefreshCw, Clapperboard, Layers,
 } from 'lucide-react';
@@ -65,7 +66,10 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply }: Props) 
         </p>
       )}
 
-      <div className="rp-adapt-list" role="list">
+      {/* WHY VisibleScroller: card height is capped beside Template; tiles
+          must scroll instead of growing and crushing the template list. */}
+      <VisibleScroller frameClassName="rp-adapt-scroll" stackClassName="rp-adapt-list">
+        <div role="list" style={{ display: 'contents' }}>
         {filtered.map((p) => {
           const mj = multiplyJobs[p.id];
           const isOriginal =
@@ -151,7 +155,8 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply }: Props) 
             </div>
           );
         })}
-      </div>
+        </div>
+      </VisibleScroller>
     </section>
   );
 }

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { Check } from 'lucide-react';
+import { VisibleScroller } from '../../../components/VisibleScroller';
 import { agentNames, agentSubs, agentColors, stageOrder } from '../constants';
 
 interface AgentLogEntry {
@@ -80,14 +81,14 @@ export function LoadingView({ regenerating, currentStage, stageMessage, progress
 
       {/* Activity feed */}
       {agentLogs && agentLogs.length > 0 ? (
-        <div className="rp-lv-feed">
+        <VisibleScroller className="rp-lv-feed" frameClassName="rp-lv-feed-frame" stackClassName="rp-lv-logs" gutter={false}>
           {agentLogs.slice(-6).map((log, i, arr) => (
             <div key={`${log.agentName}::${log.action}::${log.durationMs ?? 'x'}`} ref={i === arr.length - 1 ? latestLogRef : undefined} className="rp-lv-log">
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--accent)', textTransform: 'uppercase', flexShrink: 0, paddingTop: 1, minWidth: 62 }}>[{log.agentName}]</span>
               <span style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{log.action}</span>
             </div>
           ))}
-        </div>
+        </VisibleScroller>
       ) : (
         !stageMessage && (
           <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>

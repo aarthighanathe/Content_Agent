@@ -5,6 +5,7 @@ import { PostPanel } from './panels/PostPanel';
 import { HashtagPanel } from './panels/HashtagPanel';
 import { HistoryPanel } from './panels/HistoryPanel';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
+import { VisibleScroller } from '../../../components/VisibleScroller';
 import type { ContentJob } from '../../../types/job';
 import type { SocialConnection } from '../../../types/api';
 import type { ResultContent } from './ContentColumn';
@@ -205,7 +206,7 @@ export function ActionDrawer({
           </button>
         </div>
 
-        <div className="rp-drawer-body">
+        <VisibleScroller frameClassName="rp-drawer-body" gutter={false}>
           {showMenu && (
             <nav className="rp-action-menu" aria-label="Content actions">
               {ACTIONS.map((action) => {
@@ -269,7 +270,7 @@ export function ActionDrawer({
               onRestored={onRestored}
             />
           )}
-        </div>
+        </VisibleScroller>
       </div>
     </>
   );

@@ -2,6 +2,7 @@
 import { ImagePlus, Loader2 } from 'lucide-react';
 import type { SlideData } from './IGSlide';
 import { useFocusTrap } from '../../../../../hooks/useFocusTrap';
+import { VisibleScroller } from '../../../../../components/VisibleScroller';
 import { Button } from '../../../../../components/Button';
 import { generateSlideImage } from '../../../../../api';
 
@@ -132,7 +133,8 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
           </button>
         </div>
 
-        <div style={{ overflowY: 'auto', padding: '14px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <VisibleScroller frameStyle={{ flex: '1 1 auto', minHeight: 0 }} gutter={false}>
+        <div style={{ padding: '14px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {(['headline', 'body'] as const).map(key => {
             const max = key === 'headline' ? HEADLINE_MAX : BODY_MAX;
             const nearLimit = form[key].length >= max * 0.9;
@@ -222,6 +224,7 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
             <div style={{ fontSize: 11.5, color: 'var(--color-error)' }} role="alert">{error}</div>
           )}
         </div>
+        </VisibleScroller>
 
         <div style={{ display: 'flex', gap: 8, padding: '14px 24px 22px', flexShrink: 0 }}>
           <Button variant="primary" onClick={handleSave} disabled={saving || generating} loading={saving} style={{ flex: 1, justifyContent: 'center' }}>

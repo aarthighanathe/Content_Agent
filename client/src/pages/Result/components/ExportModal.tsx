@@ -1,14 +1,12 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { X, Image, FileText, AlignLeft, Code, Download, CheckCircle, Loader } from 'lucide-react';
-import { api } from '../../../api';
 import { posthog } from '../../../main';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
-import { flattenContentToText } from '../../../lib/contentFlattener.js';
+import { VisibleScroller } from '../../../components/VisibleScroller';
 import type { ColorSystem } from '../../../lib/colorSystem';
 import type { ContentJob } from '../../../types/job';
 import type { ResultContent as ExportContent } from './ContentColumn';
-
-const THEME_KEYS = ['aurora','magazine','split','bold','minimal','neon','violet','crimson','rose'] as const;
+import { exportPNG, exportPDF, exportText, exportHTML } from './exportDownloaders';
 
 interface ExportFormat {
   id: 'png' | 'pdf' | 'txt' | 'html';
@@ -71,6 +69,7 @@ type ExportState = 'idle' | 'exporting' | 'done' | 'error';
 
 export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isCarousel, brandName, handle, colorSystem, designPreset, templateId, paletteId }: Props) {
   const [exportState, setExportState] = useState<Record<string, ExportState>>({});
+  const [exportErrors, setExportErrors] = useState<Record<string, string>>({});
   const platform: string = jobData?.platform || '';
   const modalRef = useRef<HTMLDivElement>(null);
   // WHY a ref-tracked Set, not bare setTimeout calls: handleExport fires from a
@@ -132,16 +131,24 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
   async function handleExport(formatId: string) {
     if (getState(formatId) === 'exporting') return;
     setExportState((s) => ({ ...s, [formatId]: 'exporting' }));
+    setExportErrors((s) => {
+      const next = { ...s };
+      delete next[formatId];
+      return next;
+    });
 
+    const ctx = {
+      content, jobData, colorTheme, brandName, handle, colorSystem, designPreset, templateId, paletteId,
+    };
     try {
       if (formatId === 'png') {
-        await exportPNG();
+        await exportPNG(ctx);
       } else if (formatId === 'txt') {
-        exportText();
+        exportText(ctx);
       } else if (formatId === 'pdf') {
-        await exportPDF();
+        await exportPDF(ctx);
       } else if (formatId === 'html') {
-        exportHTML();
+        exportHTML(ctx);
       }
       setExportState((s) => ({ ...s, [formatId]: 'done' }));
       posthog?.capture?.('export_downloaded', { format: formatId, platform });
@@ -150,154 +157,23 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
         setExportState((s) => ({ ...s, [formatId]: 'idle' }));
       }, 3000);
       pendingTimers.current.add(timer);
-    } catch (_err) {
-      // NOTE: Export errors are displayed to user via error state; no need for console.error
+    } catch (err: unknown) {
+      const message = err instanceof Error && err.message.trim().length > 0
+        ? err.message
+        : 'Export failed. Try again.';
+      setExportErrors((s) => ({ ...s, [formatId]: message }));
       setExportState((s) => ({ ...s, [formatId]: 'error' }));
       const timer = setTimeout(() => {
         pendingTimers.current.delete(timer);
         setExportState((s) => ({ ...s, [formatId]: 'idle' }));
-      }, 4000);
+        setExportErrors((s) => {
+          const next = { ...s };
+          delete next[formatId];
+          return next;
+        });
+      }, 6000);
       pendingTimers.current.add(timer);
     }
-  }
-
-  async function exportPNG() {
-    if (!Array.isArray(content)) throw new Error('No carousel content');
-    const jobId = jobData?.id;
-    if (!jobId) throw new Error('Missing job id');
-    const themeKey = THEME_KEYS[colorTheme] ?? 'minimal';
-    // WHY generic <Blob>: api.post's response type defaults to `any`-shaped axios data;
-    // the export route always returns a ZIP blob (responseType: 'blob' below), so pin it
-    // explicitly instead of relying on axios's default inference.
-    const response = await api.post<Blob>(
-      `/jobs/${jobId}/export/carousel-png`,
-      // WHY these extra fields: the server renders the same slide component the preview
-      // uses, so it needs the exact palette, brand identity and design preset on screen.
-      // templateId and paletteId enable the new template-based rendering system.
-      { theme: themeKey, slides: content, colors: colorSystem, brandName, handle, designPreset, templateId, paletteId },
-      { responseType: 'blob' },
-    );
-    const exportWarning = response.headers?.['x-export-warning'];
-    if (typeof exportWarning === 'string' && exportWarning.length > 0) {
-      throw new Error(exportWarning);
-    }
-    triggerDownload(response.data, `${safeFileName()}_slides.zip`, 'application/zip');
-  }
-
-  function exportText() {
-    if (!content) throw new Error('No content');
-    const text = flattenContentToText(content);
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    triggerDownload(blob, `${safeFileName()}.txt`, 'text/plain');
-  }
-
-  async function exportPDF() {
-    const { jsPDF } = await import('jspdf');
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    const topic = jobData?.topic || 'Content';
-    const pageW = doc.internal.pageSize.getWidth();
-    const margin = 50;
-    const maxW = pageW - margin * 2;
-    let y = 60;
-
-    // Title
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(20);
-    doc.text(topic, margin, y);
-    y += 30;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    const meta = [jobData?.platform, jobData?.tone, jobData?.targetAudience].filter(Boolean).join(' · ');
-    doc.text(meta, margin, y);
-    y += 24;
-    doc.setTextColor(0);
-    doc.setFontSize(11);
-
-    function addText(label: string, body: string) {
-      if (y > 720) { doc.addPage(); y = 50; }
-      if (label) {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.setTextColor(80);
-        doc.text(label.toUpperCase(), margin, y);
-        y += 14;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(11);
-        doc.setTextColor(0);
-      }
-      const lines: string[] = doc.splitTextToSize(body || '', maxW);
-      lines.forEach((line) => {
-        if (y > 730) { doc.addPage(); y = 50; }
-        doc.text(line, margin, y);
-        y += 16;
-      });
-      y += 8;
-    }
-
-    if (content && Array.isArray(content)) {
-      content.forEach((s, i) => {
-        addText(`Slide ${i + 1}${s.type ? ` — ${s.type}` : ''}`, `${s.headline || ''}\n${s.body || ''}`);
-      });
-    } else if (content && 'segments' in content) {
-      addText('Hook', content.hook?.text || '');
-      (content.segments || []).forEach((s) => addText(`Segment ${s.number}`, s.script || ''));
-      addText('CTA', content.cta?.text || '');
-      if (content.hashtags?.length) addText('Hashtags', content.hashtags.join(' '));
-    } else if (content?.tweets) {
-      content.tweets.forEach((t, i) => addText(`Tweet ${i + 1}`, t.text));
-    } else if (content) {
-      if (content.hook) addText('Hook', content.hook);
-      if (content.body) addText('Body', content.body);
-      if (content.cta) addText('CTA', content.cta);
-      if (content.caption) addText('Caption', content.caption);
-      if (content.hashtags?.length) addText('Hashtags', content.hashtags.join(' '));
-    }
-
-    doc.save(`${safeFileName()}.pdf`);
-  }
-
-  function exportHTML() {
-    if (!Array.isArray(content)) throw new Error('HTML export is only available for carousels');
-    const slides = content;
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>${escHtml(jobData?.topic || 'Carousel')}</title>
-<style>
-  body { font-family: system-ui, sans-serif; background: #111; color: #fff; margin: 0; padding: 24px; }
-  .slide { background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 24px; margin-bottom: 16px; max-width: 600px; }
-  .slide-type { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #888; margin-bottom: 8px; }
-  .slide-headline { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
-  .slide-body { font-size: 14px; line-height: 1.6; color: rgba(255,255,255,0.75); }
-</style>
-</head><body>
-<h1 style="font-size:16px;color:#888;margin-bottom:24px;">${escHtml(jobData?.topic || '')}</h1>
-${slides.map((s, i) => `<div class="slide">
-  <div class="slide-type">Slide ${i + 1}${s.type ? ' — ' + escHtml(s.type) : ''}</div>
-  <div class="slide-headline">${escHtml(s.headline || '')}</div>
-  <div class="slide-body">${escHtml(s.body || '')}</div>
-</div>`).join('\n')}
-</body></html>`;
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    triggerDownload(blob, `${safeFileName()}.html`, 'text/html');
-  }
-
-  function safeFileName(): string {
-    return (jobData?.topic || 'content').replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
-  }
-
-  function triggerDownload(data: Blob, filename: string, mimeType: string) {
-    const url = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type: mimeType }));
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-  }
-
-  function escHtml(str: string): string {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   const visibleFormats = FORMATS.filter((f) => {
@@ -306,18 +182,14 @@ ${slides.map((s, i) => `<div class="slide">
     return true;
   });
 
-  // WHY "Rendering N slides…", not a fake "slide N of M" counter: the server
-  // renders every slide and zips them in one request, returning a single blob
-  // at the end — there's no real per-slide completion signal reaching the
-  // client without new backend plumbing (SSE/polling), which this fix
-  // deliberately avoids adding. Progress UI must never show fabricated numbers — showing the
-  // real, already-known slide count (no false claim of live completion
-  // tracking) is the honest version of "give this format more detail than a
-  // bare spinner," closing the gap with LoadingView's per-stage detail
-  // without inventing progress the client doesn't actually have.
-  function exportingLabel(formatId: string): string {
+  // WHY the count lives in the description, not the button: the server renders
+  // every slide and returns one ZIP, so there is no per-slide progress to show.
+  // Putting "Rendering N slides…" inside the nowrap button stretched that row
+  // to several lines. The known slide count stays visible as one short line.
+  function exportingDetail(formatId: string): string {
     if (formatId === 'png' && Array.isArray(content)) {
-      return `Rendering ${content.length} slide${content.length === 1 ? '' : 's'}…`;
+      const n = content.length;
+      return `Rendering ${n} slide${n === 1 ? '' : 's'}…`;
     }
     return 'Saving…';
   }
@@ -341,13 +213,16 @@ ${slides.map((s, i) => `<div class="slide">
           position: 'fixed', left: '50%', top: '50%',
           width: 'min(460px, calc(100vw - 32px))',
           maxHeight: 'calc(100vh - 32px)',
-          overflowY: 'auto',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
           background: 'linear-gradient(135deg, var(--bg-raised) 0%, var(--bg-card) 100%)',
           border: '1px solid var(--rule)',
           borderRadius: 16, zIndex: 1201, boxShadow: '0 24px 60px rgba(0,0,0,0.6)',
-          padding: '20px 20px 24px',
+          padding: 0,
           animation: 'rp-fadeUpCentered .22s cubic-bezier(.16,1,.3,1) both',
         }}>
+        <VisibleScroller frameStyle={{ flex: '1 1 auto', minHeight: 0 }} gutter={false} style={{ padding: '20px 20px 24px' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <div>
@@ -402,7 +277,20 @@ ${slides.map((s, i) => `<div class="slide">
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.4 }}>{fmt.description}</div>
+                  <div style={{
+                    fontSize: 11,
+                    color: state === 'error'
+                      ? 'var(--color-error)'
+                      : state === 'exporting' ? 'var(--accent)' : 'var(--text-secondary)',
+                    marginTop: 2,
+                    lineHeight: 1.4,
+                  }}>
+                    {state === 'exporting'
+                      ? exportingDetail(fmt.id)
+                      : state === 'error'
+                        ? (exportErrors[fmt.id] || 'Export failed. Try again.')
+                        : fmt.description}
+                  </div>
                 </div>
 
                 {/* Download button */}
@@ -414,12 +302,19 @@ ${slides.map((s, i) => `<div class="slide">
                     background: state === 'done' ? 'rgba(16,185,129,0.12)' : state === 'error' ? 'rgba(239,68,68,0.1)' : recommended ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
                     border: `1px solid ${state === 'done' ? 'rgba(16,185,129,0.35)' : state === 'error' ? 'rgba(239,68,68,0.3)' : recommended ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'var(--rule)'}`,
                     color: state === 'done' ? 'var(--color-success)' : state === 'error' ? 'var(--color-error)' : recommended ? 'var(--accent)' : 'var(--text-secondary)',
-                    borderRadius: 8, padding: '7px 12px', cursor: state === 'exporting' ? 'wait' : 'pointer',
-                    fontSize: 12, fontWeight: 600, transition: 'all .18s', minWidth: 80, justifyContent: 'center',
-                    whiteSpace: 'nowrap',
+                    borderRadius: 8, padding: '6px 10px', cursor: state === 'exporting' ? 'wait' : 'pointer',
+                    fontSize: 12, fontWeight: 600, transition: 'all .18s',
+                    boxSizing: 'border-box', width: 124, minWidth: 124, maxWidth: 124,
+                    justifyContent: 'center', whiteSpace: 'nowrap', overflow: 'hidden',
                   }}
+                  aria-busy={state === 'exporting'}
                 >
-                  {state === 'exporting' && <><ExportSpinner /> {exportingLabel(fmt.id)}</>}
+                  {state === 'exporting' && (
+                    <>
+                      <ExportSpinner />
+                      {fmt.id === 'png' ? 'Rendering' : 'Saving'}
+                    </>
+                  )}
                   {state === 'done'      && <><CheckCircle size={11} /> Saved!</>}
                   {state === 'error'     && 'Error'}
                   {state === 'idle'      && <><Download size={11} /> Download</>}
@@ -433,6 +328,7 @@ ${slides.map((s, i) => `<div class="slide">
         <div style={{ marginTop: 16, fontSize: 10.5, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
           Files download directly to your device — nothing is uploaded.
         </div>
+        </VisibleScroller>
       </div>
     </>
   );

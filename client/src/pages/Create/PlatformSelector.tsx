@@ -20,7 +20,7 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
         className="platform-grid"
         role="group"
         aria-label="Choose a platform"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 14 }}
+        style={{ display: 'grid', gap: 14 }}
       >
       {platforms.map((p) => {
         const sel = value === p.id;

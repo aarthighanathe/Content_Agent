@@ -5,7 +5,19 @@
 // platform or renaming a field required updating four files by hand. This shared
 // helper ensures consistency and reduces maintenance burden.
 
-interface CarouselSlide { type?: string; headline?: string; body?: string }
+interface CarouselPoint {
+  label?: string;
+  desc?: string;
+}
+
+interface CarouselSlide {
+  type?: string;
+  headline?: string;
+  body?: string;
+  points?: CarouselPoint[];
+  cta?: { action?: string; handle?: string };
+}
+
 interface TweetThread { tweets?: { text?: string }[] }
 interface VideoScript {
   hook?: { text?: string } | string;
@@ -20,35 +32,76 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function formatSlideType(type: string | undefined): string {
+  const raw = (type ?? '').trim();
+  if (!raw) return '';
+  return raw
+    .split(/[_\s-]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function formatCarouselSlide(slide: CarouselSlide, index: number, total: number): string {
+  const kind = formatSlideType(slide.type);
+  // WHY "Slide N — Type": plain [cover]/[content] tags were hard to scan in
+  // .txt exports and Copy-all; numbered headers match the PDF/HTML outlines.
+  const header = kind
+    ? `Slide ${index + 1} of ${total} — ${kind}`
+    : `Slide ${index + 1} of ${total}`;
+  const lines: string[] = [header];
+
+  const headline = (slide.headline ?? '').trim();
+  const body = (slide.body ?? '').trim();
+  if (headline) lines.push(headline);
+  if (body) lines.push(body);
+
+  const points = Array.isArray(slide.points) ? slide.points : [];
+  points.forEach((point, pointIndex) => {
+    const label = (point.label ?? '').trim();
+    const desc = (point.desc ?? '').trim();
+    if (!label && !desc) return;
+    lines.push(desc ? `${pointIndex + 1}. ${label} — ${desc}` : `${pointIndex + 1}. ${label}`);
+  });
+
+  const action = (slide.cta?.action ?? '').trim();
+  const handle = (slide.cta?.handle ?? '').trim();
+  if (action || handle) {
+    lines.push([action, handle ? `@${handle}` : ''].filter((part) => part.length > 0).join(' · '));
+  }
+
+  return lines.join('\n');
+}
+
 export function flattenContentToText(content: unknown): string {
   if (!content) return '';
   let text = '';
 
   if (Array.isArray(content)) {
-    // Carousel slides
-    (content as CarouselSlide[]).forEach((s) => {
-      text += `${s.type ? `[${s.type}]\n` : ''}${s.headline ?? ''}\n${s.body ?? ''}\n\n`;
-    });
+    const slides = content as CarouselSlide[];
+    text = slides
+      .map((slide, index) => formatCarouselSlide(slide, index, slides.length))
+      .join('\n\n');
   } else if (isRecord(content) && Array.isArray((content as TweetThread).tweets)) {
-    // Twitter thread
     const tweets = (content as TweetThread).tweets!;
-    tweets.forEach((t, i) => { text += `[${i + 1}/${tweets.length}]\n${t.text ?? ''}\n\n`; });
+    text = tweets
+      .map((t, i) => `Tweet ${i + 1} of ${tweets.length}\n${t.text ?? ''}`.trim())
+      .join('\n\n');
   } else if (isRecord(content) && Array.isArray((content as VideoScript).segments)) {
-    // Video script
     const c = content as VideoScript;
     const hookText = typeof c.hook === 'string' ? c.hook : c.hook?.text ?? '';
     const ctaText = typeof c.cta === 'string' ? c.cta : c.cta?.text ?? '';
     const segments = (c.segments ?? [])
-      .map((s) => `[Segment ${s.number ?? ''}]\n${s.script ?? ''}`)
+      .map((s) => `Segment ${s.number ?? ''}\n${s.script ?? ''}`.trim())
       .join('\n\n');
-    text = `[HOOK]\n${hookText}\n\n${segments}\n\n[CTA]\n${ctaText}\n\n`;
-    if (c.hashtags?.length) text += c.hashtags.join(' ');
+    text = [`Hook\n${hookText}`, segments, `CTA\n${ctaText}`]
+      .filter((block) => block.trim().length > 0)
+      .join('\n\n');
+    if (c.hashtags?.length) text += `\n\n${c.hashtags.join(' ')}`;
   } else if (isRecord(content) && typeof (content as CaptionContent).caption === 'string') {
-    // Instagram caption
     const c = content as CaptionContent;
     text = `${c.caption}\n\n${c.hashtags?.join(' ') ?? ''}`;
   } else if (isRecord(content)) {
-    // Standard post (LinkedIn, etc.)
     const c = content as StandardPost;
     if (c.hook) text += `${c.hook}\n\n`;
     if (c.body) text += `${c.body}\n\n`;

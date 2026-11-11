@@ -3,6 +3,8 @@
    not the viewport — viewport @media kept a 2-col desktop grid while the
    slide crushed to ~180px. */
 .rp {
+  --rp-slide: 470px;
+  --rp-tools: 300px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -10,6 +12,16 @@
   min-width: 0;
   container-type: inline-size;
   container-name: rp;
+}
+
+/* WHY registered length: grid-template-columns cannot interpolate
+   minmax()/fr against 48px, so the old toggle snapped (and the inline
+   transition flipped halfway). A <length> custom property does interpolate,
+   which is what lets the quality column ease between open and the 48px rail. */
+@property --rp-aside {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 360px;
 }
 
 /* Breadcrumb nav */
@@ -110,8 +122,9 @@
 .rp-lv-step-name.lit { color:var(--text-primary); }
 .rp-lv-step-sub { display:block; max-width:100%; font-size:8.5px; color:var(--text-muted); text-align:center; margin-top:2px; line-height:1.3; overflow-wrap:anywhere; }
 
-.rp-lv-feed { width:100%; max-width:460px; background:var(--bg-card); border:1px solid var(--rule); border-radius:10px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; max-height:120px; overflow-y:auto; scrollbar-width:none; }
-.rp-lv-feed::-webkit-scrollbar { display:none; }
+.rp-lv-feed-frame { width:100%; max-width:460px; max-height:120px; }
+.rp-lv-feed { width:100%; max-height:120px; background:var(--bg-card); border:1px solid var(--rule); border-radius:10px; padding:12px 14px; }
+.rp-lv-logs { display:flex; flex-direction:column; gap:6px; }
 .rp-lv-log { display:flex; gap:10px; align-items:flex-start; animation:rp-fadeUp .25s ease both; }
 
 .rp-tabs { display:none; background:var(--bg-raised); border:1px solid var(--rule); border-radius:10px; overflow:hidden; }
@@ -122,8 +135,6 @@
    than that goes to AI Quality Analysis. Default is stacked — @container
    widens to 2-col only when the Result area itself has room. */
 .rp-grid {
-  --rp-slide: 470px;
-  --rp-tools: 300px;
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
@@ -149,7 +160,29 @@
    900px made tools always stack under the slide on laptops. */
 .rp-carousel-layout { display:grid; grid-template-columns:1fr; gap:24px; align-items:stretch; min-height:0; }
 .rp-carousel-side { display:flex; flex-direction:column; gap:12px; min-width:0; min-height:0; }
-.rp-carousel-side > .rp-side-card:first-child { flex:1 1 auto; min-height:0; }
+/* WHY floors + caps: Adapt used to size to all 4 tiles and starve Template
+   down to a clipped one-row sliver. Both cards now share the column; lists
+   scroll inside VisibleScroller when content exceeds the card. */
+.rp-carousel-side > .rp-side-card {
+  padding: var(--card-padding-compact);
+  overflow: hidden;
+  min-height: 0;
+}
+.rp-carousel-side > .rp-template {
+  flex: 1 1 0;
+  /* WHY min(): absolute px floors crush the column when the slide is short. */
+  min-height: min(220px, 42%);
+  max-height: 56%;
+}
+.rp-carousel-side > .rp-adapt {
+  flex: 1 1 0;
+  min-height: min(200px, 40%);
+  max-height: 48%;
+}
+.rp-carousel-side > .rp-adapt:only-child {
+  max-height: none;
+  min-height: 0;
+}
 .rp-carousel-stage { width:100%; height:100%; min-height:0; display:flex; flex-direction:column; align-items:flex-start; gap:8px; }
 /* WHY 640: matches the pre-responsive desktop look — slide left, tools
    right inside the capped content column. Stack only when mid-width
@@ -167,26 +200,24 @@
    the window wide while the Result column is narrow — stack Quality under
    content so the slide keeps a readable width. At ≥1100px restore the
    classic laptop layout: capped content (slide+tools) | Quality. */
+/* Open: content stays capped (slide + tools); quality takes the leftover,
+   measured into --rp-aside-open. Collapsed: that length eases to 48px.
+   Resize updates use .rp-aside-instant so the column tracks the window
+   instead of lagging behind the toggle easing. */
 @container rp (min-width: 1100px) {
   .rp-grid {
-    grid-template-columns:
-      minmax(0, calc(var(--rp-slide) + var(--rp-tools) + 24px))
-      minmax(320px, 1fr);
+    --rp-aside: var(--rp-aside-open, 360px);
+    grid-template-columns: minmax(0, 1fr) var(--rp-aside);
+    transition: --rp-aside 360ms cubic-bezier(.4, 0, .2, 1);
   }
-}
-@container rp (min-width: 1300px) {
-  .rp-grid {
-    grid-template-columns:
-      minmax(0, calc(var(--rp-slide) + var(--rp-tools) + 24px))
-      minmax(400px, 1fr);
-  }
-}
-/* Collapsed Quality rail: only meaningful in the 2-col layout. */
-@container rp (min-width: 1100px) {
   .rp-grid.rp-grid-sidebar-collapsed {
-    grid-template-columns: 1fr 48px;
+    --rp-aside: 48px;
   }
 }
+.rp-aside-instant .rp-grid {
+  transition: none !important;
+}
+.rp-grid-aside-anim { overflow-anchor: none; }
 .rp-slide-frame { border-radius:12px; overflow:hidden; border:1px solid var(--rule); max-width:100%; }
 .rp-slide-toolbar { display:flex; align-items:center; gap:8px; max-width:100%; flex-wrap:wrap; }
 .rp-slide-dots { display:flex; align-items:center; gap:2px; flex:1; min-width:0; justify-content:center; }
@@ -218,15 +249,28 @@
   flex-direction: column;
   gap: 16px;
 }
-.rp-sidebar { display:flex; flex-direction:column; gap:14px; min-height:0; min-width:0; }
-/* WHY scroll lives on .card-glow, not .rp-sidebar: the sidebar is just the sticky
-   positioner — the visible card (border+padding) is a child of it. Scrolling the
-   outer wrapper put the scrollbar outside the card's rounded border; scrolling the
-   card itself keeps it inside the card's own padding where it visually belongs. */
-.rp-sidebar > .card-glow { overflow-y:auto; scrollbar-width:thin; scrollbar-color:color-mix(in srgb, var(--accent) 18%, transparent) transparent; }
-.rp-sidebar > .card-glow::-webkit-scrollbar { width:3px; }
-.rp-sidebar > .card-glow::-webkit-scrollbar-track { background:transparent; }
-.rp-sidebar > .card-glow::-webkit-scrollbar-thumb { background:color-mix(in srgb, var(--accent) 20%, transparent); border-radius:2px; }
+.rp-sidebar { display:flex; flex-direction:column; gap:14px; min-height:0; min-width:0; position:relative; }
+.rp-sidebar-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+/* WHY padding:0 on the card: .card-glow defaults to 24px, and InsightsSidebar
+   also padded the VisibleScroller — double inset squeezed the score bars and
+   parked the painted track ~24px inside the border instead of on it. The card
+   is only the frame; content inset + gutter live on the scroller. */
+.rp-sidebar-panel > .card-glow {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.rp-sidebar-panel > .card-glow > .visible-scroll-frame { flex:1 1 auto; min-height:0; }
+/* Rail stays out of the stacked layout. In the wide 2-col layout it sits on
+   the right edge and fades in once the column has eased down to 48px. */
+.rp-sidebar-rail { display: none; }
 
 .rp-plat-hd { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
 .rp-slide-nav { display:flex; align-items:center; gap:10px; margin-top:12px; }
@@ -319,17 +363,9 @@
 .rp-drawer-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .rp-drawer-body {
   flex: 1; min-height: 0;
-  display: flex; flex-direction: column;
-  overflow-y: auto;
-  padding: 18px 20px 22px;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--accent) 18%, transparent) transparent;
+  overflow: hidden;
 }
-.rp-drawer-body::-webkit-scrollbar { width: 3px; }
-.rp-drawer-body::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  border-radius: 2px;
-}
+.rp-drawer-body > .visible-scroll { padding: 18px 20px 22px; }
 
 .rp-action-menu { display: flex; flex-direction: column; gap: 8px; }
 .rp-action-menu-item {
@@ -487,8 +523,15 @@
 .rp-side-card { background:var(--bg-raised); border:1px solid var(--rule); border-radius:12px; padding:var(--card-padding); display:flex; flex-direction:column; gap:8px; min-width:0; }
 .rp-side-kicker { font-family:var(--font-mono); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-muted); }
 .rp-side-help { margin:0; font-size:12px; line-height:1.45; color:var(--text-muted); }
-.rp-template-list { display:flex; flex-direction:column; gap:1px; flex:1 1 auto; min-height:0; overflow:auto; margin:0; padding:0; list-style:none; }
-.rp-template-row { display:flex; align-items:center; gap:8px; width:100%; padding:4px 0; border:none; border-radius:8px; background:transparent; color:var(--text-secondary); font-size:13px; text-align:left; cursor:pointer; }
+.rp-template-scroll,
+.rp-adapt-scroll { flex:1 1 auto; min-height:0; }
+.rp-template-list { display:flex; flex-direction:column; gap:1px; margin:0; padding:0; list-style:none; }
+.rp-template-row {
+  display:flex; align-items:center; gap:8px; width:100%;
+  padding:5px 6px 5px 4px; border:none; border-radius:8px;
+  background:transparent; color:var(--text-secondary); font-size:13px;
+  text-align:left; cursor:pointer;
+}
 .rp-template-row:hover { background:color-mix(in srgb, var(--text-primary) 5%, transparent); color:var(--text-primary); }
 .rp-template-row[aria-pressed="true"] { background:color-mix(in srgb, var(--accent) 12%, transparent); color:var(--text-primary); font-weight:600; }
 .rp-template-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; border:1px solid rgba(0,0,0,0.18); }
@@ -727,26 +770,96 @@
    column. overflow:hidden alone still creates a scroll container, so when the
    tweet list mounted, scroll anchoring kept Adapt in view and hid tweets 1–N. */
 .main-content:has(.rp-layout-wide) .rp-main:has(.rp-copy-stage) {
-  overflow-y: auto;
+  overflow: hidden;
   overflow-anchor: none;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--accent) 18%, transparent) transparent;
 }
-.main-content:has(.rp-layout-wide) .rp-main:has(.rp-copy-stage)::-webkit-scrollbar { width: 3px; }
-.main-content:has(.rp-layout-wide) .rp-main:has(.rp-copy-stage)::-webkit-scrollbar-track { background: transparent; }
-.main-content:has(.rp-layout-wide) .rp-main:has(.rp-copy-stage)::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  border-radius: 2px;
+.main-content:has(.rp-layout-wide) .rp-copy-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .main-content:has(.rp-layout-wide) .rp-carousel-layout { flex: 1; min-height: 0; overflow: hidden; }
 .main-content:has(.rp-layout-wide) .rp-sidebar { min-height: 0; overflow: hidden; }
-/* WHY overflow-y:auto (not hidden): the one-screen lock used to clip long
-   critic feedback / tips with no way to scroll the quality card. */
-.main-content:has(.rp-layout-wide) .rp-sidebar > .card-glow {
+/* WHY overflow hidden on the card, scroll on the scroller: the one-screen
+   lock used to clip long critic feedback with no way to scroll the card. */
+.main-content:has(.rp-layout-wide) .rp-sidebar-panel > .card-glow {
   flex: 1;
   width: 100%;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
+}
+/* WHY pin the panel at its open width while the column eases: if the card
+   stayed width:100% it would reflow every frame (labels wrapping, bars
+   jumping) which reads as flicker. Right-anchored and clipped by the
+   sidebar, it stays still and the content column covers it. */
+@container rp (min-width: 1100px) {
+  .rp-sidebar { overflow: hidden; }
+  /* In flow while open so the card keeps its scroll height. Pinned only while
+     the column is moving or parked on the rail — otherwise the text reflows
+     on every frame of the ease. */
+  .rp-grid-aside-anim .rp-sidebar-panel,
+  .rp-sidebar-collapsed .rp-sidebar-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: var(--rp-aside-open, 360px);
+  }
+  .rp-sidebar-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+    width: 48px;
+    margin: 0;
+    padding: 16px 0;
+    box-sizing: border-box;
+    border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
+    border-radius: 14px;
+    background: var(--color-dark-800);
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease;
+  }
+  .rp-sidebar-collapsed .rp-sidebar-rail {
+    opacity: 1;
+    pointer-events: auto;
+    /* Arrive once the column is nearly at 48px, so it doesn't sit on the card. */
+    transition-delay: 240ms;
+  }
+  .rp-sidebar-rail:hover {
+    border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+  .rp-sidebar-rail:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .rp-sidebar-rail-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .rp-sidebar-rail-score {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-grid { transition: none; }
+  .rp-sidebar-rail { transition: none; }
 }
 
 /* Mid-width (Quality already stacked via @container): keep sidebar flowing. */

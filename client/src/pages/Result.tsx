@@ -1,40 +1,25 @@
-import { useState, useRef, useMemo, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import './Result/Result.css';
 import { useJobData }    from './Result/hooks/useJobData';
 import { useExport }     from './Result/hooks/useExport';
 import { useMultiplier } from './Result/hooks/useMultiplier';
 import { useSocial }     from './Result/hooks/useSocial';
-import { updateJobContent, setCarouselTemplate } from '../api';
+import { updateJobContent } from '../api';
 import { ResultHeader }   from './Result/components/ResultHeader';
 import { LoadingView }    from './Result/components/LoadingView';
 import { ErrorState }     from '../components/ErrorState';
 import { ContentColumn }  from './Result/components/ContentColumn';
-import type { ResultContent } from './Result/components/ContentColumn';
 import { InsightsSidebar } from './Result/components/InsightsSidebar';
 import { ActionDrawer }   from './Result/components/ActionDrawer';
 import type { ActionTab } from './Result/components/ActionDrawer';
 import { ExportModal }    from './Result/components/ExportModal';
-import { useCarouselDesignSeed } from './Result/hooks/useCarouselDesignSeed';
-import { deriveColorSystem, THEME_ACCENTS } from '../lib/colorSystem';
-import { useQuery } from '@tanstack/react-query';
-import { getProfile } from '../api';
+import { useQualityAside } from './Result/hooks/useQualityAside';
+import { useResultTemplate } from './Result/hooks/useResultTemplate';
 import { Copy, RotateCcw, Download, MoreHorizontal } from 'lucide-react';
-import type { CriticResult, PlatformContent } from '../types/job';
+import type { PlatformContent } from '../types/job';
 import type { SlideData } from './Result/components/content/carousel/IGSlide';
-
-// WHY guard instead of trusting JobOutput.content: `content: unknown` (job.ts) varies by
-// outputType; a 'critique' output's content is a CriticResult object with these fields —
-// narrow before use rather than casting, matching the historyHelpers.ts/dashboardTypes.ts
-// pattern used elsewhere for the same JobOutput.content: unknown field.
-function isCriticResult(value: unknown): value is CriticResult {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'totalScore' in value &&
-    'scores' in value
-  );
-}
+import { deriveResultContent } from './Result/lib/resultDerived';
 
 export default function ResultPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -76,19 +61,7 @@ export default function ResultPage() {
   // WHY content-width (not viewport): sidebar + DevTools leave the window wide
   // while .rp is narrow — one-screen lock + Quality side column only when the
   // Result workspace itself has room (≥1100px). See Result.css @container rp.
-  const [layoutWide, setLayoutWide] = useState(false);
-
-  useLayoutEffect(() => {
-    const el = rpRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const measure = (): void => {
-      setLayoutWide(el.clientWidth >= 1100);
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    measure();
-    return () => observer.disconnect();
-  }, []);
+  const { layoutWide, asideAnimating, beginAsideToggle } = useQualityAside(rpRef);
 
   // Persist sidebar collapse state to localStorage
   useEffect(() => {
@@ -101,105 +74,27 @@ export default function ResultPage() {
   // On stacked mid-width, force the full Quality card so it isn't a thin strip.
   const effectiveSidebarCollapsed = layoutWide && sidebarCollapsed;
 
-  // Template selection: an in-Result override (set by switching templates
-  // post-generation — see onTemplateSwitch below) takes priority; otherwise
-  // this reads the template the job was actually created with (persisted on
-  // contentJobs.templateId/paletteId — see CAROUSEL_TEMPLATE_PLAN.md §2.1/2.2).
-  // localStorage is only a last-resort fallback for carousels generated before
-  // this feature shipped, which have no templateId on the job row at all.
-  const [templateOverride, setTemplateOverride] = useState<{ templateId: string; paletteId?: string } | null>(null);
-  // WHY reset on jobId change: this page's route (/result/:jobId in App.tsx) isn't
-  // keyed, so navigating between two jobs' results reuses this component instance
-  // rather than remounting it. Without this, an override set on job A (via the
-  // Result-page template switcher) would silently keep applying to job B's preview
-  // — a different job's carousel appearing to have a template it was never
-  // actually saved with, with no visual indicator anything is wrong. A ref-based
-  // "reset during render" alternative was tried first, but this repo's
-  // react-hooks/refs lint rule (React Compiler rules-of-react) hard-errors on
-  // reading/writing a ref's `.current` during render, so an effect is the correct
-  // (lint-clean) way to do this here despite the softer set-state-in-effect warning
-  // it trades for.
-  useEffect(() => {
-    setTemplateOverride(null);
-  }, [jobId]);
-  // WHY memoized: this used to re-read localStorage via an inline IIFE on
-  // every render, including every SSE progress tick during job polling — the
-  // stored value only matters as a fallback for pre-feature carousels with no
-  // templateId/paletteId on the job row, so it only needs to be read once.
-  const templateId = templateOverride?.templateId ?? jobData?.templateId ?? undefined;
-  const paletteId = templateOverride?.paletteId ?? jobData?.paletteId ?? undefined;
+  const {
+    content,
+    isPartialFinal,
+    criticResult,
+    isDone,
+    isFailed,
+    progress,
+    currentStage,
+    stageMessage,
+    isCarousel,
+  } = deriveResultContent(jobData);
 
-  async function onTemplateSwitch(newTemplateId: string, newPaletteId?: string): Promise<void> {
-    setTemplateOverride({ templateId: newTemplateId, paletteId: newPaletteId });
-    if (!jobId) return;
-    try {
-      await setCarouselTemplate(jobId, newTemplateId, newPaletteId);
-    } catch {
-      setSaveError('Couldn’t save template choice — preview updated, but it may not stick after reload.');
-    }
-  }
-
-  // NOTE: always prefer outputType='final' for display. Other output types
-  // (draft, research, critique) are intermediate pipeline artifacts — only
-  // 'final' has passed the critic gate and has the quality score attached.
-  const finalOutput  = jobData?.outputs?.find((o) => o.outputType === 'final');
-  // WHY .pop(): a job can have multiple critique rows (one per retry cycle).
-  // The last one is the final quality verdict; earlier ones are revision history.
-  const criticOutput = jobData?.outputs?.filter((o) => o.outputType === 'critique')?.pop();
-  // WHY isCriticResult guard: criticOutput.content is `unknown`; only trust it as
-  // CriticResult once narrowed, matching the || criticOutput fallback the untyped
-  // version relied on (some legacy rows may have the critic fields on the output
-  // itself rather than nested under .content).
-  const criticResult: CriticResult | undefined = isCriticResult(criticOutput?.content)
-    ? criticOutput.content
-    : isCriticResult(criticOutput)
-    ? criticOutput
-    : undefined;
-  // WHY guard then cast: finalOutput.content is `unknown` (job.ts) — a 'final' output's
-  // content is always an object (single PlatformContent/VideoScriptContentData) or an
-  // array of slides (carousel), never a primitive, so a shape check is enough before
-  // trusting it as ResultContent. The individual field reads below (content.hook,
-  // content.tweets, etc.) are all optional-chained/guarded further, same as before typing.
-  const rawContent = finalOutput?.content;
-  const content: ResultContent | undefined =
-    Array.isArray(rawContent) || (typeof rawContent === 'object' && rawContent !== null)
-      ? (rawContent as ResultContent)
-      : undefined;
-  const isDone       = jobData?.status === 'done';
-  const isFailed     = jobData?.status === 'failed';
-  // WHY jobData only (not Zustand currentJob): SSE merges into jobData via
-  // mergeSSEIntoJobData — reading both caused progress flicker (M1/H2).
-  const progress     = jobData?.progress ?? (isDone ? 100 : 0);
-  const currentStage = jobData?.stage || jobData?.status || 'pending';
-  const stageMessage = jobData?.message ?? '';
-  const isCarousel   = Array.isArray(content);
-
-  // WHY: brand identity, palette and design preset are resolved once here and passed to
-  // BOTH the on-screen preview and the PNG export. Deriving them separately in each place
-  // is what caused downloaded slides to look nothing like the preview.
-  //
-  // brandName/handle are ONLY populated from the user's real Brand Voice settings
-  // (GET /users/me) — never fabricated from the topic text. A carousel for a user who
-  // hasn't set up a brand shouldn't display a made-up name/handle on the cover slide.
-  const { data: profile } = useQuery({ queryKey: ['dashboard', 'profile'], queryFn: getProfile, staleTime: 5 * 60 * 1000 });
-  const brandName = profile?.brandName?.trim() || '';
-  // NOTE: there's no separate "handle" setting anywhere in the schema — only brandName.
-  // The handle is derived from it so it never shows without a real brand name behind it.
-  const handle = brandName ? `@${brandName.toLowerCase().replace(/[^a-z0-9]/g, '')}` : '';
-  // WHY memoized: deriveColorSystem builds a fresh typed/color object every call, so an
-  // un-memoized call defeats React.memo on the carousel (colors prop identity would change
-  // on every Result render, rebuilding all slides). Stable on colorTheme, which is read once.
-  const colorSystem = useMemo(
-    () => deriveColorSystem(THEME_ACCENTS[colorTheme] ?? THEME_ACCENTS[0]),
-    [colorTheme],
-  );
-  // WHY !templateId: IGSlide only reads designPreset on the legacy (no-template) render
-  // branch — once a carousel has a template system id, the value is computed and passed
-  // down but never read (see IGSlide.tsx's template branch). Every template-system carousel
-  // was still paying for a full localStorage read/hash/write cycle here for a value nobody
-  // uses. Passing undefined short-circuits the hook's useMemo/useEffect to their cheap
-  // no-op branches (isCarousel = false) without changing its return type or call signature.
-  const designPreset = useCarouselDesignSeed(isCarousel && !templateId ? content : undefined);
+  const {
+    templateId,
+    paletteId,
+    brandName,
+    handle,
+    colorSystem,
+    designPreset,
+    onTemplateSwitch,
+  } = useResultTemplate(jobId, jobData, colorTheme, isCarousel, content, setSaveError);
 
   const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
   const { copied, copyAllText } = useExport(content);
@@ -266,6 +161,11 @@ export default function ResultPage() {
     setFeedbackPrefill('');
   }
 
+  function toggleInsights(): void {
+    beginAsideToggle(sidebarCollapsed);
+    setSidebarCollapsed((collapsed) => !collapsed);
+  }
+
   return (
     <div
       ref={rpRef}
@@ -285,6 +185,7 @@ export default function ResultPage() {
         criticResult={criticResult}
         currentStage={currentStage}
         progress={progress}
+        loadError={loadError}
         social={social}
         activePanel={actionDrawerOpen ? actionDrawerTab : null}
         onOpenPanel={(tab) => {
@@ -301,19 +202,29 @@ export default function ResultPage() {
 
       {loadError && !regenerating && (
         <ErrorState
-          title={loadError === 'not_found' ? 'Job not found' : 'Could not load job'}
+          title={
+            loadError === 'not_found'
+              ? 'Job not found'
+              : loadError === 'lost'
+                ? 'Generation lost'
+                : 'Could not load job'
+          }
           message={
             loadError === 'not_found'
               ? 'This job may have been deleted or you may not have access to it.'
-              : 'We could not load this job. Check your connection and try again.'
+              : loadError === 'lost'
+                ? 'This generation was lost after a server restart. Please create it again.'
+                : 'We could not load this job. Check your connection and try again.'
           }
-          retryLabel="Retry"
-          onRetry={() => { void loadJob(); }}
+          retryLabel={loadError === 'lost' ? undefined : 'Retry'}
+          onRetry={loadError === 'lost' ? undefined : () => { void loadJob(); }}
         />
       )}
-      {loadError === 'not_found' && (
+      {(loadError === 'not_found' || loadError === 'lost') && (
         <p style={{ textAlign: 'center', marginTop: '-0.5rem' }}>
-          <Link to="/library">Back to Library</Link>
+          <Link to={loadError === 'lost' ? '/create' : '/library'}>
+            {loadError === 'lost' ? 'Create again' : 'Back to Library'}
+          </Link>
         </p>
       )}
 
@@ -327,7 +238,10 @@ export default function ResultPage() {
         />
       )}
 
-      {isFailed && (
+      {/* WHY !loadError: the "lost"/"not_found" path already renders ErrorState
+          above — pairing it with status:'failed' used to stack a second
+          "Generation failed" + fake Regen (QA-C2-001). */}
+      {isFailed && !loadError && (
         <ErrorState
           title="Generation failed"
           message={jobData?.error || 'An error occurred. Please try again.'}
@@ -338,6 +252,19 @@ export default function ResultPage() {
 
       {content && !regenerating && (
         <>
+          {isPartialFinal && (
+            <div
+              className="toast"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 12%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 30%, transparent)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Quality score stayed below the approval threshold — this is the best draft from the revision loop. You can regenerate with feedback.
+            </div>
+          )}
           {saveError && (
             <div className="toast toast-error" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               {saveError}
@@ -368,10 +295,8 @@ export default function ResultPage() {
             className={[
               'rp-grid',
               effectiveSidebarCollapsed ? 'rp-grid-sidebar-collapsed' : '',
+              asideAnimating ? 'rp-grid-aside-anim' : '',
             ].filter(Boolean).join(' ')}
-            style={{
-              transition: 'grid-template-columns 0.25s cubic-bezier(.16,1,.3,1)',
-            }}
           >
             <ContentColumn
               className={mobileTab === 'insights' ? 'rp-off' : undefined}
@@ -397,7 +322,7 @@ export default function ResultPage() {
               className={mobileTab !== 'insights' ? 'rp-off' : undefined}
               onSteer={onSteer}
               collapsed={effectiveSidebarCollapsed}
-              onToggle={() => setSidebarCollapsed(c => !c)}
+              onToggle={toggleInsights}
             />
           </div>
 
