@@ -178,7 +178,9 @@ describe('POST /api/images/generate — provider success', () => {
       }
       // Second OpenAI call (DALL-E 3 generation): returns a URL
       if (callCount === 2 && urlStr.includes('openai')) {
-        return makeOkFetchResponse({ data: [{ url: 'https://fake-image.example.com/img.png' }] });
+        return makeOkFetchResponse({
+          data: [{ url: 'https://oaidalleapiprodscus.blob.core.windows.net/img.png' }],
+        });
       }
       // Third call: download the image URL
       return {

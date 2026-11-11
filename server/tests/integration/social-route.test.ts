@@ -85,6 +85,10 @@ describe('GET /api/social/connections', () => {
     const res = await supertest(app).get('/api/social/connections');
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.connections)).toBe(true);
+    expect(res.body.oauthConfigured).toEqual({
+      linkedin: expect.any(Boolean),
+      twitter: expect.any(Boolean),
+    });
   });
 
   it('returns empty connections for a fresh user', async () => {
@@ -197,20 +201,22 @@ describe('GET /api/social/connect/:platform', () => {
     expect(res.status).toBe(400);
   });
 
-  it('redirects to LinkedIn OAuth URL when LINKEDIN_CLIENT_ID is configured', async () => {
+  it('returns authorizeUrl JSON for LinkedIn when LINKEDIN_CLIENT_ID is configured', async () => {
     process.env.LINKEDIN_CLIENT_ID = 'test-linkedin-client-id';
     const { app } = await buildSocialApp();
     const res = await supertest(app).get('/api/social/connect/linkedin');
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toMatch(/linkedin\.com\/oauth/);
+    expect(res.status).toBe(200);
+    expect(res.body.authorizeUrl).toMatch(/linkedin\.com\/oauth/);
+    expect(String(res.headers['set-cookie'] ?? '')).toMatch(/pensieve_oauth_csrf=/);
   });
 
-  it('redirects to Twitter OAuth URL when TWITTER_CLIENT_ID is configured', async () => {
+  it('returns authorizeUrl JSON for Twitter when TWITTER_CLIENT_ID is configured', async () => {
     process.env.TWITTER_CLIENT_ID = 'test-twitter-client-id';
     const { app } = await buildSocialApp();
     const res = await supertest(app).get('/api/social/connect/twitter');
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toMatch(/twitter\.com/);
+    expect(res.status).toBe(200);
+    expect(res.body.authorizeUrl).toMatch(/twitter\.com/);
+    expect(String(res.headers['set-cookie'] ?? '')).toMatch(/pensieve_oauth_csrf=/);
   });
 });
 

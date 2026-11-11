@@ -39,7 +39,9 @@ vi.mock('../../src/config.js', () => ({
     OPENAI_API_KEY: undefined,
     TOGETHER_API_KEY: undefined,
     GROQ_API_KEY: undefined,
-    TAVILY_API_KEY: undefined,
+    // WHY set in tests: POST /competitor hard-fails with SEARCH_UNAVAILABLE
+    // when Tavily is unset (otherwise LinkedIn analyses look empty forever).
+    TAVILY_API_KEY: 'test-tavily-key',
     LINKEDIN_CLIENT_ID: undefined,
     LINKEDIN_CLIENT_SECRET: undefined,
     TWITTER_CLIENT_ID: undefined,
@@ -58,6 +60,7 @@ vi.mock('../../src/config.js', () => ({
 vi.mock('../../src/lib/ai.js', () => ({
   generateWithAI: vi.fn(),
   searchTavily: vi.fn().mockResolvedValue({ results: [] }),
+  isTavilyConfigured: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('../../src/db/schema.js', () => ({
@@ -82,6 +85,7 @@ interface FakeRow {
   id: string;
   userId: string;
   handle: string;
+  platform?: string | null;
   industry: string | null;
   analysis: unknown;
   deleted: number;
@@ -118,7 +122,13 @@ const fakeDb = {
     },
   },
   insert: (_table: unknown) => ({
-    values: (val: { userId: string; handle: string; industry: string | null; analysis: unknown }) => ({
+    values: (val: {
+      userId: string;
+      handle: string;
+      platform?: string | null;
+      industry: string | null;
+      analysis: unknown;
+    }) => ({
       returning: async (_cols?: unknown) => {
         const row: FakeRow = { id: makeFakeId(), deleted: 0, createdAt: new Date(), ...val };
         rows.push(row);
@@ -182,7 +192,7 @@ describe('POST /api/content/competitor — C2 Tavily grounding', () => {
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const app = await buildApp(OWNER);
-    const res = await supertest(app).post('/api/content/competitor').send({ handle: 'acme', industry: 'SaaS' });
+    const res = await supertest(app).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'acme', industry: 'SaaS' });
 
     expect(res.status).toBe(200);
     expect(aiModule.searchTavily).toHaveBeenCalled();
@@ -198,7 +208,7 @@ describe('POST /api/content/competitor — C2 Tavily grounding', () => {
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const app = await buildApp(OWNER);
-    await supertest(app).post('/api/content/competitor').send({ handle: 'acme' });
+    await supertest(app).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'acme' });
 
     const promptArg = vi.mocked(aiModule.generateWithAI).mock.calls[0][0];
     expect(promptArg).toContain('Distinctive Search Title XYZ');
@@ -211,7 +221,7 @@ describe('POST /api/content/competitor — C2 Tavily grounding', () => {
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const app = await buildApp(OWNER);
-    const res = await supertest(app).post('/api/content/competitor').send({ handle: 'acme' });
+    const res = await supertest(app).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'acme' });
 
     expect(res.status).toBe(200);
     expect(res.body.analysis).toBeDefined();
@@ -233,7 +243,7 @@ describe('POST /api/content/competitor — C2 Tavily grounding', () => {
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const app = await buildApp(OWNER);
-    await supertest(app).post('/api/content/competitor').send({ handle: 'acme' });
+    await supertest(app).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'acme' });
 
     const promptArg = vi.mocked(aiModule.generateWithAI).mock.calls[0][0];
     expect(promptArg).not.toContain('ignore previous instructions');
@@ -247,7 +257,7 @@ describe('POST /api/content/competitor — C1 persistence (best-effort)', () => 
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const app = await buildApp(OWNER);
-    const res = await supertest(app).post('/api/content/competitor').send({ handle: 'acme', industry: 'SaaS' });
+    const res = await supertest(app).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'acme', industry: 'SaaS' });
 
     expect(res.status).toBe(200);
     expect(res.body.analysisId).toBeDefined();
@@ -261,7 +271,7 @@ describe('POST /api/content/competitor — C1 persistence (best-effort)', () => 
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const app = await buildApp(undefined);
-    const res = await supertest(app).post('/api/content/competitor').send({ handle: 'acme' });
+    const res = await supertest(app).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'acme' });
 
     expect(res.status).toBe(200);
     expect(res.body.analysisId).toBeUndefined();
@@ -275,8 +285,8 @@ describe('GET /api/content/competitor/history', () => {
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const ownerApp = await buildApp(OWNER);
-    await supertest(ownerApp).post('/api/content/competitor').send({ handle: 'first' });
-    await supertest(ownerApp).post('/api/content/competitor').send({ handle: 'second' });
+    await supertest(ownerApp).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'first' });
+    await supertest(ownerApp).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'second' });
 
     const res = await supertest(ownerApp).get('/api/content/competitor/history');
     expect(res.status).toBe(200);
@@ -290,7 +300,7 @@ describe('GET /api/content/competitor/history', () => {
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const ownerApp = await buildApp(OWNER);
-    await supertest(ownerApp).post('/api/content/competitor').send({ handle: 'owner-handle' });
+    await supertest(ownerApp).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'owner-handle' });
 
     const otherApp = await buildApp(OTHER);
     const res = await supertest(otherApp).get('/api/content/competitor/history');
@@ -318,7 +328,7 @@ describe('DELETE /api/content/competitor/:id', () => {
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const ownerApp = await buildApp(OWNER);
-    const createRes = await supertest(ownerApp).post('/api/content/competitor').send({ handle: 'to-delete' });
+    const createRes = await supertest(ownerApp).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'to-delete' });
     const analysisId = createRes.body.analysisId as string;
 
     const delRes = await supertest(ownerApp).delete(`/api/content/competitor/${analysisId}`);
@@ -335,7 +345,7 @@ describe('DELETE /api/content/competitor/:id', () => {
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(VALID_ANALYSIS_JSON);
 
     const ownerApp = await buildApp(OWNER);
-    const createRes = await supertest(ownerApp).post('/api/content/competitor').send({ handle: 'owner-only' });
+    const createRes = await supertest(ownerApp).post('/api/content/competitor').send({ platform: 'linkedin', handle: 'owner-only' });
     const analysisId = createRes.body.analysisId as string;
 
     const otherApp = await buildApp(OTHER);

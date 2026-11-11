@@ -14,16 +14,22 @@ export function parseBody<T extends z.ZodTypeAny>(
 ): z.infer<T> | null {
   const result = schema.safeParse(body);
   if (!result.success) {
-    // WHY gate details in production: flatten() can echo field paths + received
-    // values that help attackers map the schema; keep a generic message for clients
-    // and log the detail server-side when needed.
+    // WHY first issue.message as `error`: zod messages on our schemas are
+    // deliberately user-facing ("Topic must be at least 3 characters") — surfacing
+    // them beats a opaque "Invalid request body" (QA-A3-003). Still gate flatten()
+    // details in production so field paths / received values don't leak.
+    const firstIssue = result.error.issues[0];
+    const userMessage =
+      typeof firstIssue?.message === 'string' && firstIssue.message.length > 0
+        ? firstIssue.message
+        : 'Invalid request body';
     const payload: {
       error: string;
       code: string;
       retryable: boolean;
       details?: unknown;
     } = {
-      error: 'Invalid request body',
+      error: userMessage,
       code: 'VALIDATION_ERROR',
       retryable: false,
     };

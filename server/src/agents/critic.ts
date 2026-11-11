@@ -1,6 +1,7 @@
 import { generateWithAI } from '../lib/ai.js';
 import { sseManager } from '../lib/sse.js';
 import { ContentJob } from '../db/schema.js';
+import { escapeXml } from '../lib/sanitizeSearchText.js';
 import { criticResponseSchema, type CriticResponse } from '../schemas/agentResponses.js';
 
 // WHY exported: performancePredictor.ts's criticResult parameter reads this exact
@@ -91,7 +92,13 @@ export async function runCritic(
   // per CLAUDE.md's prompt-injection rule; this prompt used to splice it in
   // bare, which was a direct (if low-blast-radius — a user can only affect
   // their own content's score) gap against that invariant.
-  const safeBrandVoice = brandVoice || 'professional';
+  const safeBrandVoice = escapeXml(brandVoice || 'professional');
+  const safeAudience = escapeXml(job.targetAudience || '');
+  const safeTone = escapeXml(job.tone || '');
+  const safePlatform = escapeXml(job.platform.replace(/_/g, ' '));
+  // SECURITY (AI-001): contentSummary is model output from a prior stage —
+  // still wrap+escape so a crafted draft cannot break out of the critic prompt.
+  const safeContent = escapeXml(contentSummary);
 
   // WHY LinkedIn-specific notes: the generic rubric never checked "see more"
   // hooks, short paragraphs, or soft CTAs — LinkedIn posts scored high while
@@ -106,17 +113,17 @@ LINKEDIN-SPECIFIC RULES (apply strictly when scoring):
 `
     : '';
 
-  const prompt = `Score this <platform>${job.platform.replace(/_/g, ' ')}</platform> content for <audience>${job.targetAudience}</audience> with tone "<tone>${job.tone}</tone>".
+  const prompt = `Score this <platform>${safePlatform}</platform> content for <audience>${safeAudience}</audience> with tone "<tone>${safeTone}</tone>".
 
 Content:
-${contentSummary}
+<content_to_score>${safeContent}</content_to_score>
 
 Brand voice: <brand_voice>${safeBrandVoice}</brand_voice>
 ${linkedInRubric}
 Score each dimension 0-20. Be strict — average content scores 10-13, excellent content scores 17-19. Scores of 19-20 require genuinely outstanding work:
 1. Hook strength (0-20): Does the opening stop the scroll and earn the next swipe/read?
-2. Platform compliance (0-20): Does it follow ${job.platform.replace(/_/g, ' ')} best practices (format, length, structure)?
-3. Brand voice match (0-20): Does tone match "${job.tone}" and the <brand_voice> tag above?
+2. Platform compliance (0-20): Does it follow ${safePlatform} best practices (format, length, structure)?
+3. Brand voice match (0-20): Does tone match the <tone> and <brand_voice> tags above?
 4. Value delivery (0-20): Does it teach or reveal something concrete and specific?
 5. CTA clarity (0-20): Is there a specific, compelling call-to-action?
 
@@ -178,25 +185,39 @@ Output ONLY valid JSON — no markdown, no explanation:
     ctaClarity:         clampScore(parsed.ctaClarity),
   };
 
-  // WHY deterministic word-count gate (L11): writer targets 45–60 words per
-  // carousel body and formatter soft-caps at 65, but the LLM critic never
-  // re-checked length — long/short slides could still score ≥70 and ship.
-  // Penalize platformCompliance here so retries get concrete length feedback.
+  // WHY deterministic word-count gate (L11): writer targets 45–60 words on
+  // cover/problem/solution/stat bodies and shorter ranges on feature/quote/
+  // how-to/CTA (see writer.ts). Applying 45–60 to every slide docked
+  // platformCompliance on carousels that followed the prompt, then told the
+  // writer to lengthen the short slides — burning both critic retries.
   let feedback = parsed.feedback || '';
   if (job.platform === 'instagram_carousel' && Array.isArray(content)) {
+    // slide_number 1-based ranges matching writer.ts's per-slide body targets
+    const RANGES: Record<number, { min: number; max: number; label: string }> = {
+      1: { min: 45, max: 60, label: '45–60' },
+      2: { min: 45, max: 60, label: '45–60' },
+      3: { min: 45, max: 60, label: '45–60' },
+      4: { min: 20, max: 30, label: '20–30' },
+      5: { min: 45, max: 60, label: '45–60' },
+      6: { min: 40, max: 55, label: '40–55' },
+      7: { min: 20, max: 30, label: '20–30' },
+      8: { min: 40, max: 55, label: '40–55' },
+    };
     const offenders: string[] = [];
     for (let i = 0; i < content.length; i++) {
       const slide = (content[i] && typeof content[i] === 'object' ? content[i] : {}) as Record<string, unknown>;
       const body = typeof slide.body === 'string' ? slide.body.trim() : '';
       if (!body) continue;
+      const slideNum = typeof slide.slide_number === 'number' ? slide.slide_number : i + 1;
+      const range = RANGES[slideNum] ?? { min: 45, max: 60, label: '45–60' };
       const words = body.split(/\s+/).filter(Boolean).length;
-      if (words < 45 || words > 60) {
-        offenders.push(`slide ${i + 1} (${words} words)`);
+      if (words < range.min || words > range.max) {
+        offenders.push(`slide ${slideNum} (${words} words, want ${range.label})`);
       }
     }
     if (offenders.length > 0) {
       scores.platformCompliance = Math.min(scores.platformCompliance, 12);
-      const lengthNote = `Carousel body length out of 45–60 word range: ${offenders.join(', ')}.`;
+      const lengthNote = `Carousel body length out of range: ${offenders.join(', ')}.`;
       feedback = feedback ? `${feedback} ${lengthNote}` : lengthNote;
     }
   }

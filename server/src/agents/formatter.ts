@@ -52,12 +52,28 @@ export async function runFormatter(job: ContentJob, content: WriterResponse): Pr
   }
 }
 
+// WHY scrub Zod coerce leftovers: before CS() stopped using z.coerce.string(),
+// omitted fields became the literal words "undefined"/"null". Treat those as
+// empty so a stale row or a regression can't paint them on a slide.
+function scrubCoerceJunk(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed === 'undefined' || trimmed === 'null') return undefined;
+  return value;
+}
+
 function formatCarousel(slides: WriterCarouselResponse): FormattedCarouselResponse {
   if (!Array.isArray(slides)) return slides;
 
   return slides.map((slide, index): FormattedCarouselSlide => {
     const formatted: FormattedCarouselSlide = { ...slide };
     const isLast = index === slides.length - 1;
+
+    formatted.type = scrubCoerceJunk(formatted.type);
+    formatted.headline = scrubCoerceJunk(formatted.headline);
+    formatted.body = scrubCoerceJunk(formatted.body);
+    formatted.visual_hint = scrubCoerceJunk(formatted.visual_hint);
+    formatted.bg_suggestion = scrubCoerceJunk(formatted.bg_suggestion);
 
     // Normalize type field
     if (!formatted.type) {
@@ -103,10 +119,18 @@ function formatLinkedIn(post: WriterLinkedInResponse): WriterLinkedInResponse {
   const formatted: WriterLinkedInResponse = { ...post };
 
   if (formatted.hook) {
-    formatted.hook = formatted.hook.trim();
+    formatted.hook = scrubCoerceJunk(formatted.hook.trim());
   }
-  if (formatted.hookAlt) {
-    formatted.hookAlt = formatted.hookAlt.trim();
+  // WHY drop coerce junk: hookAlt === "undefined" is truthy, so LinkedInContent
+  // showed the A/B toggle with the word "undefined" as the alternate hook.
+  formatted.hookAlt = scrubCoerceJunk(
+    typeof formatted.hookAlt === 'string' ? formatted.hookAlt.trim() : undefined,
+  );
+  if (formatted.cta) {
+    formatted.cta = scrubCoerceJunk(formatted.cta.trim());
+  }
+  if (formatted.body) {
+    formatted.body = scrubCoerceJunk(formatted.body) ?? '';
   }
 
   // WHY skip re-split when writer already used \\n\\n: forced every-2-sentence
@@ -151,6 +175,7 @@ function formatTwitterThread(thread: WriterTwitterResponse): WriterTwitterRespon
 
   formatted.tweets = (formatted.tweets ?? []).map((tweet, index) => {
     const t = { ...tweet };
+    t.text = scrubCoerceJunk(typeof t.text === 'string' ? t.text : undefined) ?? '';
     const n = index + 1;
     const prefix = `${n}/`;
 

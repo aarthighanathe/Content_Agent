@@ -164,7 +164,20 @@ async function buildApp() {
   return app;
 }
 
-const USER_ID = 'user-linkedin-1';
+// WHY a real UUID (SEC-020): callback rejects non-UUID state.userId instead of
+// falling through to a shared 'demo' identity.
+const USER_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+// SECURITY: callback requires the CSRF cookie set by /connect (SEC-001).
+function linkedInCallback(
+  app: express.Express,
+  opts: { code: string; state: string; nonce: string },
+) {
+  return supertest(app)
+    .get('/api/social/callback/linkedin')
+    .set('Cookie', `pensieve_oauth_csrf=${opts.nonce}`)
+    .query({ code: opts.code, state: opts.state });
+}
 
 beforeEach(() => {
   resetFakeDb();
@@ -183,9 +196,10 @@ beforeEach(() => {
 describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
   it('creates exactly one row on first connect', async () => {
     const app = await buildApp();
-    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1', issuedAt: Date.now() });
+    const nonce = 'n1';
+    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce, issuedAt: Date.now() });
 
-    const res = await supertest(app).get('/api/social/callback/linkedin').query({ code: 'code1', state });
+    const res = await linkedInCallback(app, { code: 'code1', state, nonce });
 
     expect(res.status).toBe(302);
     expect(rows).toHaveLength(1);
@@ -196,16 +210,19 @@ describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
 
   it('a second callback for the same user+platform updates in place — no duplicate row', async () => {
     const app = await buildApp();
-    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1', issuedAt: Date.now() });
+    const nonce1 = 'n1';
+    const nonce2 = 'n2';
+    const state1 = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: nonce1, issuedAt: Date.now() });
+    const state2 = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: nonce2, issuedAt: Date.now() });
 
-    await supertest(app).get('/api/social/callback/linkedin').query({ code: 'code1', state });
+    await linkedInCallback(app, { code: 'code1', state: state1, nonce: nonce1 });
     expect(rows).toHaveLength(1);
     const firstId = rows[0].id;
 
     // WHY a second real callback (not a hand-called upsert): reproduces the
     // exact scenario the fix targets — an OAuth callback retry, or the user
     // reconnecting the same platform — hitting the real route a second time.
-    await supertest(app).get('/api/social/callback/linkedin').query({ code: 'code2', state });
+    await linkedInCallback(app, { code: 'code2', state: state2, nonce: nonce2 });
 
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe(firstId);
@@ -213,7 +230,10 @@ describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
 
   it('concurrent callbacks for the same user+platform resolve to one row, not two', async () => {
     const app = await buildApp();
-    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1', issuedAt: Date.now() });
+    const nonceA = 'nA';
+    const nonceB = 'nB';
+    const stateA = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: nonceA, issuedAt: Date.now() });
+    const stateB = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: nonceB, issuedAt: Date.now() });
 
     // WHY Promise.all, not sequential awaits: this is the exact race the fix
     // closes — two upserts for the same (userId, platform) landing
@@ -221,8 +241,8 @@ describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
     // real interleaving), so this mainly guards against a future regression
     // reintroducing a two-step select-then-branch shape that *would* race.
     await Promise.all([
-      supertest(app).get('/api/social/callback/linkedin').query({ code: 'codeA', state }),
-      supertest(app).get('/api/social/callback/linkedin').query({ code: 'codeB', state }),
+      linkedInCallback(app, { code: 'codeA', state: stateA, nonce: nonceA }),
+      linkedInCallback(app, { code: 'codeB', state: stateB, nonce: nonceB }),
     ]);
 
     expect(rows).toHaveLength(1);
@@ -232,8 +252,9 @@ describe('GET /api/social/callback/linkedin — atomic token upsert', () => {
 
   it('GET /connections reflects the upserted row via the real db.select() path', async () => {
     const app = await buildApp();
-    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce: 'n1', issuedAt: Date.now() });
-    await supertest(app).get('/api/social/callback/linkedin').query({ code: 'code1', state });
+    const nonce = 'n1';
+    const state = signOAuthState({ userId: USER_ID, platform: 'linkedin', nonce, issuedAt: Date.now() });
+    await linkedInCallback(app, { code: 'code1', state, nonce });
 
     const app2 = express();
     app2.use(express.json());

@@ -55,6 +55,14 @@ vi.mock('../../src/workers/feedMonitorWorker.js', () => ({
   checkFeedMonitor: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../../src/lib/feedFetch.js', () => ({
+  // WHY: create route probes the feed before insert (QA-FEED-001) —
+  // without this mock the test would try a real network fetch.
+  probeFeedUrl: vi.fn().mockResolvedValue({ ok: true }),
+  fetchFeedXml: vi.fn(),
+  parseFeedXml: vi.fn(),
+}));
+
 interface FakeRow { id: string; userId: string; feedUrl: string; platform: string; tone: string; targetAudience: string; active: boolean }
 
 const rows = vi.hoisted(() => [] as FakeRow[]);

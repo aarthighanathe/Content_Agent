@@ -11,22 +11,17 @@
 // tags that a hand-rolled regex would get wrong.
 import * as Sentry from '@sentry/node';
 import cron from 'node-cron';
-import Parser from 'rss-parser';
+import type Parser from 'rss-parser';
 import { eq } from 'drizzle-orm';
 import { feedMonitors, users, type FeedMonitor } from '../db/schema.js';
 import { db } from '../db/index.js';
 import { getUserProfile } from '../routes/users.js';
 import { fetchAndExtractArticle, createJobsForPlatforms } from '../routes/content/repurpose.js';
-import { assertUrlIsPublic, fetchWithSsrfGuard } from '../lib/ssrfGuard.js';
+import { assertUrlIsPublic, formatFetchError } from '../lib/ssrfGuard.js';
+import { fetchFeedXml, parseFeedXml } from '../lib/feedFetch.js';
+import { getRedisClient } from '../lib/redisClient.js';
+import { reserveGenerationBudget, releaseGenerationBudget } from '../middleware/rateLimit.js';
 import { logger } from '../lib/logger.js';
-
-// WHY no timeout/headers options here: those configure rss-parser's own
-// internal HTTP client, used only by parseURL(). We fetch the feed body
-// ourselves via fetchWithSsrfGuard (see checkFeedMonitor below) so every
-// redirect hop can be SSRF-revalidated, then hand the raw XML to
-// parseString() — which does no networking of its own, so those options
-// would be silently ignored.
-const rssParser = new Parser();
 
 // WHY a typeof guard, not a bare `as string` cast: rss-parser types every
 // custom/namespaced field (pubDate/guid/link) as `unknown` on
@@ -42,6 +37,41 @@ function asOptionalString(value: unknown): string | undefined {
 export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Promise<void> {
   if (!db) return;
 
+  // SECURITY: single-flight lock so cron + POST /:id/check cannot race and
+  // create duplicate jobs for the same new feed item (SEC-005).
+  const redis = getRedisClient();
+  const lockKey = `feed:check:${monitor.id}`;
+  if (redis) {
+    try {
+      const got = await redis.set(lockKey, '1', 'EX', 120, 'NX');
+      if (got !== 'OK') {
+        logger.info('[FeedMonitor] Check already in progress, skipping', { monitorId: monitor.id });
+        return;
+      }
+    } catch (err: unknown) {
+      logger.warn('[FeedMonitor] Lock acquire failed — continuing without lock', {
+        monitorId: monitor.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  try {
+    await runFeedMonitorCheck(monitor, userId);
+  } finally {
+    if (redis) {
+      try {
+        await redis.del(lockKey);
+      } catch {
+        // lock TTL will expire
+      }
+    }
+  }
+}
+
+async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promise<void> {
+  if (!db) return;
+
   // DEFENSE IN DEPTH: DELETE /api/users/me now deletes this user's feedMonitors
   // rows explicitly (feed_monitors.userId has no FK constraint, so nothing
   // enforces this automatically). This check catches any monitor that still
@@ -50,12 +80,17 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   // job insert failing on contentJobs.userId's FK constraint, landing in the
   // catch block below, which still advances the cursor and repeats every
   // 30-minute tick indefinitely.
-  const owner = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { id: true } });
+  const owner = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { id: true, clerkId: true },
+  });
   if (!owner) {
     logger.warn('[FeedMonitor] Owning user no longer exists, deactivating monitor', { monitorId: monitor.id, userId });
     await db.delete(feedMonitors).where(eq(feedMonitors.id, monitor.id));
     return;
   }
+  // WHY Clerk id for budget: same key authJobRateLimit uses (req.userId).
+  const budgetKey = owner.clerkId || userId;
 
   const feedUrl = monitor.feedUrl;
 
@@ -80,28 +115,15 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
     return;
   }
 
-  // SECURITY: fetch the feed body ourselves via fetchWithSsrfGuard (which
-  // re-validates every redirect hop against assertUrlIsPublic), then hand the
-  // raw XML string to parseString() — rss-parser's own parseURL() follows
-  // HTTP redirects internally with no re-validation of the redirect target,
-  // which would otherwise let a public feed URL 302 to a private/metadata
-  // address and bypass the assertUrlIsPublic() check above entirely.
+  // SECURITY: fetchFeedXml uses fetchWithSsrfGuard (redirect hops re-checked)
+  // instead of rss-parser parseURL(), which would follow redirects without
+  // re-validating private/metadata targets.
   let feed: Parser.Output<Record<string, unknown>>;
   try {
-    const fetchResult = await fetchWithSsrfGuard(feedUrl, {
-      headers: { 'User-Agent': 'Pensieve-FeedMonitor/1.0 (+https://contentAgent.ai)' },
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!fetchResult.ok) {
-      throw new Error(fetchResult.reason);
-    }
-    if (!fetchResult.response.ok) {
-      throw new Error(`Feed URL returned HTTP ${fetchResult.response.status}`);
-    }
-    const xml = await fetchResult.response.text();
-    feed = await rssParser.parseString(xml);
+    const xml = await fetchFeedXml(feedUrl);
+    feed = await parseFeedXml(xml);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = formatFetchError(err);
     logger.warn('[FeedMonitor] Failed to fetch/parse feed', { feedUrl, error: message });
     // Update lastCheckedAt even on failure so we don't hammer a broken feed
     await db.update(feedMonitors)
@@ -145,25 +167,42 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
     newItems.push(item);
   }
 
-  // WHY process only the latest unseen item, not ALL unseen items:
-  // if a monitor is first created against a feed with 100 historic items,
-  // processing every one would create 100 jobs at once — overwhelming the AI
-  // pipeline and the user's Library. One-at-a-time matches the \"strictly
-  // one-shot\" original behavior while extending it to \"repeating one-shot\".
-  // Power users can always manually trigger another check to advance the cursor.
-  const toProcess = newItems.slice(0, 1);
-  if (toProcess.length === 0) {
+  // Cap at one job per tick. First check (no cursor): take the newest item only
+  // so a new monitor against a long feed does not enqueue historic backlog.
+  // Later checks: take the oldest unseen so intermediate items are not skipped
+  // when the cursor previously jumped to the tip (CORR-012).
+  if (newItems.length === 0) {
     await db.update(feedMonitors).set({ lastCheckedAt: new Date(), lastError: null }).where(eq(feedMonitors.id, monitor.id));
     return;
   }
 
-  const item = toProcess[0];
+  const item = !monitor.lastItemGuid
+    ? newItems[0]
+    : newItems[newItems.length - 1];
   const itemUrl = asOptionalString(item.link) || '';
   const newGuid = asOptionalString(item.guid) || itemUrl;
 
   if (!itemUrl) {
     logger.warn('[FeedMonitor] Item has no link/url, skipping', { feedUrl });
+    // Advance past unusable items so we do not stall the cursor forever.
     await db.update(feedMonitors).set({ lastCheckedAt: new Date(), lastItemGuid: newGuid || null, lastError: null }).where(eq(feedMonitors.id, monitor.id));
+    return;
+  }
+
+  // SECURITY / COST-001: feed-monitor jobs sit outside authJobRateLimit —
+  // atomically reserve the same hourly generation budget as Create/Repurpose.
+  // Fail closed when Redis is down (HTTP limiters already 503 in that case).
+  const budget = await reserveGenerationBudget(budgetKey, 1, { alreadyCounted: false });
+  if (!budget.allowed) {
+    logger.warn('[FeedMonitor] Generation budget unavailable or exhausted — deferring item', {
+      feedUrl, itemUrl, monitorId: monitor.id,
+    });
+    await db.update(feedMonitors)
+      .set({
+        lastCheckedAt: new Date(),
+        lastError: 'Generation budget unavailable or exhausted — will retry on the next check',
+      })
+      .where(eq(feedMonitors.id, monitor.id));
     return;
   }
 
@@ -176,29 +215,41 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
     ]);
     if (!extracted.ok) {
       logger.warn('[FeedMonitor] Failed to extract article from new item', { feedUrl, itemUrl, error: extracted.error });
-    } else {
-      const jobs = await createJobsForPlatforms(
-        userId, userProfile, itemUrl, extracted.article,
-        [monitor.platform], monitor.tone, monitor.targetAudience,
-      );
-      if (jobs.length > 0) {
-        logger.info('[FeedMonitor] Created job for new feed item', { feedUrl, itemUrl, jobId: jobs[0].jobId });
-      }
+      await releaseGenerationBudget(budgetKey, budget.reserved);
+      // WHY do NOT advance lastItemGuid: a transient extract failure would
+      // permanently skip the item if we moved the cursor (CORR-012).
+      await db.update(feedMonitors)
+        .set({ lastCheckedAt: new Date(), lastError: `Failed to extract article: ${extracted.error}` })
+        .where(eq(feedMonitors.id, monitor.id));
+      return;
     }
+
+    const jobs = await createJobsForPlatforms(
+      userId, userProfile, itemUrl, extracted.article,
+      [monitor.platform], monitor.tone, monitor.targetAudience,
+    );
+    if (jobs.length === 0) {
+      await releaseGenerationBudget(budgetKey, budget.reserved);
+    } else {
+      logger.info('[FeedMonitor] Created job for new feed item', { feedUrl, itemUrl, jobId: jobs[0].jobId });
+    }
+
+    await db.update(feedMonitors)
+      .set({ lastCheckedAt: new Date(), lastItemGuid: newGuid || null, lastError: null })
+      .where(eq(feedMonitors.id, monitor.id));
   } catch (err) {
+    await releaseGenerationBudget(budgetKey, budget.reserved);
     logger.error('[FeedMonitor] Error creating job for feed item', {
       feedUrl, itemUrl, error: err instanceof Error ? err.message : String(err),
     });
     Sentry.captureException(err, { tags: { action: 'feed-monitor' }, extra: { feedUrl, itemUrl } });
+    await db.update(feedMonitors)
+      .set({
+        lastCheckedAt: new Date(),
+        lastError: err instanceof Error ? err.message.slice(0, 500) : 'Failed to create job for feed item',
+      })
+      .where(eq(feedMonitors.id, monitor.id));
   }
-
-  // Always advance the cursor so we don't reprocess this item on the next tick.
-  // WHY lastError: null here too: an article-extraction failure above is
-  // logged but non-fatal to the monitor itself (the feed fetch succeeded), so
-  // clear any stale error from a previous tick now that the feed is reachable again.
-  await db.update(feedMonitors)
-    .set({ lastCheckedAt: new Date(), lastItemGuid: newGuid || null, lastError: null })
-    .where(eq(feedMonitors.id, monitor.id));
 }
 
 async function runAllActiveMonitors(): Promise<void> {

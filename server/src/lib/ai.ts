@@ -275,24 +275,56 @@ async function generateWithGroq(
   throw new Error('Groq exhausted all retries');
 }
 
-export async function searchTavily(query: string): Promise<TavilySearchResponse> {
+export interface TavilySearchOptions {
+  searchDepth?: 'basic' | 'advanced';
+  maxResults?: number;
+  includeDomains?: string[];
+  // WHY prefer vs restrict: LinkedIn profile pages are often sparsely indexed;
+  // prefer still biases to linkedin.com but lets secondary mentions through
+  // when the profile itself isn't crawlable (login wall).
+  includeDomainsMode?: 'restrict' | 'prefer';
+}
+
+export function isTavilyConfigured(): boolean {
+  return Boolean(env.TAVILY_API_KEY);
+}
+
+export async function searchTavily(
+  query: string,
+  options: TavilySearchOptions = {},
+): Promise<TavilySearchResponse> {
   const apiKey = env.TAVILY_API_KEY;
   if (!apiKey) {
     logger.warn('TAVILY_API_KEY not set, skipping search');
     return { results: [] };
   }
 
+  const {
+    searchDepth = 'basic',
+    maxResults = 5,
+    includeDomains,
+    includeDomainsMode,
+  } = options;
+
   try {
+    const body: Record<string, unknown> = {
+      api_key: apiKey,
+      query,
+      search_depth: searchDepth,
+      max_results: maxResults,
+    };
+    if (includeDomains && includeDomains.length > 0) {
+      body.include_domains = includeDomains;
+      if (includeDomainsMode) {
+        body.include_domains_mode = includeDomainsMode;
+      }
+    }
+
     const response = await fetch('https://api.tavily.com/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        search_depth: 'basic',
-        max_results: 5,
-      }),
-      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {

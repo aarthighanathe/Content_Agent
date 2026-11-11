@@ -53,6 +53,31 @@ export const VALID_TEMPLATE_IDS = [
 
 export const templateIdEnum = z.enum(VALID_TEMPLATE_IDS);
 
+// WHY mirrored from client Result/constants CAROUSEL_THEMES + TemplateId:
+// export theme used to be an unbounded string (SEC-019). Keep in sync with
+// carousel.ts ThemeKey / client legacy theme keys.
+export const VALID_LEGACY_THEME_IDS = [
+  'aurora',
+  'magazine',
+  'split',
+  'bold',
+  'minimal',
+  'neon',
+  'violet',
+  'crimson',
+  'rose',
+] as const;
+
+export const exportThemeEnum = z.enum([
+  ...VALID_LEGACY_THEME_IDS,
+  ...VALID_TEMPLATE_IDS,
+]);
+
+// SECURITY (SEC-019): only raster data URLs — svg+xml can carry external refs
+// that Chromium would fetch during export (images are not blocked by interception).
+const IMAGE_DATA_URL_RE =
+  /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\s]+$/i;
+
 // WHY a loose regex, not z.string().uuid(): matches this codebase's existing
 // UUID convention (lib/uuid.ts's isValidUUID) rather than zod's stricter RFC
 // 4122 version/variant check — same reasoning as schemas/scheduledPosts.ts's
@@ -134,9 +159,10 @@ export const slideDataSchema = z.object({
   body: z.string().max(1000).optional(),
   visual_hint: z.string().max(32).optional(),
   imagePrompt: z.string().max(500).optional(),
-  // WHY optional data URL (F2): AI-generated slide images from EditSlideModal —
-  // capped so a hostile payload can't balloon export/SSR. Prefer data:image/*.
-  imageDataUrl: z.string().max(2_000_000).optional(),
+  // WHY optional data URL (F2 / SEC-019): AI-generated slide images from
+  // EditSlideModal — must be a raster data:image URL (not https://) so Puppeteer
+  // never fetches attacker-controlled hosts during export.
+  imageDataUrl: z.string().max(2_000_000).regex(IMAGE_DATA_URL_RE, 'imageDataUrl must be a data:image/(png|jpeg|webp) URL').optional(),
   bg_suggestion: z.enum(['accent', 'dark', 'light']).optional(),
   points: z.array(slidePointSchema).max(8).optional(),
   cta: z
@@ -149,7 +175,7 @@ export const slideDataSchema = z.object({
 });
 
 export const exportCarouselSsrSchema = z.object({
-  theme: z.string().min(1, 'theme is required'),
+  theme: exportThemeEnum,
   slides: z.array(slideDataSchema).min(1, 'slides[] must have at least 1 item').max(20),
   // WHY bounded but not pinned to the preset count: the renderer already wraps with
   // modulo, so any in-range integer is safe, and hardcoding the exact count here would

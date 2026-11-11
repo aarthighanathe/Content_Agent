@@ -13504,39 +13504,109 @@ function FitFrame({ watch, children, initialScale = 1, padding = 0 }) {
 }
 
 // src/pages/Result/components/content/carousel/igslide/layouts/fitScale.ts
+function pointFitLayoutForTemplate(templateId, pointCount, gap) {
+  if (templateId !== "clean-corporate") return null;
+  return {
+    columns: pointCount > 2 ? 2 : 1,
+    cardPadding: gap,
+    kicker: 20,
+    labelSize: 14,
+    descSize: 12,
+    header: 62,
+    footer: 36
+  };
+}
 function slidePointCopy(points) {
   if (!points || points.length === 0) return "";
   return points.map((point) => `${point.label ?? ""} ${point.desc ?? ""}`.trim()).filter((line) => line.length > 0).join("\n");
 }
-function estimateFitScale(input) {
+function lineCount(text, size, width, charFactor = 0.56) {
+  const trimmed = text.trim();
+  if (!trimmed || size <= 0) return 0;
+  const charsPerLine = Math.max(8, Math.floor(width / (size * charFactor)));
+  const words = trimmed.split(/\s+/);
+  let count = 1;
+  let col = 0;
+  words.forEach((word) => {
+    const wordWidth = word.length;
+    if (col > 0 && col + 1 + wordWidth > charsPerLine) {
+      count += 1;
+      col = wordWidth;
+    } else {
+      col = col === 0 ? wordWidth : col + 1 + wordWidth;
+    }
+  });
+  return count;
+}
+function cardGridHeight(points, layout, innerW, gap) {
+  if (points.length === 0) return 0;
+  const cols = Math.max(1, Math.min(layout.columns, points.length));
+  const colOuter = (innerW - gap * (cols - 1)) / cols;
+  const textW = Math.max(40, colOuter - layout.cardPadding * 2);
+  const heights = points.map((point) => {
+    const labelLines = lineCount(point.label ?? "", layout.labelSize, textW, 0.46);
+    const descLines = lineCount(point.desc ?? "", layout.descSize, textW, 0.46);
+    if (labelLines === 0 && descLines === 0) return 0;
+    return layout.cardPadding * 2 + layout.kicker + labelLines * layout.labelSize * 1.6 + (descLines > 0 ? 4 : 0) + descLines * layout.descSize * 1.6;
+  });
+  let total = 0;
+  const rows = Math.ceil(heights.length / cols);
+  for (let row = 0; row < rows; row += 1) {
+    let rowHeight = 0;
+    for (let col = 0; col < cols; col += 1) {
+      const card = heights[row * cols + col] ?? 0;
+      if (card > rowHeight) rowHeight = card;
+    }
+    total += rowHeight;
+    if (row > 0) total += gap;
+  }
+  return total;
+}
+function estimateCardSlideHeight(input, layout, innerW) {
+  const headingLines = lineCount(input.headline, input.headingSize, innerW, 0.46);
+  const bodyLines = lineCount(input.body, input.bodySize, innerW, 0.46);
+  const headingH = headingLines === 0 ? 0 : headingLines * input.headingSize * 1.3 + input.gap;
+  const bodyH = bodyLines === 0 ? 0 : bodyLines * input.bodySize * 1.6 + input.sectionSpacing;
+  const pointsH = cardGridHeight(input.points ?? [], layout, innerW, input.gap);
+  return input.padding * 2 + layout.header + headingH + bodyH + pointsH + layout.footer;
+}
+function estimateStackedSlideHeight(input) {
   const innerW = Math.max(80, input.width - input.padding * 2);
-  const lineCount = (text, size) => {
-    const trimmed = text.trim();
-    if (!trimmed) return 0;
-    const charsPerLine = Math.max(8, Math.floor(innerW / (size * 0.56)));
-    const words = trimmed.split(/\s+/);
-    let count = 1;
-    let col = 0;
-    words.forEach((word) => {
-      const width = word.length;
-      if (col > 0 && col + 1 + width > charsPerLine) {
-        count += 1;
-        col = width;
-      } else {
-        col = col === 0 ? width : col + 1 + width;
-      }
-    });
-    return count;
-  };
-  const headingLines = lineCount(input.headline, input.headingSize);
-  const bodyLines = lineCount(input.body, input.bodySize);
-  const pointLines = lineCount(input.pointCopy ?? "", input.bodySize);
+  const headingLines = lineCount(input.headline, input.headingSize, innerW);
+  const bodyLines = lineCount(input.body, input.bodySize, innerW);
+  const pointLines = lineCount(input.pointCopy ?? "", input.bodySize, innerW);
   const pointRow = Math.max(input.bodySize + 10, 28) + Math.min(input.gap, 16);
-  const needed = input.padding * 2 + 28 + headingLines * input.headingSize * 1.22 + (headingLines > 0 && bodyLines > 0 ? input.gap * 0.6 : 0) + bodyLines * input.bodySize * 1.55 + (input.pointCount > 0 ? input.sectionSpacing * 0.7 : 0) + Math.max(input.pointCount * pointRow, pointLines * input.bodySize * 1.45) + 28;
-  const contentTarget = Math.max(40, input.height - input.padding * 2);
-  const contentNeeded = Math.max(1, needed - input.padding * 2);
+  return input.padding * 2 + 28 + headingLines * input.headingSize * 1.22 + (headingLines > 0 && bodyLines > 0 ? input.gap * 0.6 : 0) + bodyLines * input.bodySize * 1.55 + (input.pointCount > 0 ? input.sectionSpacing * 0.7 : 0) + Math.max(input.pointCount * pointRow, pointLines * input.bodySize * 1.45) + 28;
+}
+function scaleToFit(height, padding, needed) {
+  const contentTarget = Math.max(40, height - padding * 2);
+  const contentNeeded = Math.max(1, needed - padding * 2);
   if (contentNeeded <= contentTarget + 1) return 1;
-  return Math.max(0.45, contentTarget / contentNeeded);
+  const safeTarget = Math.max(40, contentTarget - 12);
+  return Math.max(0.45, safeTarget / contentNeeded);
+}
+function estimateFitScale(input) {
+  const layout = input.pointLayout ?? null;
+  if (!layout) {
+    return scaleToFit(input.height, input.padding, estimateStackedSlideHeight(input));
+  }
+  const innerW = Math.max(80, input.width - input.padding * 2);
+  let scale = scaleToFit(
+    input.height,
+    input.padding,
+    estimateCardSlideHeight(input, layout, innerW)
+  );
+  for (let pass = 0; pass < 3 && scale < 0.999; pass += 1) {
+    const wider = Math.max(80, innerW / scale);
+    const next = scaleToFit(
+      input.height,
+      input.padding,
+      estimateCardSlideHeight(input, layout, wider)
+    );
+    if (Math.abs(next - scale) < 0.01) return next;
+    scale = next;
+  }
+  return scale;
 }
 
 // src/pages/Result/components/content/carousel/igslide/layouts/TemplateLayout.tsx
@@ -13550,6 +13620,7 @@ var import_jsx_runtime14 = (
 );
 var TemplateLayout = import_react3.default.forwardRef(
   function TemplateLayout2({ width, height, template, slide, children }, ref) {
+    const pointCount = slide.points?.length ?? 0;
     const fitScale = estimateFitScale({
       width,
       height,
@@ -13560,8 +13631,12 @@ var TemplateLayout = import_react3.default.forwardRef(
       sectionSpacing: template.spacing.sectionSpacing,
       headline: slide.headline ?? "",
       body: slide.body ?? "",
-      pointCount: slide.points?.length ?? 0,
-      pointCopy: slidePointCopy(slide.points)
+      pointCount,
+      pointCopy: slidePointCopy(slide.points),
+      points: slide.points,
+      // WHY: export screenshots with JavaScript disabled, so the scale baked
+      // into the markup is the only thing keeping a card grid inside the frame.
+      pointLayout: pointFitLayoutForTemplate(template.id, pointCount, template.spacing.gap)
     });
     const imageDataUrl = typeof slide.imageDataUrl === "string" && slide.imageDataUrl.startsWith("data:image/") ? slide.imageDataUrl : null;
     return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
@@ -15717,9 +15792,9 @@ var DOCUMENT_CSS = `
 @font-face{font-family:'Playfair Display';src:url(${PlayfairDisplay_latin_default}) format('woff2');font-weight:400 900;font-style:normal;font-display:block}
 @font-face{font-family:'Playfair Display';src:url(${PlayfairDisplay_italic_latin_default}) format('woff2');font-weight:400 900;font-style:italic;font-display:block}
 :root{--font-heading:'Playfair Display',Georgia,serif}
-*,*::before,*::after{box-sizing:border-box}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{margin:0;padding:0;background:transparent}
-body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{line-height:1.6;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 `;
 function renderSlideHtml(params) {
   const { slide, index, total, colors, brandName, handle, designPreset, templateId, paletteId } = params;

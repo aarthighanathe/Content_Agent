@@ -160,6 +160,46 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const publishHour = body.publishHour ?? 9;
 
+    // WHY reject past/current-hour schedules before insert: publishQueue used
+    // to clamp a negative delay to 0 and fire immediately while the 201 body
+    // still said publishStatus pending — so "schedule for 15:00" at 15:40
+    // posted now. Require a future top-of-hour before accepting auto-publish.
+    if (body.publishPlatform) {
+      const delayMs = publishDelayMs(
+        body.scheduledDate,
+        body.timezoneOffsetMinutes,
+        publishHour,
+      );
+      if (delayMs <= 0) {
+        return res.status(400).json({
+          error: 'That publish time is already past — pick a later hour',
+          code: 'VALIDATION_ERROR',
+          retryable: false,
+        });
+      }
+    }
+
+    // CORR-006: hour-only tweaks on an already-posted row must not re-arm
+    // publishStatus→pending (that double-posted to LinkedIn/Twitter).
+    const [existing] = await db!
+      .select()
+      .from(scheduledPosts)
+      .where(and(eq(scheduledPosts.jobId, body.jobId), eq(scheduledPosts.userId, userId)))
+      .limit(1);
+    if (
+      existing
+      && existing.publishStatus === 'posted'
+      && existing.scheduledDate === body.scheduledDate
+      && (existing.publishPlatform ?? null) === (body.publishPlatform ?? null)
+    ) {
+      const [row] = await db!
+        .update(scheduledPosts)
+        .set({ publishHour })
+        .where(eq(scheduledPosts.id, existing.id))
+        .returning();
+      return res.status(200).json({ scheduledPost: row });
+    }
+
     // WHY reset publishStatus/publishedAt/postUrl/publishError to their
     // pending/null defaults on every upsert, not just on first insert: moving
     // an already-published or already-failed job to a new date (or changing
@@ -190,10 +230,34 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       .returning();
 
     if (body.publishPlatform) {
-      queuePublishJob(
-        row.id,
-        publishDelayMs(body.scheduledDate, body.timezoneOffsetMinutes, publishHour),
-      ).catch(() => {});
+      const delayMs = publishDelayMs(
+        body.scheduledDate,
+        body.timezoneOffsetMinutes,
+        publishHour,
+      );
+      // WHY await + fail the request: a swallowed Redis error left a pending
+      // row that the calendar labeled "Will auto-publish" while nothing was
+      // queued. Prefer 503 over a silent lie.
+      const queued = await queuePublishJob(row.id, delayMs);
+      if (!queued) {
+        // WHY clear auto-publish on the row: leaving publishStatus pending
+        // after a failed queue made the calendar say "Will auto-publish"
+        // forever. Downgrade to a reminder-only schedule so the day still
+        // shows the job without promising a post that will never fire.
+        await db!
+          .update(scheduledPosts)
+          .set({
+            publishPlatform: null,
+            publishStatus: 'failed',
+            publishError: 'Queue unavailable',
+          })
+          .where(eq(scheduledPosts.id, row.id));
+        return res.status(503).json({
+          error: 'Could not queue auto-publish — try again in a moment',
+          code: 'SERVICE_UNAVAILABLE',
+          retryable: true,
+        });
+      }
     } else {
       // WHY cancel unconditionally, not just when downgrading from a platform:
       // cheap and idempotent (cancelPublishJob no-ops if nothing is queued) —

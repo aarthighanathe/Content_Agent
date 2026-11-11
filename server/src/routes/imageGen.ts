@@ -31,6 +31,43 @@ function errorMessage(e: unknown): string {
 
 const MAX_IMAGE_DOWNLOAD_BYTES = 8 * 1024 * 1024;
 
+// SECURITY (SEC-017): only fetch image bytes from known provider hosts — a
+// poisoned provider JSON URL must not become an SSRF foothold from this route.
+const ALLOWED_IMAGE_HOSTS = new Set([
+  'oaidalleapiprodscus.blob.core.windows.net',
+  'dalleprodsec.blob.core.windows.net',
+  'image.pollinations.ai',
+]);
+const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
+
+function assertAllowedImageUrl(imageUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(imageUrl);
+  } catch {
+    throw new Error('Invalid image URL');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Image URL must be https');
+  }
+  const host = parsed.hostname.toLowerCase();
+  const allowed = [...ALLOWED_IMAGE_HOSTS].some(
+    (h) => host === h || host.endsWith(`.${h}`),
+  );
+  if (!allowed) {
+    throw new Error(`Image host not allowlisted: ${host}`);
+  }
+  return parsed;
+}
+
+function normalizeImageContentType(raw: string | null): string {
+  const base = (raw || 'image/png').split(';')[0]?.trim().toLowerCase() || 'image/png';
+  if (!ALLOWED_IMAGE_TYPES.has(base)) {
+    throw new Error(`Unsupported image content-type: ${base}`);
+  }
+  return base === 'image/jpg' ? 'image/jpeg' : base;
+}
+
 async function readCappedArrayBuffer(
   res: { headers: { get(name: string): string | null }; arrayBuffer(): Promise<ArrayBuffer> },
   maxBytes = MAX_IMAGE_DOWNLOAD_BYTES,
@@ -128,11 +165,12 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
           const data = await r.json() as OpenAIImageResponse;
           const imageUrl: string | undefined = data.data?.[0]?.url;
           if (imageUrl) {
+            assertAllowedImageUrl(imageUrl);
             const dlCtrl = new AbortController();
             const dlTimer = setTimeout(() => dlCtrl.abort(), 30_000);
             const dl = await fetch(imageUrl, { signal: dlCtrl.signal });
             clearTimeout(dlTimer);
-            const contentType = dl.headers.get('content-type') || 'image/png';
+            const contentType = normalizeImageContentType(dl.headers.get('content-type'));
             const buffer = await readCappedArrayBuffer(dl);
             const base64 = Buffer.from(buffer).toString('base64');
             logger.info('[imageGen] DALL-E 3 succeeded');
@@ -238,7 +276,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
       clearTimeout(timer);
 
       if (r.ok) {
-        const contentType = r.headers.get('content-type') || 'image/jpeg';
+        const contentType = normalizeImageContentType(r.headers.get('content-type'));
         const buffer = await readCappedArrayBuffer(r);
         const base64 = Buffer.from(buffer).toString('base64');
         logger.info('[imageGen] Pollinations.AI succeeded');

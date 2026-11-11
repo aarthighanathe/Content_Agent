@@ -48,35 +48,60 @@ function getQueue(): Queue | null {
   return contentQueue;
 }
 
+export type QueueAddResult = 'queued' | 'unavailable' | 'active';
+
 export async function addJobToQueue(jobId: string, data: Record<string, unknown>): Promise<boolean> {
+  const result = await addJobToQueueDetailed(jobId, data);
+  return result === 'queued';
+}
+
+// WHY detailed result: regenerate used to treat a locked active job's failed
+// remove + duplicate add as "queued" (BullMQ returns the old id) and skip
+// direct mode — or, when remove threw and add failed, as "unavailable" and
+// start a second pipeline beside the worker. Callers that need to distinguish
+// those cases use this; create/batch only care about boolean success.
+export async function addJobToQueueDetailed(
+  jobId: string,
+  data: Record<string, unknown>,
+): Promise<QueueAddResult> {
   try {
     const queue = getQueue();
-    if (!queue) return false;
+    if (!queue) return 'unavailable';
 
     // Remove any existing job with this ID (e.g. from a previous run / regeneration)
     // so BullMQ doesn't silently deduplicate it.
+    let existingJob: Awaited<ReturnType<Queue['getJob']>> | undefined;
     try {
-      const existingJob = await queue.getJob(jobId);
+      existingJob = await queue.getJob(jobId);
       if (existingJob) {
+        const state = await existingJob.getState();
+        // WHY refuse while active/waiting-children: remove() throws when the
+        // job is locked, and a subsequent queue.add with the same id returns
+        // the old job without writing the new payload — so regenerate wiped
+        // the UI, returned success, and never ran with the new feedback.
+        if (state === 'active' || state === 'waiting-children') {
+          logger.warn('[Queue] Refusing to re-add while job is still running', { jobId, state });
+          return 'active';
+        }
         await existingJob.remove();
         logger.info('[Queue] Removed old job before re-adding', { jobId });
       }
     } catch (err) {
-      // WHY logged, not silently swallowed: this catch is meant for "job
-      // doesn't exist," but a transient Redis timeout mid-call would land
-      // here too and previously vanished with zero visibility — masking a
-      // real connectivity issue as an expected not-found case.
-      logger.warn('[Queue] getJob/remove failed before re-add (may be transient, not necessarily "job not found")', {
+      // WHY return 'active' when an existing job could not be removed: falling
+      // through to queue.add with the same id returns the OLD job without the
+      // new payload, and regenerate treated that as success.
+      logger.warn('[Queue] getJob/remove failed before re-add', {
         jobId, error: err instanceof Error ? err.message : String(err),
       });
+      if (existingJob) return 'active';
     }
 
     await queue.add('generate', { jobId, ...data }, { jobId });
     logger.info('[Queue] Job added to BullMQ queue', { jobId });
-    return true;
+    return 'queued';
   } catch (error) {
     console.warn('Failed to add job to queue (Redis may not be available)');
-    return false;
+    return 'unavailable';
   }
 }
 

@@ -63,7 +63,16 @@ vi.mock('../../src/workers/contentWorker.js', () => ({
 // which never actually inspects the SQL fragments themselves — instead it
 // interprets the higher-level intent, mirroring what the real DB does with
 // the same route inputs, which is sufficient to exercise the route's own logic.
-interface FakeRow { id: string; userId: string; jobId: string; scheduledDate: string; createdAt: Date }
+interface FakeRow {
+  id: string;
+  userId: string;
+  jobId: string;
+  scheduledDate: string;
+  createdAt: Date;
+  publishPlatform?: string | null;
+  publishHour?: number;
+  publishStatus?: string;
+}
 
 const rows = vi.hoisted(() => [] as FakeRow[]);
 let idCounter = 0;
@@ -87,13 +96,42 @@ const fakeDb = {
       },
     },
   },
+  // WHY select: POST now reads the existing row before upsert so hour-only
+  // tweaks on posted schedules do not re-arm publish (CORR-006).
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        limit: async (n: number) => {
+          void n;
+          return rows.filter((r) => currentFilter(r)).slice(0, 1);
+        },
+      }),
+    }),
+  }),
+  update: () => ({
+    set: (vals: Partial<FakeRow>) => ({
+      where: () => ({
+        returning: async () => {
+          const idx = rows.findIndex((r) => currentFilter(r));
+          if (idx === -1) return [];
+          rows[idx] = { ...rows[idx], ...vals };
+          return [rows[idx]];
+        },
+      }),
+    }),
+  }),
   insert: (_table: unknown) => ({
-    values: (val: { userId: string; jobId: string; scheduledDate: string }) => ({
+    values: (val: { userId: string; jobId: string; scheduledDate: string; publishPlatform?: string | null; publishHour?: number }) => ({
       onConflictDoUpdate: (_opts: unknown) => ({
         returning: async () => {
           const existingIdx = rows.findIndex((r) => r.jobId === val.jobId);
           if (existingIdx >= 0) {
-            rows[existingIdx] = { ...rows[existingIdx], scheduledDate: val.scheduledDate };
+            rows[existingIdx] = {
+              ...rows[existingIdx],
+              scheduledDate: val.scheduledDate,
+              publishPlatform: val.publishPlatform ?? rows[existingIdx].publishPlatform,
+              publishHour: val.publishHour ?? rows[existingIdx].publishHour,
+            };
             return [rows[existingIdx]];
           }
           const row: FakeRow = { id: `row-${++idCounter}`, ...val, createdAt: new Date() };

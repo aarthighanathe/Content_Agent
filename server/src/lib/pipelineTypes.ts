@@ -43,6 +43,10 @@ export interface PipelineJob {
   phrasesUse?: string;
   phrasesAvoid?: string;
   contentDna?: unknown;
+  // WHY separate from initialFeedback: repurpose/feed-monitor article text is
+  // untrusted reference data and must not share the critic-feedback instruction
+  // channel (SEC-003). initialFeedback stays for user regenerate notes / critic.
+  sourceMaterial?: string;
   initialFeedback?: string;
   status: string;
   retryCount: number;
@@ -110,7 +114,11 @@ export type EmitProgress = (
 // access these fields on the stored job object).
 export type PersistedJobResult =
   | (PipelineJob & { status: 'done'; outputs: PipelineOutput[]; logs: PipelineLog[]; criticResult: CriticResult | null })
-  | (PipelineJob & { status: 'failed'; error: string; outputs: []; logs: [] });
+  // WHY outputs not forced to []: a failed regenerate rehydrates prior DB
+  // finals into the memory snapshot so GET /:jobId (memory-first) still shows
+  // the last good post. persistJobToDB skips wiping content_outputs when the
+  // failed snapshot has no new rows to write.
+  | (PipelineJob & { status: 'failed'; error: string; outputs: PipelineOutput[]; logs: PipelineLog[] });
 
 // WHY: Content Multiplier (routes/jobs/manage.ts POST /:jobId/multiply) reuses
 // research from a source job and must skip straight to the Writer stage —

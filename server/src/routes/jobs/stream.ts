@@ -1,16 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { randomUUID } from 'crypto';
-import { verifyToken as clerkVerifyToken } from '@clerk/express';
 import { AuthRequest } from '../../middleware/auth.js';
 import { sseManager } from '../../lib/sse.js';
 import { getRedisClient } from '../../lib/redisClient.js';
-import { db } from '../../db/index.js';
-import { users } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
 import { requireJobOwnership, jobsMemory } from './ownership.js';
 import { getJobFromStore } from '../../workers/contentWorker.js';
-import { env } from '../../config.js';
 
 const router = Router({ mergeParams: true });
 
@@ -49,22 +44,12 @@ export async function verifySSEToken(token: string | undefined): Promise<Verifie
     console.warn('[SSE] Redis lookup failed for token verification:', e instanceof Error ? e.message : e);
   }
 
-  // Fallback: allow passing a full Clerk JWT directly (legacy support). This path
-  // only has a Clerk ID (`sub`), so it must still be resolved to the DB UUID here —
-  // the caller below no longer does this resolution itself.
-  if (!env.CLERK_SECRET_KEY) return null;
-  try {
-    const payload = await clerkVerifyToken(token, { secretKey: env.CLERK_SECRET_KEY });
-    const clerkUserId = payload.sub;
-    if (!clerkUserId || !db) return null;
-    const [dbUser] = await db.select({ id: users.id })
-      .from(users)
-      .where(eq(users.clerkId, clerkUserId))
-      .limit(1);
-    return dbUser?.id ? { dbUserId: dbUser.id } : null;
-  } catch {
-    return null;
-  }
+  // WHY no Clerk session-JWT fallback: putting a full session token in the
+  // EventSource query string exposes a bearer credential for the whole API
+  // in access logs, history, and referrers. Stream auth is short-lived Redis
+  // tokens only (POST /:jobId/stream-token). If Redis is down, that route
+  // returns 503 and the client polls REST instead.
+  return null;
 }
 
 // GET /:jobId/stream — SSE job progress stream
@@ -80,8 +65,10 @@ router.get('/:jobId/stream', async (req: Request, res: Response) => {
     res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
     return;
   }
+  // WHY 404 not 403: same ownership-enumeration rule as requireJobOwnership —
+  // a 403 would confirm the token is valid for a different job id.
   if (verified.jobId && verified.jobId !== jobId) {
-    res.status(403).json({ error: 'Stream token does not match this job', code: 'FORBIDDEN', retryable: false });
+    res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
     return;
   }
 
@@ -97,7 +84,9 @@ router.get('/:jobId/stream', async (req: Request, res: Response) => {
   // Send current state if available
   const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
   if (memJob) {
-    res.write(`data: ${JSON.stringify({ type: 'state', ...memJob })}\n\n`);
+    // WHY jobId alias (CORR-013): memory jobs use `id`; the client bootstrap
+    // historically required `data.jobId` and ignored the initial state event.
+    res.write(`data: ${JSON.stringify({ type: 'state', jobId: memJob.id, ...memJob })}\n\n`);
   }
 });
 

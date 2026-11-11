@@ -9,5 +9,16 @@ import { z } from 'zod';
 // files gets the same per-field tolerance from one implementation, instead of
 // each file declaring its own copy that could quietly diverge (e.g. one
 // picking up a max-length cap or a trim() and the other not).
-export const CS = () => z.coerce.string().catch(''); // coerce-string-or-empty
-export const CN = () => z.coerce.number().catch(0);  // coerce-number-or-zero
+
+// WHY NOT z.coerce.string(): on Zod 4, coerce runs String(undefined) →
+// "undefined" and String(null) → "null" BEFORE .optional()/.catch, so an
+// omitted hookAlt or tweet text was persisted as the literal word "undefined"
+// and LinkedInContent treated it as a real A/B hook. z.string() rejects those
+// and .catch('') supplies the empty default we actually want.
+export const CS = () => z.string().catch('');
+
+// WHY z.coerce.number for CN: numeric strings like "18" from the LLM should
+// become 18 (critic previously used bare z.number().catch(0), which treated
+// "18" as invalid and stored 0). Coerce is correct for numbers; the string
+// bug above was specific to String(undefined).
+export const CN = () => z.coerce.number().catch(0);

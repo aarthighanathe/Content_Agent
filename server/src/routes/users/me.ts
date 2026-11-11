@@ -5,6 +5,7 @@ import type { PipelineOutput } from '../../lib/pipeline.js';
 import { db } from '../../db/index.js';
 import { getUserProfile } from './profileStore.js';
 import { readOutputs } from '../content/shared.js';
+import { getLatestCritique } from '../../lib/qualityScore.js';
 
 const router = Router();
 
@@ -108,7 +109,7 @@ function aggregateStats(jobs: StatsJob[]): AggregatedStats {
     platformCounts[job.platform] = (platformCounts[job.platform] || 0) + 1;
     if (!platformStats[job.platform]) platformStats[job.platform] = { totalScore: 0, count: 0 };
 
-    const critique = job.outputs.find((o) => o.outputType === 'critique');
+    const critique = getLatestCritique(job.outputs);
     const score = extractScore(critique);
     if (score !== null) {
       allScores.push(score);
@@ -235,7 +236,11 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
 
     // Generate dynamic quick tips
     const quickTips: string[] = [];
-    if (!profile.brandVoice || profile.brandVoice === 'professional') {
+    // WHY case-insensitive: Brand page saves Title Case ("Professional") while
+    // onboarding/profileStore default to lowercase "professional" — both mean
+    // the user hasn't customized beyond the default single tone.
+    const voice = (profile.brandVoice || '').trim().toLowerCase();
+    if (!voice || voice === 'professional') {
       quickTips.push('Setting up Brand Settings will improve voice consistency across generations.');
     }
     if (stats.totalPosts === 0) {

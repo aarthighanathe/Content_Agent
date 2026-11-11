@@ -279,7 +279,10 @@ export function releaseBrowser(entry: PoolEntry): void {
   entry.busy = false;
 }
 
-export async function replaceBrokenBrowser(entry: PoolEntry): Promise<void> {
+export async function replaceBrokenBrowser(
+  entry: PoolEntry,
+  opts?: { leaveBusy?: boolean },
+): Promise<void> {
   // WHY timeout here too: a browser already in a broken state (the reason we're
   // replacing it) is exactly the kind of process most likely to hang on close() —
   // without a deadline this would block the pool slot from ever being freed.
@@ -294,7 +297,12 @@ export async function replaceBrokenBrowser(entry: PoolEntry): Promise<void> {
   entry.reserved = true;
   try {
     entry.browser = await spawnBrowser();
-    entry.busy = false;
+    // WHY leaveBusy: carousel.ts's catch awaits replace then awaits page.close
+    // in finally before releaseBrowser. Clearing busy here let another export
+    // acquire the slot mid-finally, after which releaseBrowser freed it under
+    // the new holder. When leaveBusy is set, the caller's finally owns the
+    // clear; otherwise free the slot for the next acquire (legacy call sites).
+    entry.busy = opts?.leaveBusy ? true : false;
     entry.reserved = false;
   } catch (respawnErr) {
     const idx = _pool.indexOf(entry);

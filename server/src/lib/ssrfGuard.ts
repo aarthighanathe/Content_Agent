@@ -157,6 +157,59 @@ export async function fetchWithSsrfGuard(
     // {ok:false, reason} shape every other failure in this function already
     // returns, so callers don't need a second, differently-shaped error path
     // just for network-level failures.
-    return { ok: false, reason: err instanceof Error ? err.message : 'Network request failed' };
+    // WHY formatFetchError: undici often surfaces only the opaque "fetch failed"
+    // message while the actionable code (ETIMEDOUT, CERT_*, etc.) lives on
+    // `error.cause` — without unwrapping, feed-monitor lastError / Repurpose
+    // failures look identical and are impossible to diagnose or retry by class.
+    return { ok: false, reason: formatFetchError(err) };
   }
+}
+
+// WHY exported: feedMonitorWorker retries on transient classes and wants the
+// same human-readable string it would store in lastError / return to create.
+export function formatFetchError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err) || 'Network request failed';
+  const parts: string[] = [];
+  const push = (value: string): void => {
+    const trimmed = value.trim();
+    if (trimmed && !parts.includes(trimmed)) parts.push(trimmed);
+  };
+  push(err.message || 'Network request failed');
+  let current: unknown = err.cause;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (current instanceof Error) {
+      push(current.message);
+      const code = (current as NodeJS.ErrnoException).code;
+      if (typeof code === 'string') push(code);
+      current = current.cause;
+      continue;
+    }
+    if (typeof current === 'object' && current !== null && 'code' in current) {
+      const code = (current as { code?: unknown }).code;
+      if (typeof code === 'string') push(code);
+    }
+    break;
+  }
+  return parts.join(': ') || 'Network request failed';
+}
+
+// WHY: feed monitor Check now / cron hit transient undici "fetch failed" /
+// timeout / reset more often than permanent HTTP 4xx — those should retry,
+// while SSRF blocks and "too many redirects" should not.
+export function isRetryableFetchFailure(reason: string): boolean {
+  const lower = reason.toLowerCase();
+  return (
+    lower.includes('fetch failed')
+    || lower.includes('network request failed')
+    || lower.includes('timeout')
+    || lower.includes('aborted')
+    || lower.includes('econnreset')
+    || lower.includes('econnrefused')
+    || lower.includes('etimedout')
+    || lower.includes('enotfound')
+    || lower.includes('eai_again')
+    || lower.includes('socket')
+    || lower.includes('tls')
+    || lower.includes('cert')
+  );
 }

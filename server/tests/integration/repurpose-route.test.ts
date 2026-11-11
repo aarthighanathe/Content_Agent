@@ -85,7 +85,52 @@ vi.mock('../../src/routes/users.js', () => ({
   getUserProfile: vi.fn().mockResolvedValue({ brandVoice: 'professional', phrasesUse: '', phrasesAvoid: '', contentDna: null }),
 }));
 
+// WHY mock budget helpers: tests run without Redis; real reserveGenerationBudget
+// fail-closes (COST-001) and would 429 every create path under test.
+vi.mock('../../src/middleware/rateLimit.js', () => ({
+  chargeGenerationBudget: vi.fn().mockResolvedValue({ charged: true }),
+  assertGenerationBudget: vi.fn().mockResolvedValue({ allowed: true }),
+  reserveGenerationBudget: vi.fn().mockResolvedValue({ allowed: true, reserved: 5 }),
+  releaseGenerationBudget: vi.fn().mockResolvedValue(undefined),
+}));
+
 const ARTICLE_HTML = `<html><body><p>${'This is a real article with plenty of readable text content. '.repeat(5)}</p></body></html>`;
+
+// WHY body.getReader(): fetchAndExtractArticle reads via the Streams API (byte
+// cap) after fetchWithSsrfGuard — a mock with only `.text()` hits
+// `if (!reader) return FETCH_FAILED` and never reaches article extraction.
+function mockFetchResponse(opts: {
+  body?: string;
+  ok?: boolean;
+  status?: number;
+  contentType?: string;
+  location?: string;
+}): Response {
+  const bodyText = opts.body ?? '';
+  const bytes = new TextEncoder().encode(bodyText);
+  const headers = new Headers();
+  if (opts.contentType) headers.set('content-type', opts.contentType);
+  if (opts.location) headers.set('location', opts.location);
+  return {
+    ok: opts.ok ?? true,
+    status: opts.status ?? 200,
+    headers,
+    text: async () => bodyText,
+    body: {
+      getReader() {
+        let done = false;
+        return {
+          async read() {
+            if (done) return { done: true as const, value: undefined };
+            done = true;
+            return { done: false as const, value: bytes };
+          },
+          async cancel() { /* no-op */ },
+        };
+      },
+    },
+  } as unknown as Response;
+}
 
 async function buildApp(userId: string | undefined) {
   const { default: repurposeRouter } = await import('../../src/routes/content/repurpose.js');
@@ -106,11 +151,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   generateWithAIMock.mockResolvedValue('A punchy topic sentence');
   addJobToQueueMock.mockResolvedValue(true);
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
-    text: async () => ARTICLE_HTML,
-  }) as unknown as typeof fetch;
+  global.fetch = vi.fn().mockResolvedValue(
+    mockFetchResponse({
+      body: ARTICLE_HTML,
+      contentType: 'text/html; charset=utf-8',
+    }),
+  ) as unknown as typeof fetch;
 });
 
 describe('POST /api/content/repurpose', () => {
@@ -191,7 +237,9 @@ describe('POST /api/content/repurpose', () => {
   });
 
   it('returns FETCH_FAILED when the article URL is unreachable, before any job is created', async () => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => '' }) as unknown as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue(
+      mockFetchResponse({ ok: false, status: 404, body: '', contentType: 'text/html' }),
+    ) as unknown as typeof fetch;
     const app = await buildApp(OWNER);
     const res = await supertest(app).post('/api/content/repurpose').send({
       url: 'https://example.com/missing', platform: 'linkedin_post', tone: 'professional', targetAudience: 'founders',
@@ -202,11 +250,12 @@ describe('POST /api/content/repurpose', () => {
   });
 
   it('returns INSUFFICIENT_CONTENT when the page has too little readable text', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
-      text: async () => '<html><body>too short</body></html>',
-    }) as unknown as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue(
+      mockFetchResponse({
+        body: '<html><body>too short</body></html>',
+        contentType: 'text/html; charset=utf-8',
+      }),
+    ) as unknown as typeof fetch;
     const app = await buildApp(OWNER);
     const res = await supertest(app).post('/api/content/repurpose').send({
       url: 'https://example.com/thin', platform: 'linkedin_post', tone: 'professional', targetAudience: 'founders',
@@ -216,11 +265,12 @@ describe('POST /api/content/repurpose', () => {
   });
 
   it('returns FETCH_FAILED when the URL responds with a non-text content type (e.g. a PDF)', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      headers: new Headers({ 'content-type': 'application/pdf' }),
-      text: async () => '%PDF-1.4 binary noise',
-    }) as unknown as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue(
+      mockFetchResponse({
+        body: '%PDF-1.4 binary noise',
+        contentType: 'application/pdf',
+      }),
+    ) as unknown as typeof fetch;
     const app = await buildApp(OWNER);
     const res = await supertest(app).post('/api/content/repurpose').send({
       url: 'https://example.com/whitepaper.pdf', platform: 'linkedin_post', tone: 'professional', targetAudience: 'founders',
@@ -237,12 +287,14 @@ describe('POST /api/content/repurpose', () => {
     // right through this and return the metadata endpoint's response as if
     // it were the article. fetchWithSsrfGuard must re-check the Location
     // header and refuse to follow it.
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 302,
-      headers: new Headers({ location: 'http://169.254.169.254/latest/meta-data/iam/security-credentials/' }),
-      text: async () => '',
-    }) as unknown as typeof fetch;
+    global.fetch = vi.fn().mockResolvedValue(
+      mockFetchResponse({
+        ok: false,
+        status: 302,
+        body: '',
+        location: 'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
+      }),
+    ) as unknown as typeof fetch;
     const app = await buildApp(OWNER);
     const res = await supertest(app).post('/api/content/repurpose').send({
       url: 'https://example.com/redirector', platform: 'linkedin_post', tone: 'professional', targetAudience: 'founders',

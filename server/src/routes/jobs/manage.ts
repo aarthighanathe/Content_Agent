@@ -9,7 +9,9 @@ import { jobsMemory, requireJobOwnership } from './ownership.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
 import { parseBody, patchContentSchema, tagJobSchema, setCarouselTemplateSchema } from '../../schemas/index.js';
 import { logger } from '../../lib/logger.js';
+import { cancelPublishJob } from '../../lib/publishQueue.js';
 import { readOutputs, sanitizeContentDeep } from '../content/shared.js';
+import { getLatestQualityScore } from '../../lib/qualityScore.js';
 
 const router = Router({ mergeParams: true });
 
@@ -66,8 +68,7 @@ router.get('/:jobId/status', async (req: AuthRequest, res: Response) => {
         return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
       }
       const memOutputs = readOutputs(memJob);
-      const crit = memOutputs.find((o) => o.outputType === 'critique');
-      const score = typeof crit?.qualityScore === 'number' ? crit.qualityScore : undefined;
+      const score = getLatestQualityScore(memOutputs) ?? undefined;
       return res.json({
         id: jobId,
         status: memJob.status,
@@ -163,8 +164,15 @@ router.delete('/:jobId', async (req: AuthRequest, res: Response) => {
     // already tolerates it, filtering client-side), not corruption worth
     // failing the whole delete request over. Logged so a persistent
     // failure here is still visible, without blocking the user's delete.
+    // SECURITY: cancel BullMQ delayed publish jobs BEFORE deleting rows so a
+    // soft-delete race cannot still post (SEC-011).
     if (db) {
       try {
+        const scheduled = await db
+          .select({ id: scheduledPosts.id })
+          .from(scheduledPosts)
+          .where(and(eq(scheduledPosts.jobId, jobId), eq(scheduledPosts.userId, userId)));
+        await Promise.allSettled(scheduled.map((row) => cancelPublishJob(row.id)));
         await db.delete(scheduledPosts)
           .where(and(eq(scheduledPosts.jobId, jobId), eq(scheduledPosts.userId, userId)));
       } catch (dbErr) {

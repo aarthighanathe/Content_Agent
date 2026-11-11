@@ -54,7 +54,10 @@ const envSchema = z.object({
   // silently fall back to plaintext storage (see routes/social.ts's dbUpsertToken).
   TOKEN_ENCRYPTION_KEY: z
     .string()
-    .length(64, 'TOKEN_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)'),
+    .regex(
+      /^[0-9a-fA-F]{64}$/,
+      'TOKEN_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)',
+    ),
   // SECURITY: without this secret, OAuth state HMAC falls back to a hardcoded
   // dev string, making OAuth state tokens trivially forgeable. Make it required
   // in production environments — set a generous default for local dev only.
@@ -105,13 +108,29 @@ function parseEnv() {
 
   // SECURITY: the dev default makes OAuth state HMAC trivially forgeable —
   // acceptable for local dev, unacceptable once real users can hit the OAuth
-  // flow in production or staging. Fail startup rather than silently running insecurely.
-  // Reject the dev default if NODE_ENV is production OR if the app is running on a
-  // non-localhost domain (catches staging/preview deployments that set NODE_ENV=development).
-  const isLocalhost = result.data.APP_URL.includes('localhost') || result.data.APP_URL.includes('127.0.0.1');
-  if (result.data.OAUTH_STATE_SECRET === DEV_OAUTH_STATE_SECRET && !isLocalhost) {
+  // flow. Reject when NODE_ENV=production (even if APP_URL still defaults to
+  // localhost — Render can omit APP_URL and leave the zod default) OR when
+  // APP_URL is a non-localhost host (staging/preview with NODE_ENV=development).
+  let appHost = '';
+  try {
+    appHost = new URL(result.data.APP_URL).hostname.toLowerCase();
+  } catch {
+    appHost = '';
+  }
+  const isLocalhost = appHost === 'localhost' || appHost === '127.0.0.1' || appHost === '::1';
+  if (
+    result.data.OAUTH_STATE_SECRET === DEV_OAUTH_STATE_SECRET
+    && (result.data.NODE_ENV === 'production' || !isLocalhost)
+  ) {
     throw new Error(
-      'Environment configuration invalid:\n  OAUTH_STATE_SECRET: must be set to a unique value in non-localhost environments (dev default detected)',
+      'Environment configuration invalid:\n  OAUTH_STATE_SECRET: must be set to a unique value when NODE_ENV=production or APP_URL is not localhost (dev default detected)',
+    );
+  }
+  // SECURITY: a production boot with the default localhost APP_URL would also
+  // break OAuth redirects and CORS — fail fast rather than serving half-configured.
+  if (result.data.NODE_ENV === 'production' && isLocalhost) {
+    throw new Error(
+      'Environment configuration invalid:\n  APP_URL: must be set to the public API origin in production (localhost default detected)',
     );
   }
 

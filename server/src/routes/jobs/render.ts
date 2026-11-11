@@ -48,6 +48,7 @@ router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequ
 
       const failedSlides: number[] = [];
       let successCount = 0;
+      let firstFailure = 'unknown';
 
       for (const result of renderResults) {
         if (result.status === 'rejected') {
@@ -57,6 +58,9 @@ router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequ
             ? (reason as { index?: unknown }).index
             : undefined;
           failedSlides.push(typeof index === 'number' ? index : -1);
+          if (firstFailure === 'unknown') {
+            firstFailure = reason instanceof Error ? reason.message : String(reason);
+          }
           continue;
         }
         const { index, dataUrl } = result.value;
@@ -65,14 +69,28 @@ router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequ
         successCount++;
       }
 
-      // If all slides failed, return an error
-      if (successCount === 0) {
-        throw new Error(`All slides failed to render. First error: ${failedSlides.length > 0 ? 'slide ' + failedSlides[0] : 'unknown'}`);
-      }
-
-      // Add warning header if some slides failed
-      if (failedSlides.length > 0) {
-        res.setHeader('X-Export-Warning', `Some slides failed to render: ${failedSlides.join(', ')}`);
+      // WHY refuse partial ZIPs: a 200 with only some slides used to download
+      // silently — CORS never exposed X-Export-Warning, so the client could not
+      // tell the set was incomplete. Users got 2–3 PNGs from an 8-slide carousel.
+      if (failedSlides.length > 0 || successCount !== slides.length) {
+        const which = failedSlides
+          .filter((i) => i >= 0)
+          .map((i) => i + 1)
+          .join(', ');
+        console.error('[export-png] Incomplete render', {
+          jobId,
+          successCount,
+          expected: slides.length,
+          failedSlides: which || failedSlides,
+          firstFailure,
+        });
+        return res.status(500).json({
+          error: which
+            ? `Export failed on slide ${which}. Try again.`
+            : 'Export failed to render every slide. Try again.',
+          code: 'EXPORT_PARTIAL',
+          retryable: true,
+        });
       }
 
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });

@@ -11,6 +11,7 @@ import { eq, and, sql, ilike, desc, asc, inArray } from 'drizzle-orm';
 import { jobsMemory, assembleJobFromDB, isValidUUID, type MemoryJob, type AssembledJob } from './ownership.js';
 import { VALID_PLATFORMS } from '../../schemas/index.js';
 import { readOutputs } from '../content/shared.js';
+import { getLatestQualityScore } from '../../lib/qualityScore.js';
 
 const router = Router({ mergeParams: true });
 
@@ -275,12 +276,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 function getJobScore(job: MemoryJob | AssembledJob): number {
-  const critique = readOutputs(job).find((o) => o.outputType === 'critique');
-  if (!critique) return -1;
-  if (typeof critique.qualityScore === 'number' && critique.qualityScore > 0) return critique.qualityScore;
-  const c = critique.content;
-  if (c !== null && typeof c === 'object' && 'totalScore' in c && typeof c.totalScore === 'number') return c.totalScore;
-  return -1;
+  // WHY latest (CORR-004): align list sort with Result / Library score helpers.
+  const score = getLatestQualityScore(readOutputs(job));
+  return typeof score === 'number' ? score : -1;
 }
 
 export default router;

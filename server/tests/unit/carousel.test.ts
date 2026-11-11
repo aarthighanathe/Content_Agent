@@ -440,6 +440,30 @@ describe('browser pool — via renderSlideWithPuppeteer / closeBrowserPool', () 
     expect(result).toMatch(/^data:image\/png;base64,/);
   });
 
+  it('renderSlideWithPuppeteer waits for load, not network idle', async () => {
+    // WHY: networkidle* never fires for this self-contained document and used
+    // to time out the real export at 25s, so the ZIP never downloaded.
+    const setContent = vi.fn().mockResolvedValue(undefined);
+    launchMock.mockImplementation(() =>
+      Promise.resolve({
+        newPage: vi.fn().mockResolvedValue({
+          ...makeFakePage(Buffer.from('x')),
+          setContent,
+        }),
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    );
+    vi.resetModules();
+    const mod = await import('../../src/lib/carousel.js');
+    await settleMicrotasks();
+
+    await mod.renderSlideWithPuppeteer('<div>hello</div>');
+    expect(setContent).toHaveBeenCalledWith(
+      '<div>hello</div>',
+      expect.objectContaining({ waitUntil: 'load' }),
+    );
+  });
+
   it('renderSlideWithPuppeteer disables JavaScript on the page (defense-in-depth per CLAUDE.md Puppeteer Safety rules)', async () => {
     const pageSpy = { setJavaScriptEnabled: vi.fn().mockResolvedValue(undefined) };
     launchMock.mockImplementation(() =>

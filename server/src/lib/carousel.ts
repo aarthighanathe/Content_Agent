@@ -143,19 +143,13 @@ export async function renderSlideWithPuppeteer(
       }
     });
 
-    // networkidle2 = wait until ≤2 requests in-flight for 500ms; lets Google Font
-    // requests complete in the background while the page is already visually ready.
-    // WHY the cast: Puppeteer's SetContentWaitForOptions type deliberately
-    // excludes 'networkidle0'/'networkidle2' from setContent()'s waitUntil (they're
-    // typed as goto()-only), but setContent() still genuinely triggers real network
-    // activity here — the HTML references Google Fonts, so waiting on network
-    // idle is correct runtime behavior even though the type doesn't officially
-    // sanction it for this method. TS requires the through-unknown two-step (a
-    // direct cast is rejected as "insufficient overlap") — scoped to exactly this
-    // options object, not a blanket `any` that would loosen type-checking on
-    // anything else in this function.
-    const setContentOptions = { waitUntil: 'networkidle2', timeout: 25000 } as unknown as Parameters<typeof page.setContent>[1];
-    const contentLoad = page.setContent(html, setContentOptions);
+    // WHY 'load', not networkidle: the slide document is self-contained. Fonts are
+    // inlined as data-URL @font-face, so nothing is fetched. setContent does not
+    // emit network-idle lifecycle events when no request ever starts — Puppeteer
+    // excludes networkidle* from SetContentWaitForOptions for that reason — and
+    // waiting on networkidle2 hit the 25s timeout on every slide, so the ZIP
+    // never downloaded.
+    const contentLoad = page.setContent(html, { waitUntil: 'load', timeout: 25000 });
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`Render timed out after ${RENDER_TIMEOUT_MS / 1000}s`)), RENDER_TIMEOUT_MS),
     );
@@ -173,7 +167,13 @@ export async function renderSlideWithPuppeteer(
 
     return `data:image/png;base64,${buffer.toString('base64')}`;
   } catch (err) {
-    await replaceBrokenBrowser(entry);
+    // WHY track ownership: replaceBrokenBrowser sets busy=false before
+    // returning. If we then releaseBrowser in finally after awaiting
+    // page.close(), another export can acquire this slot in between and have
+    // its busy flag cleared underneath it — then a later timeout closes the
+    // browser mid-screenshot. After a successful replace, leave busy true and
+    // let only this finally clear it.
+    await replaceBrokenBrowser(entry, { leaveBusy: true });
     throw err;
   } finally {
     try { await page?.close(); } catch { /* ignore */ }

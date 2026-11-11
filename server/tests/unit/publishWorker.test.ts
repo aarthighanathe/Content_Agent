@@ -61,7 +61,22 @@ const fakeDb = {
   update: () => ({
     set: (values: Record<string, unknown>) => {
       updateSet(values);
-      return { where: async () => undefined };
+      // WHY returning + thenable where: claim path uses .returning(); later
+      // posted/failed updates await .where() directly (CORR-006).
+      const whereResult = {
+        returning: async () => {
+          if (values.publishStatus === 'publishing') {
+            if (scheduledPostRow?.publishStatus !== 'pending') return [];
+            scheduledPostRow = { ...scheduledPostRow, publishStatus: 'publishing' };
+            return [{ id: scheduledPostRow.id }];
+          }
+          if (scheduledPostRow) Object.assign(scheduledPostRow, values);
+          return scheduledPostRow ? [{ id: scheduledPostRow.id }] : [];
+        },
+        then: (resolve: (v: unknown) => void, reject?: (e: unknown) => void) =>
+          Promise.resolve(undefined).then(resolve, reject),
+      };
+      return { where: () => whereResult };
     },
   }),
 };
@@ -107,15 +122,15 @@ describe('processPublishJob (real module)', () => {
   });
 
   it('a row with no publishPlatform (reminder-only scheduling) is a silent no-op', async () => {
-    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: null, jobId: 'job-1' };
+    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: null, jobId: 'job-1', userId: 'user-1' };
     const { processPublishJob } = await import('../../src/workers/publishWorker.js');
     await processPublishJob(makeJob({ scheduledPostId: 'sp-1' }));
     expect(publishToSocialPlatform).not.toHaveBeenCalled();
   });
 
   it('missing accessToken records a "failed" row instead of throwing unhandled', async () => {
-    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1' };
-    contentJobRow = { id: 'job-1', userId: 'user-1' };
+    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1', userId: 'user-1' };
+    contentJobRow = { id: 'job-1', userId: 'user-1', deleted: 0 };
     outputRows = [{ agentName: 'writer', outputType: 'final', content: { hook: 'H', body: 'B', cta: 'C' } }];
     dbGetToken.mockResolvedValue(null);
 
@@ -130,8 +145,8 @@ describe('processPublishJob (real module)', () => {
   });
 
   it('a successful publish records "posted" with the returned postUrl', async () => {
-    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1' };
-    contentJobRow = { id: 'job-1', userId: 'user-1' };
+    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1', userId: 'user-1' };
+    contentJobRow = { id: 'job-1', userId: 'user-1', deleted: 0 };
     outputRows = [{ agentName: 'writer', outputType: 'final', content: { hook: 'H', body: 'B', cta: 'C' } }];
     dbGetToken.mockResolvedValue({ accessToken: 'token-abc' });
     publishToSocialPlatform.mockResolvedValue({ postId: 'post-1', postUrl: 'https://linkedin.com/post/1' });
@@ -146,8 +161,8 @@ describe('processPublishJob (real module)', () => {
   });
 
   it('a publish-API failure is durably recorded as "failed", not rethrown as an unhandled rejection', async () => {
-    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1' };
-    contentJobRow = { id: 'job-1', userId: 'user-1' };
+    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1', userId: 'user-1' };
+    contentJobRow = { id: 'job-1', userId: 'user-1', deleted: 0 };
     outputRows = [{ agentName: 'writer', outputType: 'final', content: { hook: 'H', body: 'B', cta: 'C' } }];
     dbGetToken.mockResolvedValue({ accessToken: 'token-abc' });
     publishToSocialPlatform.mockRejectedValue(new Error('LinkedIn API rate limited'));
@@ -161,9 +176,23 @@ describe('processPublishJob (real module)', () => {
     }));
   });
 
+  it('soft-deleted source jobs record failed and do not publish', async () => {
+    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1', userId: 'user-1' };
+    contentJobRow = { id: 'job-1', userId: 'user-1', deleted: 1 };
+
+    const { processPublishJob } = await import('../../src/workers/publishWorker.js');
+    await processPublishJob(makeJob({ scheduledPostId: 'sp-1' }));
+
+    expect(publishToSocialPlatform).not.toHaveBeenCalled();
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      publishStatus: 'failed',
+      publishError: expect.stringContaining('unavailable'),
+    }));
+  });
+
   it('a missing "final" output records a "failed" row rather than publishing draft/research content', async () => {
-    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1' };
-    contentJobRow = { id: 'job-1', userId: 'user-1' };
+    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1', userId: 'user-1' };
+    contentJobRow = { id: 'job-1', userId: 'user-1', deleted: 0 };
     outputRows = [{ agentName: 'writer', outputType: 'draft', content: { hook: 'H' } }];
 
     const { processPublishJob } = await import('../../src/workers/publishWorker.js');

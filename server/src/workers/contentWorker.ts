@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node';
 import { Worker, Job } from 'bullmq';
 import { config } from 'dotenv';
 import { resolve } from 'path';
+import { pathToFileURL } from 'url';
 
 // Load env from root
 config({ path: resolve(process.cwd(), '.env') });
@@ -11,6 +12,7 @@ import { createRedisConnection } from '../lib/queue.js';
 import { env } from '../config.js';
 import { sseManager } from '../lib/sse.js';
 import { runAndPersistPipeline, type PipelineJob } from '../lib/pipeline.js';
+import { markJobFailedIfInFlight, sweepStaleInFlightJobs } from '../lib/persistJob.js';
 import { logger } from '../lib/logger.js';
 // WHY import type only: MemoryJob is declared in routes/jobs/ownership.ts,
 // which itself imports getJobFromStore from this file — a value-level import
@@ -49,12 +51,22 @@ export async function processContentJob(job: Job) {
   const phrasesAvoid = asString(d.phrasesAvoid);
   const contentDna = d.contentDna;
   const initialFeedback = asString(d.initialFeedback);
+  const sourceMaterial = asString(d.sourceMaterial);
   // WHY carried through the BullMQ payload too (C3): create.ts resolves
   // competitorContext server-side before enqueueing, so the worker only
   // needs to forward the already-sanitized string — same treatment as
   // brandVoice/phrasesUse above.
   const competitorContext = asString(d.competitorContext);
   const sourceCompetitorAnalysisId = asString(d.sourceCompetitorAnalysisId);
+  // WHY read from the BullMQ payload: create/batch/repurpose/regenerate put
+  // these on the queue job; rebuilding without them made production Redis
+  // runs persist null template/palette/sourceUrl even when memory had them.
+  const templateId = asString(d.templateId);
+  const paletteId = asString(d.paletteId);
+  const sourceUrl = asString(d.sourceUrl);
+  const sourceJobId = asString(d.sourceJobId);
+  const sourcePlatform = asString(d.sourcePlatform);
+  const tag = asString(d.tag);
 
   logger.info('Processing job', { jobId, topic, platform });
 
@@ -70,8 +82,15 @@ export async function processContentJob(job: Job) {
     phrasesAvoid,
     contentDna,
     initialFeedback,
+    sourceMaterial,
     competitorContext,
     sourceCompetitorAnalysisId,
+    templateId: templateId ?? null,
+    paletteId: paletteId ?? null,
+    sourceUrl: sourceUrl ?? null,
+    sourceJobId: sourceJobId ?? null,
+    sourcePlatform,
+    tag: tag ?? null,
     status: 'pending',
     retryCount: 0,
   };
@@ -144,6 +163,21 @@ export function startWorker() {
     worker.on('failed', (job, err) => {
       console.error(`Job ${job?.id} failed:`, err.message);
       Sentry.captureException(err, { tags: { jobId: job?.id, action: 'worker-failed' } });
+      // WHY durable failed + SSE (CORR-001): after max BullMQ attempts / stall
+      // exhaustion, runAndPersistPipeline may never have written a terminal row.
+      const failedJobId = job?.id;
+      if (typeof failedJobId === 'string' && failedJobId.length > 0) {
+        void markJobFailedIfInFlight(failedJobId, err.message).then((marked) => {
+          if (!marked) return;
+          sseManager.sendEvent(failedJobId, {
+            type: 'progress',
+            stage: 'failed',
+            progress: 0,
+            agent: 'system',
+            message: 'Content generation failed. Please try again or start a new job.',
+          });
+        }).catch(() => {});
+      }
     });
 
     worker.on('error', (err) => {
@@ -154,6 +188,13 @@ export function startWorker() {
     });
 
     logger.info('Content generation worker started');
+    // WHY fire-and-forget: a stuck pending row from a prior crash should not
+    // block worker boot; sweep is best-effort recovery for CORR-001.
+    sweepStaleInFlightJobs().catch((err: unknown) => {
+      logger.warn('Stale in-flight job sweep failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
     return worker;
   } catch (error) {
     logger.warn('BullMQ worker not available — using direct pipeline');
@@ -170,4 +211,31 @@ export async function stopWorker(): Promise<void> {
     await worker.close();
     worker = null;
   }
+}
+
+// WHY direct-run entry (DEPLOY-002): `npm run worker` used to import this
+// module without calling startWorker(), so the process exited immediately
+// with a silent non-worker. When this file is the process entrypoint, boot
+// the BullMQ worker and keep the process alive until SIGINT/SIGTERM.
+const entryArg = process.argv[1];
+const isDirectRun = typeof entryArg === 'string'
+  && import.meta.url === pathToFileURL(resolve(entryArg)).href;
+
+if (isDirectRun) {
+  const started = startWorker();
+  if (!started) {
+    logger.error('Standalone worker failed to start (is Redis configured?)');
+    process.exit(1);
+  }
+  const shutdown = (): void => {
+    stopWorker()
+      .catch((err: unknown) => {
+        logger.error('Worker shutdown error', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => process.exit(0));
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }

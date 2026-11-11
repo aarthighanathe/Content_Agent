@@ -6,11 +6,16 @@ import { AuthRequest } from '../../middleware/auth.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { sseManager } from '../../lib/sse.js';
 import { getJobFromStore, setJobInStore, jobsMemory } from './ownership.js';
-import { authJobRateLimit, chargeGenerationBudget } from '../../middleware/rateLimit.js';
-import { runAndPersistPipeline, type PipelineJob } from '../../lib/pipeline.js';
+import {
+  authJobRateLimit,
+  reserveGenerationBudget,
+  releaseGenerationBudget,
+} from '../../middleware/rateLimit.js';
+import { runAndPersistPipeline, type PipelineJob, type SkipResearchOpts } from '../../lib/pipeline.js';
 import { getUserProfile } from '../users.js';
-import { parseBody, createJobSchema, VALID_PLATFORMS, toneEnum, competitorResponseSchema, TOPIC_MAX_LENGTH } from '../../schemas/index.js';
+import { parseBody, createJobSchema, VALID_PLATFORMS, toneEnum, templateIdEnum, competitorResponseSchema, TOPIC_MAX_LENGTH } from '../../schemas/index.js';
 import { logger } from '../../lib/logger.js';
+import { insertPendingJobRow } from '../../lib/persistJob.js';
 import { db } from '../../db/index.js';
 import { competitorAnalyses } from '../../db/schema.js';
 import { isValidUUID } from '../../lib/uuid.js';
@@ -83,7 +88,11 @@ function releasePipelineSlot(): void {
   if (next) next();
 }
 
-async function _runPipelineDirect(jobId: string, job: PipelineJob) {
+async function _runPipelineDirect(
+  jobId: string,
+  job: PipelineJob,
+  opts?: { skipResearch?: SkipResearchOpts },
+) {
   function emitProgress(stage: string, progress: number, agent: string, message: string, durationMs?: number) {
     const current = getJobFromStore(jobId) ?? jobsMemory.get(jobId);
     if (current) {
@@ -99,18 +108,24 @@ async function _runPipelineDirect(jobId: string, job: PipelineJob) {
     await runAndPersistPipeline(job, emitProgress, {
       set: (id, data) => { setJobInStore(id, data); },
       evict: (id) => { setJobInStore(id, undefined); },
-    });
+    }, opts);
   } catch {
     // runAndPersistPipeline already persisted the failure and emitted the SSE
     // event — swallow here since this direct-mode call site is fire-and-forget.
   }
 }
 
-// Public wrapper — enforces direct-pipeline concurrency limit
-export async function runPipelineDirect(jobId: string, job: PipelineJob) {
+// Public wrapper — enforces direct-pipeline concurrency limit.
+// WHY opts: Content Multiplier used to call runAndPersistPipeline uncapped;
+// routing it through here applies the same MAX_DIRECT_PIPELINES gate as create.
+export async function runPipelineDirect(
+  jobId: string,
+  job: PipelineJob,
+  opts?: { skipResearch?: SkipResearchOpts },
+) {
   await acquirePipelineSlot();
   try {
-    await _runPipelineDirect(jobId, job);
+    await _runPipelineDirect(jobId, job, opts);
   } finally {
     releasePipelineSlot();
   }
@@ -171,13 +186,22 @@ router.post('/create', applyGenerationRateLimit, async (req: AuthRequest, res: R
     // FLOW: job goes into jobsMemory first so SSE /stream can find it immediately
     // even before BullMQ picks it up (~100-500ms queue lag).
     setJobInStore(jobId, job);
+    // WHY durable pending row (CORR-001): without this, kill/redeploy mid-run
+    // left a permanent client 404 — no Library row and nothing for L9 recovery.
+    await insertPendingJobRow(job);
 
+    // WHY templateId/paletteId on the queue payload: the worker rebuilds a
+    // fresh PipelineJob from this data (it does not read the in-memory copy).
+    // Omitting them made production Redis carousels persist with null template
+    // while local direct-mode (no Redis) kept the original object and looked fine.
     const queued = await addJobToQueue(jobId, {
       userId, topic, platform, tone, targetAudience,
       brandVoice: job.brandVoice, phrasesUse: job.phrasesUse, phrasesAvoid: job.phrasesAvoid,
       contentDna: job.contentDna,
       competitorContext: job.competitorContext,
       sourceCompetitorAnalysisId: job.sourceCompetitorAnalysisId,
+      templateId: job.templateId,
+      paletteId: job.paletteId,
     });
 
     sseManager.sendEvent(jobId, { type: 'progress', stage: 'planning', progress: 1, agent: 'system', message: 'Starting content generation…' });
@@ -205,6 +229,11 @@ router.post('/create', applyGenerationRateLimit, async (req: AuthRequest, res: R
 
 // POST /batch — create up to 7 jobs in parallel
 router.post('/batch', applyGenerationRateLimit, async (req: AuthRequest, res: Response) => {
+  // WHY hoisted for catch refund: reserve can succeed then getUserProfile (or
+  // later work) throw — without releasing, the user loses quota for an hour
+  // with no jobs created (pre-push review finding).
+  let budgetKeyForRefund: string | null = null;
+  let reservedForRefund = 0;
   try {
     const { z } = await import('zod');
     // WHY toneEnum, not z.string(): matches the single-topic createJobSchema's
@@ -216,18 +245,38 @@ router.post('/batch', applyGenerationRateLimit, async (req: AuthRequest, res: Re
         topic: z.string().min(3).max(TOPIC_MAX_LENGTH).trim(),
         platform: z.enum(VALID_PLATFORMS),
         tone: toneEnum.optional(),
-        targetAudience: z.string().optional(),
+        targetAudience: z.string().max(300).trim().optional(),
       })).min(1).max(7),
       tone: toneEnum.optional(),
-      targetAudience: z.string().optional(),
-      templateId: z.string().optional(),
-      paletteId: z.string().optional(),
+      targetAudience: z.string().max(300).trim().optional(),
+      // WHY templateIdEnum, not z.string(): matches single-topic createJobSchema
+      // so a batch carousel cannot accept an unbounded template id the single
+      // path would reject.
+      templateId: templateIdEnum.optional(),
+      paletteId: z.string().max(50).optional(),
     });
     const body = parseBody(batchSchema, req.body, res);
     if (!body) return;
 
     const { items, tone, targetAudience, templateId, paletteId } = body;
     const userId = req.dbUserId || req.userId || 'demo';
+    // WHY Clerk id for budget charge: authJobRateLimit's keyGenerator prefers
+    // req.userId (Clerk). Charging with dbUserId wrote a different Redis key
+    // and the N-1 extra hits never moved the counter the limiter reads.
+    const budgetKey = req.userId || userId;
+    // WHY atomic reserve before create (COST-001): GET-then-charge raced two
+    // parallel batches past AUTH_JOB_MAX. Reserve N-1 extras now (HTTP already
+    // counted 1); refund unused after fan-out.
+    const budget = await reserveGenerationBudget(budgetKey, items.length);
+    if (!budget.allowed) {
+      return res.status(429).json({
+        error: 'Too many generation requests. You can create up to 10 pieces of content per hour.',
+        code: 'RATE_LIMITED',
+        retryable: false,
+      });
+    }
+    budgetKeyForRefund = budgetKey;
+    reservedForRefund = budget.reserved;
     const userProfile = await getUserProfile(userId);
 
     // WHY track skipped-before-attempt items separately, not just silently
@@ -270,10 +319,13 @@ router.post('/batch', applyGenerationRateLimit, async (req: AuthRequest, res: Re
         };
 
         setJobInStore(jobId, job);
+        await insertPendingJobRow(job);
         const queued = await addJobToQueue(jobId, {
           userId, topic, platform: item.platform, tone: jobTone, targetAudience: jobAudience,
           brandVoice: job.brandVoice, phrasesUse: job.phrasesUse, phrasesAvoid: job.phrasesAvoid,
           contentDna: job.contentDna,
+          templateId: job.templateId,
+          paletteId: job.paletteId,
         });
 
         if (!queued) {
@@ -313,15 +365,34 @@ router.post('/batch', applyGenerationRateLimit, async (req: AuthRequest, res: Re
     failedItems.sort((a, b) => a.index - b.index);
 
     if (createdJobs.length === 0) {
+      // Refund the full pre-reserve — HTTP still counted 1 for the empty attempt.
+      await releaseGenerationBudget(budgetKey, budget.reserved);
+      budgetKeyForRefund = null;
+      reservedForRefund = 0;
       return res.status(422).json({ error: 'All items in the batch failed to process', code: 'BATCH_ALL_FAILED', retryable: true, failedItems });
     }
 
-    // WHY charge N-1 extra: authJobRateLimit already counted this request as 1;
-    // without this, a 7-item batch would amplify past the hourly generation cap.
-    await chargeGenerationBudget(userId, createdJobs.length);
+    // WHY refund unused extras: reserved for items.length - 1; keep only
+    // createdJobs.length - 1 beyond the HTTP hit.
+    const unusedExtras = Math.max(0, budget.reserved - Math.max(0, createdJobs.length - 1));
+    if (unusedExtras > 0) {
+      await releaseGenerationBudget(budgetKey, unusedExtras);
+    }
 
+    // Successful response — don't refund again in catch.
+    budgetKeyForRefund = null;
+    reservedForRefund = 0;
     return res.status(201).json({ jobs: createdJobs, failedItems });
   } catch (error: unknown) {
+    if (budgetKeyForRefund && reservedForRefund > 0) {
+      try {
+        await releaseGenerationBudget(budgetKeyForRefund, reservedForRefund);
+      } catch (releaseErr: unknown) {
+        logger.warn('Failed to refund batch generation budget after error', {
+          error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+        });
+      }
+    }
     console.error('Failed to create batch jobs:', error);
     Sentry.captureException(error, { tags: { route: 'POST /batch' } });
     return res.status(500).json({ error: 'Failed to create batch jobs', code: 'SERVER_ERROR', retryable: true });

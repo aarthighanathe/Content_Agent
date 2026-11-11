@@ -59,7 +59,10 @@ vi.mock('../../src/middleware/rateLimit.js', () => ({
   authJobRateLimit: [(req: unknown, res: unknown, next: () => void) => next(), (req: unknown, res: unknown, next: () => void) => next()],
   // WHY: batch charges N-1 extra generation hits after validation; without this
   // the mock throws and the route returns 500 instead of exercising create.
-  chargeGenerationBudget: vi.fn().mockResolvedValue(undefined),
+  chargeGenerationBudget: vi.fn().mockResolvedValue({ charged: true }),
+  assertGenerationBudget: vi.fn().mockResolvedValue({ allowed: true }),
+  reserveGenerationBudget: vi.fn().mockResolvedValue({ allowed: true, reserved: 6 }),
+  releaseGenerationBudget: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../../src/routes/users.js', () => ({
   getUserProfile: vi.fn().mockResolvedValue({ brandVoice: 'professional', phrasesUse: '', phrasesAvoid: '', contentDna: null }),

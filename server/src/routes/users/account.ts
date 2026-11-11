@@ -136,11 +136,25 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
       // WHY: collectionJobs.jobId/collectionId, collections.userId, competitorAnalyses.userId,
       // and jobOutputVersions.jobId are FKs with ON DELETE no action — must be deleted
       // before contentJobs/users or the transaction aborts.
+      // WHY collection_jobs BEFORE collections: collection_jobs.collection_id
+      // references collections with no ON DELETE CASCADE. Deleting collections
+      // first aborted the whole transaction whenever the user had a job in a
+      // Library folder, so DELETE /me returned 500 and the account stayed.
       await tx.delete(competitorAnalyses).where(eq(competitorAnalyses.userId, userId));
+      const collectionRows = await tx
+        .select({ id: collections.id })
+        .from(collections)
+        .where(eq(collections.userId, userId));
+      const collectionIds = collectionRows.map((c) => c.id);
+      if (collectionIds.length > 0) {
+        await tx.delete(collectionJobs).where(inArray(collectionJobs.collectionId, collectionIds));
+      }
+      if (jobIds.length > 0) {
+        await tx.delete(collectionJobs).where(inArray(collectionJobs.jobId, jobIds));
+      }
       await tx.delete(collections).where(eq(collections.userId, userId));
 
       if (jobIds.length > 0) {
-        await tx.delete(collectionJobs).where(inArray(collectionJobs.jobId, jobIds));
         await tx.delete(jobOutputVersions).where(inArray(jobOutputVersions.jobId, jobIds));
         await tx.delete(agentLogs).where(inArray(agentLogs.jobId, jobIds));
         await tx.delete(contentOutputs).where(inArray(contentOutputs.jobId, jobIds));

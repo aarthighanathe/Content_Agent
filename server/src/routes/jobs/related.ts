@@ -8,7 +8,7 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { AuthRequest } from '../../middleware/auth.js';
 import { db } from '../../db/index.js';
 import { contentJobs } from '../../db/schema.js';
-import { requireJobOwnership } from './ownership.js';
+import { requireJobOwnership, lookupOwnedJob } from './ownership.js';
 import type { AssembledJob, MemoryJob } from './ownership.js';
 import { logger } from '../../lib/logger.js';
 
@@ -35,7 +35,7 @@ function jobSourceId(job: MemoryJob | AssembledJob | { sourceJobId?: string | nu
 export async function collectRelatedVariants(
   startJob: MemoryJob | AssembledJob,
   userId: string,
-  res: Response,
+  _res?: Response,
 ): Promise<{ rootJobId: string; variants: RelatedVariant[] } | null> {
   const visitedUp = new Set<string>([startJob.id]);
   let root: MemoryJob | AssembledJob = startJob;
@@ -45,9 +45,12 @@ export async function collectRelatedVariants(
     if (visitedUp.has(nextUp)) break;
     visitedUp.add(nextUp);
     // SECURITY: ownership on every hop — never follow a forged sourceJobId
-    // into another user's job (404, same as any :jobId route).
-    const ancestor = await requireJobOwnership(nextUp, userId, res);
-    if (!ancestor) return null;
+    // into another user's job. WHY lookupOwnedJob (not requireJobOwnership):
+    // a soft-deleted ancestor must stop the walk, not write 404 onto the
+    // child's Adapt/related response and make a surviving LinkedIn sibling
+    // look like it doesn't exist.
+    const ancestor = await lookupOwnedJob(nextUp, userId);
+    if (!ancestor) break;
     root = ancestor;
     nextUp = jobSourceId(ancestor);
   }

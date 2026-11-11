@@ -135,9 +135,11 @@ export function assembleJobFromDB(dbJob: DBJobWithRelations): AssembledJob {
     outputSummary: l.outputSummary ?? '',
     durationMs: l.durationMs ?? 0,
   }));
-  const criticOutput = (dbJob.outputs || []).find(
+  // WHY last critique (CORR-004): align assembleJobFromDB with Result/Library.
+  const criticOutputs = (dbJob.outputs || []).filter(
     (o) => o.outputType === 'critique' && o.agentName === 'critic',
   );
+  const criticOutput = criticOutputs.length > 0 ? criticOutputs[criticOutputs.length - 1] : undefined;
   return {
     id: dbJob.id,
     userId: dbJob.userId,
@@ -164,6 +166,36 @@ export function assembleJobFromDB(dbJob: DBJobWithRelations): AssembledJob {
 }
 
 /**
+ * Soft ownership lookup — same memory → DB order as requireJobOwnership, but
+ * never writes a response. Used when walking Adapt ancestry: a deleted parent
+ * must stop the walk, not 404 the child the user actually owns.
+ */
+export async function lookupOwnedJob(
+  jobId: string,
+  requestingUserId: string,
+): Promise<MemoryJob | AssembledJob | null> {
+  // NOTE: check both in-memory stores — BullMQ worker uses jobStore, direct
+  // pipeline uses jobsMemory. Both must be checked so every code path works.
+  const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
+  if (memJob) {
+    if (memJob.userId !== requestingUserId || memJob.deleted === 1) return null;
+    return memJob;
+  }
+
+  if (db) {
+    try {
+      const dbJob = await db.query.contentJobs.findFirst({
+        where: (j, { eq: jeq, and: jand }) =>
+          jand(jeq(j.id, jobId), jeq(j.userId, requestingUserId), jeq(j.deleted, 0)),
+        with: { outputs: true, logs: true },
+      });
+      if (dbJob) return assembleJobFromDB(dbJob);
+    } catch { /* treat as miss */ }
+  }
+  return null;
+}
+
+/**
  * Middleware-style ownership guard for all :jobId routes.
  *
  * Lookup order: BullMQ worker store → jobsMemory → DB.
@@ -180,30 +212,8 @@ export async function requireJobOwnership(
   requestingUserId: string,
   res: Response,
 ): Promise<MemoryJob | AssembledJob | null> {
-  // NOTE: check both in-memory stores — BullMQ worker uses jobStore, direct
-  // pipeline uses jobsMemory. Both must be checked so every code path works.
-  const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
-  if (memJob) {
-    if (memJob.userId !== requestingUserId || memJob.deleted === 1) {
-      res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
-      return null;
-    }
-    return memJob;
-  }
-
-  // Memory miss — job has been evicted (completed > 10 min ago) or never existed.
-  // Fall back to DB. If DB is also unavailable, this resolves to 404.
-  if (db) {
-    try {
-      const dbJob = await db.query.contentJobs.findFirst({
-        where: (j, { eq: jeq, and: jand }) =>
-          jand(jeq(j.id, jobId), jeq(j.userId, requestingUserId), jeq(j.deleted, 0)),
-        with: { outputs: true, logs: true },
-      });
-      if (dbJob) return assembleJobFromDB(dbJob);
-    } catch { /* fall through to 404 */ }
-  }
-
+  const job = await lookupOwnedJob(jobId, requestingUserId);
+  if (job) return job;
   res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
   return null;
 }

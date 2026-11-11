@@ -68,9 +68,45 @@ export function buildSlideHtml(
   return stripScriptsAndEventHandlers(html);
 }
 
+// WHY 2, not all slides at once: the pool starts at 2 browsers and scales to 8.
+// Firing 8 Puppeteer screenshots together regularly exhausted the pool / hit
+// the 60s acquire timeout, so the ZIP shipped with only the slides that won
+// the race. Two at a time matches the warm pool and keeps every export complete.
+const EXPORT_RENDER_CONCURRENCY = 2;
+
+async function renderOneSlideSsr(
+  slide: SsrSlideData,
+  index: number,
+  total: number,
+  ctx: SsrSlideContext,
+  jobId: string,
+  theme: ThemeKey,
+): Promise<{ index: number; dataUrl: string }> {
+  try {
+    const html = buildSlideHtml(slide, index, total, ctx);
+    const dataUrl = await renderSlideWithCache(
+      html,
+      jobId,
+      index,
+      theme,
+      SSR_VIEWPORT,
+      ctx.templateId,
+      ctx.paletteId,
+    );
+    return { index, dataUrl };
+  } catch (err) {
+    // WHY re-thrown with `index` attached: render.ts's failure reporting reads
+    // `reason.index` off each rejected settled result to tell the user which
+    // slide(s) failed. A plain rethrow here carried no such property, so every
+    // failure was reported as "slide -1" regardless of which one actually broke.
+    const cause = err instanceof Error ? err : new Error(String(err));
+    throw Object.assign(cause, { index });
+  }
+}
+
 /**
- * Renders every slide to a base64 PNG data URL, in parallel.
- * Uses allSettled so one bad slide cannot abort the whole export; the caller decides
+ * Renders every slide to a base64 PNG data URL, in small parallel batches.
+ * Uses allSettled so one bad slide cannot abort the rest; the caller decides
  * how to treat partial failure.
  */
 export async function renderCarouselSlidesSsr(
@@ -79,28 +115,19 @@ export async function renderCarouselSlidesSsr(
   jobId: string,
   theme: ThemeKey,
 ): Promise<PromiseSettledResult<{ index: number; dataUrl: string }>[]> {
-  return Promise.allSettled(
-    slides.map(async (slide, index) => {
-      try {
-        const html = buildSlideHtml(slide, index, slides.length, ctx);
-        const dataUrl = await renderSlideWithCache(
-          html,
-          jobId,
-          index,
-          theme,
-          SSR_VIEWPORT,
-          ctx.templateId,
-          ctx.paletteId,
-        );
-        return { index, dataUrl };
-      } catch (err) {
-        // WHY re-thrown with `index` attached: render.ts's failure reporting reads
-        // `reason.index` off each rejected settled result to tell the user which
-        // slide(s) failed. A plain rethrow here carried no such property, so every
-        // failure was reported as "slide -1" regardless of which one actually broke.
-        const cause = err instanceof Error ? err : new Error(String(err));
-        throw Object.assign(cause, { index });
-      }
-    }),
-  );
+  const results: PromiseSettledResult<{ index: number; dataUrl: string }>[] = [];
+  // WHY sequential batches (not one allSettled over every slide): see
+  // EXPORT_RENDER_CONCURRENCY. Awaiting each batch is intentional resource
+  // limiting, not an accidental N+1.
+  for (let start = 0; start < slides.length; start += EXPORT_RENDER_CONCURRENCY) {
+    const batch = slides.slice(start, start + EXPORT_RENDER_CONCURRENCY);
+    const batchResults = await Promise.allSettled(
+      batch.map((slide, batchIndex) => {
+        const index = start + batchIndex;
+        return renderOneSlideSsr(slide, index, slides.length, ctx, jobId, theme);
+      }),
+    );
+    results.push(...batchResults);
+  }
+  return results;
 }

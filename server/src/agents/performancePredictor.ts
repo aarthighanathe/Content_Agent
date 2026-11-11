@@ -1,5 +1,6 @@
 import { generateWithAI } from '../lib/ai.js';
 import { ContentJob } from '../db/schema.js';
+import { escapeXml } from '../lib/sanitizeSearchText.js';
 import type { CriticResult } from './critic.js';
 import type { ResearchResult } from './researcher.js';
 import {
@@ -61,16 +62,16 @@ export async function runPerformancePredictor(
 
   const prompt = `You are a social media performance analyst. Predict engagement tier for this content.
 
-<platform>${job.platform.replace(/_/g, ' ')}</platform>
-<topic>${job.topic}</topic>
-<audience>${job.targetAudience}</audience>
+<platform>${escapeXml(job.platform.replace(/_/g, ' '))}</platform>
+<topic>${escapeXml(job.topic)}</topic>
+<audience>${escapeXml(job.targetAudience || '')}</audience>
 Quality Score: ${criticResult?.totalScore || 0}/100
 
 Content Summary:
-${contentSummary}
+<content_summary>${escapeXml(contentSummary)}</content_summary>
 
 Trending Angles from Research:
-${JSON.stringify((researchResult?.trendingAngles || []).slice(0, 3))}
+<research_facts>${escapeXml(JSON.stringify((researchResult?.trendingAngles || []).slice(0, 3)))}</research_facts>
 
 Platform Benchmark Context:
 ${platformContext[job.platform] || 'High-quality content with strong hooks and specific CTAs consistently outperforms.'}

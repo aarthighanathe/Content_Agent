@@ -63,8 +63,10 @@ describe('writerCarouselResponseSchema — per-field/per-slide tolerance', () =>
     if (!result.success) return;
     expect(result.data).toHaveLength(3);
     expect(result.data[0].headline).toBe('Real headline 1');
-    // coerced to string, not discarded — z.coerce.string() turns 42 into "42"
-    expect(result.data[1].headline).toBe('42');
+    // WHY '' not '42': CS() is z.string().catch('') (not z.coerce.string) so a
+    // numeric headline is rejected then caught to empty — the slide itself and
+    // its siblings still survive (the point of per-field tolerance).
+    expect(result.data[1].headline).toBe('');
     expect(result.data[2].headline).toBe('Real headline 3');
   });
 

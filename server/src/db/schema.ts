@@ -229,7 +229,9 @@ export const userOnboarding = pgTable('user_onboarding', {
 // this table's job+date model — scoped deliberately to wiring only the
 // Calendar's existing table, not merging both concepts (a larger,
 // separately-tracked change).
-export const publishStatusEnum = pgEnum('publish_status', ['pending', 'posted', 'failed']);
+// WHY 'publishing' (CORR-006): worker claims a row with pending→publishing
+// before calling LinkedIn/Twitter so overlapping delayed jobs cannot double-post.
+export const publishStatusEnum = pgEnum('publish_status', ['pending', 'publishing', 'posted', 'failed']);
 
 export const scheduledPosts = pgTable('scheduled_posts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -266,6 +268,9 @@ export const competitorAnalyses = pgTable('competitor_analyses', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id),
   handle: text('handle').notNull(),
+  // WHY nullable: rows created before platform selection shipped have no value;
+  // new analyses always persist linkedin|twitter|instagram from competitorSchema.
+  platform: text('platform'),
   industry: text('industry'),
   analysis: jsonb('analysis').notNull(),
   deleted: integer('deleted').default(0).notNull(),

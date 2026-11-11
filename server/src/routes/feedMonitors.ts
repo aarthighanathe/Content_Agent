@@ -14,6 +14,8 @@ import { feedMonitors } from '../db/schema.js';
 import { db } from '../db/index.js';
 import { parseBody, feedMonitorSchema, feedMonitorUpdateSchema } from '../schemas/index.js';
 import { checkFeedMonitor } from '../workers/feedMonitorWorker.js';
+import { probeFeedUrl } from '../lib/feedFetch.js';
+import { isRetryableFetchFailure } from '../lib/ssrfGuard.js';
 import { contentRateLimit } from '../middleware/rateLimit.js';
 import { logger } from '../lib/logger.js';
 import { requireDbUser, isValidUUID } from './jobs/ownership.js';
@@ -48,6 +50,18 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         error: `You can subscribe to at most ${MAX_FEED_MONITORS_PER_USER} feed monitors`,
         code: 'VALIDATION_ERROR',
         retryable: false,
+      });
+    }
+    // WHY probe before insert (QA-FEED-001): subscribe used to succeed for any
+    // well-formed URL, then Check now / cron silently wrote lastError. Failing
+    // here keeps the UI honest and surfaces SSRF / dead-host / non-feed bodies
+    // at the moment the user is still looking at the form.
+    const probe = await probeFeedUrl(body.feedUrl);
+    if (!probe.ok) {
+      return res.status(400).json({
+        error: `Could not read that feed — ${probe.reason}`,
+        code: 'VALIDATION_ERROR',
+        retryable: isRetryableFetchFailure(probe.reason),
       });
     }
     const [row] = await db!.insert(feedMonitors).values({

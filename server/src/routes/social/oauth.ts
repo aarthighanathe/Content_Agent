@@ -14,20 +14,69 @@ import { dbUpsertToken } from '../../lib/socialTokens.js';
 import { getRedisClient } from '../../lib/redisClient.js';
 
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+// SECURITY: binds /callback to the same browser that started /connect (OAuth
+// account-linking CSRF). Set on the API origin; required to match state.nonce.
+const OAUTH_CSRF_COOKIE = 'pensieve_oauth_csrf';
 
 function pkceS256Challenge(verifier: string): string {
   return createHash('sha256').update(verifier).digest('base64url');
 }
 
+function parseCookieHeader(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    if (!k) continue;
+    try {
+      out[k] = decodeURIComponent(v);
+    } catch {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function oauthCookieFlags(): string {
+  // SECURITY: production frontend (Vercel) and API (Render) are different sites —
+  // SameSite=None; Secure is required for the connect XHR to store the cookie
+  // on the API origin. Local Vite→API is same-site-enough with Lax.
+  if (env.NODE_ENV === 'production') return 'HttpOnly; Path=/; Max-Age=600; SameSite=None; Secure';
+  return 'HttpOnly; Path=/; Max-Age=600; SameSite=Lax';
+}
+
+function setOAuthCsrfCookie(res: Response, nonce: string): void {
+  res.append('Set-Cookie', `${OAUTH_CSRF_COOKIE}=${encodeURIComponent(nonce)}; ${oauthCookieFlags()}`);
+}
+
+function clearOAuthCsrfCookie(res: Response): void {
+  const clearFlags = env.NODE_ENV === 'production'
+    ? 'HttpOnly; Path=/; Max-Age=0; SameSite=None; Secure'
+    : 'HttpOnly; Path=/; Max-Age=0; SameSite=Lax';
+  res.append('Set-Cookie', `${OAUTH_CSRF_COOKIE}=; ${clearFlags}`);
+}
+
+function safeEqualString(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
+
 async function consumeOAuthNonce(nonce: string): Promise<boolean> {
   const client = getRedisClient();
-  if (!client) return true;
+  // SECURITY: without Redis, nonce replay is possible — fail closed in
+  // production; local/dev without Redis still allows the flow.
+  if (!client) return env.NODE_ENV !== 'production';
   try {
     const key = `oauth:nonce:${nonce}`;
     const set = await client.set(key, '1', 'EX', 600, 'NX');
     return set === 'OK';
   } catch {
-    return true;
+    return env.NODE_ENV !== 'production';
   }
 }
 
@@ -99,6 +148,10 @@ interface TwitterProfileResponse {
 const router = Router();
 
 // GET /api/social/connect/:platform — initiate OAuth
+// WHY JSON { authorizeUrl } instead of a 302: the Brand page must call this
+// through the authenticated axios client (Bearer + credentials) so (a) Clerk
+// auth reaches the API on Vercel→Render and (b) the CSRF cookie is set on the
+// API origin before the browser navigates to LinkedIn/Twitter.
 // WHY rate-limited here, not at the /api/social router mount: the callback
 // route calls external LinkedIn/Twitter token + profile APIs and needs
 // backpressure, but /connections (a frequent read-only DB lookup, no external
@@ -106,8 +159,15 @@ const router = Router();
 router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const platform = req.params.platform as string;
-    const userId = req.dbUserId || req.userId || 'demo';
+    // SECURITY (SEC-020): never mint OAuth state for a shared 'demo' identity —
+    // authMiddleware already guarantees dbUserId on this route.
+    if (!req.dbUserId) {
+      res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
+      return;
+    }
+    const userId = req.dbUserId;
     const callbackUrl = `${env.APP_URL}/api/social/callback/${platform}`;
+    const nonce = crypto.randomUUID();
 
     if (platform === 'linkedin') {
       const clientId = env.LINKEDIN_CLIENT_ID;
@@ -116,9 +176,10 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
         return;
       }
       const scopes = ['openid', 'profile', 'email', 'w_member_social'].join('%20');
-      const state = signOAuthState({ userId, platform, nonce: crypto.randomUUID(), issuedAt: Date.now() });
-      const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}`;
-      res.redirect(url);
+      const state = signOAuthState({ userId, platform, nonce, issuedAt: Date.now() });
+      const authorizeUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}`;
+      setOAuthCsrfCookie(res, nonce);
+      res.json({ authorizeUrl });
       return;
     }
 
@@ -129,17 +190,16 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
         return;
       }
       const scopes = ['tweet.read', 'tweet.write', 'users.read', 'offline.access'].join('%20');
-      // SECURITY: code_challenge_method=plain requires code_verifier === code_challenge
-      // at token exchange. The verifier must be generated once here and carried through
-      // to the callback verbatim (via the signed state param) — recomputing it at
-      // callback time with a fresh value would never match.
+      // SECURITY: S256 PKCE — verifier is generated once here and carried through
+      // to the callback via the signed state param.
       const codeVerifier = randomBytes(32).toString('base64url');
       const codeChallenge = pkceS256Challenge(codeVerifier);
       const state = signOAuthState({
-        userId, platform, nonce: crypto.randomUUID(), codeVerifier, issuedAt: Date.now(),
+        userId, platform, nonce, codeVerifier, issuedAt: Date.now(),
       });
-      const url = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-      res.redirect(url);
+      const authorizeUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+      setOAuthCsrfCookie(res, nonce);
+      res.json({ authorizeUrl });
       return;
     }
 
@@ -174,31 +234,46 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
 
   try {
     if (oauthError) {
-      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent(oauthError)}`);
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent(oauthError === 'access_denied' ? 'provider_denied' : 'connection_failed')}`);
       return;
     }
 
     if (!code || !state) {
-      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Missing or malformed OAuth callback parameters')}`);
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('missing_params')}`);
       return;
     }
 
     const decoded = verifyOAuthState(state);
     if (!decoded) {
+      clearOAuthCsrfCookie(res);
       // Invalid or tampered OAuth state — reject the callback and redirect to Brand page with error
-      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Invalid OAuth state')}`);
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('invalid_state')}`);
       return;
     }
-    // SECURITY: verifyOAuthState() returns Record<string, unknown> | null —
-    // narrow decoded.userId with a typeof check rather than a bare `as
-    // string` cast before use, per CLAUDE.md's cast rule. The only producer
-    // of this payload is signOAuthState() below, which always sets a real
-    // userId string, so this typeof check is a defensive backstop against a
-    // future call-site change that omits it, not a currently-reachable gap.
-    const userId = typeof decoded.userId === 'string' ? decoded.userId : 'demo';
+    // SECURITY (SEC-020): reject malformed state rather than falling back to
+    // a shared 'demo' userId, and bind state.platform to the URL platform so a
+    // LinkedIn code cannot be stored under /callback/twitter.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const userId = typeof decoded.userId === 'string' ? decoded.userId : '';
+    const statePlatform = typeof decoded.platform === 'string' ? decoded.platform : '';
+    if (!UUID_RE.test(userId) || statePlatform !== platform) {
+      clearOAuthCsrfCookie(res);
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('invalid_state')}`);
+      return;
+    }
     const nonce = typeof decoded.nonce === 'string' ? decoded.nonce : '';
-    if (!nonce || !(await consumeOAuthNonce(nonce))) {
-      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('OAuth session expired or already used')}`);
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const cookieNonce = cookies[OAUTH_CSRF_COOKIE] ?? '';
+    clearOAuthCsrfCookie(res);
+    // SECURITY: cookie must match state.nonce — proves the same browser that
+    // started /connect is finishing /callback (blocks classic OAuth CSRF
+    // account-linking where a victim completes an attacker-started URL).
+    if (!nonce || !cookieNonce || !safeEqualString(cookieNonce, nonce)) {
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('csrf_mismatch')}`);
+      return;
+    }
+    if (!(await consumeOAuthNonce(nonce))) {
+      res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('session_expired')}`);
       return;
     }
 
@@ -208,7 +283,7 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
       const clientId = env.LINKEDIN_CLIENT_ID;
       const clientSecret = env.LINKEDIN_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
-        res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('LinkedIn OAuth is not configured')}`);
+        res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('linkedin_not_configured')}`);
         return;
       }
       const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
@@ -241,7 +316,7 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
     if (platform === 'twitter') {
       const clientId = env.TWITTER_CLIENT_ID;
       if (!clientId) {
-        res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Twitter OAuth is not configured')}`);
+        res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('twitter_not_configured')}`);
         return;
       }
       const clientSecret = env.TWITTER_CLIENT_SECRET || '';
@@ -274,7 +349,7 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
     return res.redirect(`${frontendUrl}/brand?social_connected=${platform}`);
   } catch (err: unknown) {
     console.error(`OAuth callback failed for ${platform}:`, err instanceof Error ? err.message : String(err));
-    return res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('Connection failed — please try again')}`);
+    return res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('connection_failed')}`);
   }
 });
 

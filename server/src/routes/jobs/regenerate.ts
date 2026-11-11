@@ -9,25 +9,33 @@ import { Router, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../../middleware/auth.js';
 import { sseManager } from '../../lib/sse.js';
-import { setJobInStore } from './ownership.js';
-import { addJobToQueue } from '../../lib/queue.js';
+import { addJobToQueueDetailed } from '../../lib/queue.js';
 import { getUserProfile } from '../users.js';
 import { db } from '../../db/index.js';
 import { jobOutputVersions } from '../../db/schema.js';
-import { getJobFromStore, requireJobOwnership } from './ownership.js';
+import { requireJobOwnership, lookupOwnedJob, setJobInStore, getJobFromStore, jobsMemory } from './ownership.js';
 import type { AssembledJob, MemoryJob } from './ownership.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
 import { runPipelineDirect } from './create.js';
-import { runAndPersistPipeline } from '../../lib/pipeline.js';
 import type { ResearchResult } from '../../agents/researcher.js';
 import type { OrchestratorResult } from '../../agents/orchestrator.js';
 import { z } from 'zod';
 import { parseBody, regenerateJobSchema, multiplyJobSchema } from '../../schemas/index.js';
 import { authJobRateLimit } from '../../middleware/rateLimit.js';
-import { isValidTone } from '../../lib/persistJob.js';
+import { insertPendingJobRow, isValidTone } from '../../lib/persistJob.js';
+import { cancelJobEviction } from '../../lib/jobEviction.js';
 import { logger } from '../../lib/logger.js';
 import { readOutputs } from '../content/shared.js';
 import { collectRelatedVariants, pickVariantForPlatform } from './related.js';
+
+function isMemoryInProgress(jobId: string): boolean {
+  const mem = getJobFromStore(jobId) || jobsMemory.get(jobId);
+  if (!mem) return false;
+  const status = mem.status;
+  return status === 'pending' || status === 'processing'
+    || status === 'researching' || status === 'writing'
+    || status === 'formatting' || status === 'critiquing';
+}
 
 const router = Router({ mergeParams: true });
 
@@ -108,7 +116,7 @@ function jobSourceId(job: MemoryJob | AssembledJob): string | null {
 async function loadCachedResearchBundle(
   startJob: MemoryJob | AssembledJob,
   userId: string,
-  res: Response,
+  _res: Response,
 ): Promise<CachedResearchBundle | null> {
   const visited = new Set<string>([startJob.id]);
   let outputs = readOutputs(startJob);
@@ -120,9 +128,11 @@ async function loadCachedResearchBundle(
     if (!nextSourceId || visited.has(nextSourceId)) break;
     visited.add(nextSourceId);
     // SECURITY: never read another user's research via a forged sourceJobId
-    // chain — requireJobOwnership returns 404 on mismatch (same as any :jobId).
-    const ancestor = await requireJobOwnership(nextSourceId, userId, res);
-    if (!ancestor) return null;
+    // chain. WHY lookupOwnedJob: a deleted parent must stop the walk, not
+    // 404 the Adapt child the user still owns (multiply would then look
+    // like "Job not found" for a live LinkedIn sibling).
+    const ancestor = await lookupOwnedJob(nextSourceId, userId);
+    if (!ancestor) break;
     outputs = readOutputs(ancestor);
     nextSourceId = jobSourceId(ancestor);
   }
@@ -186,6 +196,9 @@ router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequ
     // PersistedJobResult shape (status 'done'|'failed'); a fresh regenerate is
     // PipelineJob-shaped with status 'pending' — nothing reads those fields
     // until runAndPersistPipeline replaces this Map entry with the real result.
+    // WHY copy template/palette/source lineage: omitting them made Result fall
+    // back to the legacy theme for 10 minutes (memory preferred over DB) and
+    // a thin first insert permanently stored nulls on conflict.
     const job: PipelineJob = {
       id: jobId, userId, topic: existingJob.topic, platform: existingJob.platform,
       tone: existingJob.tone ?? undefined, targetAudience: existingJob.targetAudience ?? undefined,
@@ -193,17 +206,47 @@ router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequ
       phrasesUse: regenProfile.phrasesUse || existingJob.phrasesUse || '',
       phrasesAvoid: regenProfile.phrasesAvoid || existingJob.phrasesAvoid || '',
       contentDna: regenProfile.contentDna || existingJob.contentDna || null,
+      templateId: existingJob.templateId ?? null,
+      paletteId: existingJob.paletteId ?? null,
+      tag: existingJob.tag ?? null,
+      sourceJobId: existingJob.sourceJobId ?? null,
+      sourcePlatform: existingJob.sourcePlatform ?? undefined,
+      sourceUrl: existingJob.sourceUrl ?? null,
+      sourceCompetitorAnalysisId: existingJob.sourceCompetitorAnalysisId ?? null,
       status: 'pending', retryCount: 0,
       createdAt: typeof existingJob.createdAt === 'string' ? existingJob.createdAt : existingJob.createdAt?.toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
+    // WHY memory check too (CORR-005): BullMQ 'active' only covers Redis mode —
+    // no-Redis / Adapt direct pipelines never hit the queue and could start a
+    // second run that wiped the in-flight UI.
+    if (isMemoryInProgress(jobId)) {
+      return res.status(409).json({
+        error: 'This job is still generating — wait for it to finish before regenerating',
+        code: 'JOB_IN_PROGRESS',
+        retryable: true,
+      });
+    }
+
+    // WHY check the queue BEFORE wiping memory: if the job is still active,
+    // refusing after clearing outputs left the UI on "Generating" with the
+    // old result gone and no new run accepted.
+    const queueResult = await addJobToQueueDetailed(jobId, { ...job, initialFeedback: feedback });
+    if (queueResult === 'active') {
+      return res.status(409).json({
+        error: 'This job is still generating — wait for it to finish before regenerating',
+        code: 'JOB_IN_PROGRESS',
+        retryable: true,
+      });
+    }
+
+    cancelJobEviction(jobId);
     setJobInStore(jobId, job);
 
     sseManager.sendEvent(jobId, { type: 'progress', stage: 'planning', progress: 2, agent: 'system', message: 'Regeneration started…' });
 
-    const queued = await addJobToQueue(jobId, { ...job, initialFeedback: feedback });
-    if (!queued) {
+    if (queueResult === 'unavailable') {
       // WHY .catch(): guards against unhandled rejection if acquirePipelineSlot()
       // or the pipeline throws before its internal try/finally captures the error
       // (matches the multiply handler's pattern below and create.ts's own WHY comment).
@@ -263,6 +306,16 @@ router.post('/:jobId/multiply', applyGenerationRateLimit, async (req: AuthReques
       if (existing && existing.status === 'done') {
         return res.status(200).json({ jobId: existing.jobId, reused: true });
       }
+      // WHY 409 on in-flight sibling (CORR-005): Adapt used to spawn a second
+      // job for the same target while the first was still generating.
+      if (existing && isMemoryInProgress(existing.jobId)) {
+        return res.status(409).json({
+          error: 'An Adapt job for this platform is already generating',
+          code: 'JOB_IN_PROGRESS',
+          retryable: true,
+          jobId: existing.jobId,
+        });
+      }
     }
 
     const newJobId = uuidv4();
@@ -280,43 +333,24 @@ router.post('/:jobId/multiply', applyGenerationRateLimit, async (req: AuthReques
     };
 
     setJobInStore(newJobId, newJob);
+    await insertPendingJobRow(newJob);
 
     // FLOW: Content Multiplier skips orchestrator+researcher — it reuses the
     // source job's cached research/task-plan/platform-rules and starts
     // runContentPipeline directly at the Writer stage (see pipeline.ts's
-    // `skipResearch` option). runAndPersistPipeline still owns the retry
-    // loop, isSoftDeleted() guard, progress emission, and predictor stage, so
-    // multiply can no longer drift from the canonical pipeline.
-    // WHY .catch(): fire-and-forget background run — the 201 response below
-    // returns immediately so the client can subscribe to SSE; errors inside
-    // are already caught, persisted, and SSE'd by runAndPersistPipeline
-    // itself, so this only guards against an unhandled rejection escaping
-    // (matches routes/jobs/create.ts's runPipelineDirect fire-and-forget
-    // pattern).
-    runAndPersistPipeline(
-      newJob,
-      (stage, progress, agent, message, durationMs) => {
-        const current = getJobFromStore(newJobId);
-        if (current) {
-          current.status = stage === 'done' ? 'done' : 'processing';
-          current.stage = stage;
-          current.progress = progress;
-          setJobInStore(newJobId, { ...current });
-        }
-        sseManager.sendEvent(newJobId, { type: 'progress', stage, progress, agent, message, durationMs });
+    // `skipResearch` option). WHY runPipelineDirect (not bare
+    // runAndPersistPipeline): Adapt used to ignore MAX_DIRECT_PIPELINES and
+    // never entered BullMQ, so several adapts at once were uncapped Gemini
+    // runs on the API process. Direct mode still applies the slot cap; Redis
+    // queue for skipResearch would need a serialized research payload on the
+    // worker (not yet wired — Adapt stays in-process but gated).
+    runPipelineDirect(newJobId, newJob, {
+      skipResearch: {
+        researchResult: cachedResearch,
+        taskPlan: cachedOrchestrator?.taskPlan || `Create engaging ${targetPlatform.replace(/_/g, ' ')} content about: ${sourceJob.topic}`,
+        platformRules: cachedOrchestrator?.platformRules || {},
       },
-      {
-        set: (id, data) => { setJobInStore(id, data); },
-        evict: (id) => { setJobInStore(id, undefined); },
-      },
-      {
-        skipResearch: {
-          researchResult: cachedResearch,
-          taskPlan: cachedOrchestrator?.taskPlan || `Create engaging ${targetPlatform.replace(/_/g, ' ')} content about: ${sourceJob.topic}`,
-          platformRules: cachedOrchestrator?.platformRules || {},
-        },
-      },
-    ).catch((err: unknown) => {
+    }).catch((err: unknown) => {
       logger.error('Multiply pipeline failed', { jobId: newJobId, error: err instanceof Error ? err.message : String(err) });
     });
 

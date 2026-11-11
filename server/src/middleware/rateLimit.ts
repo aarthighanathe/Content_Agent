@@ -9,7 +9,6 @@ import { RedisStore } from 'rate-limit-redis';
 import type { AuthRequest } from './auth.js';
 import { getRedisClient } from '../lib/redisClient.js';
 import { logger } from '../lib/logger.js';
-import { env } from '../config.js';
 
 // SECURITY: these patterns short-circuit prompt injection attempts before they reach Gemini.
 // If a user embeds "ignore all previous instructions" in their topic, the LLM could be
@@ -66,39 +65,67 @@ export function sanitizeGenerationInput(req: Request, res: Response, next: NextF
     prompt: 2000,
   };
 
-  for (const [field, maxLen] of Object.entries(LIMITS)) {
-    const raw = req.body?.[field];
-    if (raw === undefined || raw === null) continue;
+  // Returns cleaned string, or null after writing a 400 (caller must return).
+  function sanitizeField(raw: unknown, fieldPath: string, maxLen: number): string | null {
     if (typeof raw !== 'string') {
       res.status(400).json({
-        error: `Field "${field}" must be a string`,
+        error: `Field "${fieldPath}" must be a string`,
         code: 'VALIDATION_ERROR',
         retryable: false,
       });
-      return;
+      return null;
     }
 
     const cleaned = stripHtml(raw);
 
     if (cleaned.length > maxLen) {
       res.status(400).json({
-        error: `Field "${field}" exceeds maximum length of ${maxLen} characters (got ${cleaned.length})`,
+        error: `Field "${fieldPath}" exceeds maximum length of ${maxLen} characters (got ${cleaned.length})`,
         code: 'VALIDATION_ERROR',
         retryable: false,
       });
-      return;
+      return null;
     }
 
     if (containsInjection(cleaned)) {
       res.status(400).json({
-        error: `Field "${field}" contains disallowed content. Please rephrase your request.`,
+        error: `Field "${fieldPath}" contains disallowed content. Please rephrase your request.`,
         code: 'VALIDATION_ERROR',
         retryable: false,
       });
-      return;
+      return null;
     }
 
+    return cleaned;
+  }
+
+  for (const [field, maxLen] of Object.entries(LIMITS)) {
+    const raw = req.body?.[field];
+    if (raw === undefined || raw === null) continue;
+    const cleaned = sanitizeField(raw, field, maxLen);
+    if (cleaned === null) return;
     req.body[field] = cleaned;
+  }
+
+  // SECURITY: batch / nested payloads (items[].topic, items[].targetAudience)
+  // used to skip the top-level-only loop above — walk them with the same caps.
+  const nestedFields: Array<{ key: string; maxLen: number }> = [
+    { key: 'topic', maxLen: LIMITS.topic },
+    { key: 'targetAudience', maxLen: LIMITS.targetAudience },
+    { key: 'content', maxLen: 8000 },
+    { key: 'feedback', maxLen: LIMITS.feedback },
+  ];
+  if (Array.isArray(req.body?.items)) {
+    for (let i = 0; i < req.body.items.length; i++) {
+      const item = req.body.items[i] as Record<string, unknown> | null;
+      if (!item || typeof item !== 'object') continue;
+      for (const { key, maxLen } of nestedFields) {
+        if (item[key] === undefined || item[key] === null) continue;
+        const cleaned = sanitizeField(item[key], `items[${i}].${key}`, maxLen);
+        if (cleaned === null) return;
+        item[key] = cleaned;
+      }
+    }
   }
 
   next();
@@ -207,15 +234,22 @@ function buildRateLimiter(config: RateLimiterConfig): RequestHandler[] {
   return [failClosedMiddleware(config.prefix), limiter];
 }
 
-export const AUTH_JOB_MAX = parseInt(env.RATE_LIMIT_MAX_JOBS, 10);
+// WHY re-exported: batch/repurpose/feed-monitor callers historically imported
+// budget helpers from this module; implementation lives in lib/generationBudget.ts
+// so this file stays under the 400-line split threshold.
+export {
+  AUTH_JOB_MAX,
+  assertGenerationBudget,
+  chargeGenerationBudget,
+  reserveGenerationBudget,
+  releaseGenerationBudget,
+} from '../lib/generationBudget.js';
+import { AUTH_JOB_MAX } from '../lib/generationBudget.js';
 
 /**
  * Authenticated users: configurable generation jobs per hour per user ID.
  * Override for local dev by setting RATE_LIMIT_MAX_JOBS=100 in .env
  */
-// WHY exported AUTH_JOB_MAX: batch/repurpose charge extra budget after creating
-// N jobs from one request — they need the same ceiling the limiter uses.
-
 // SECURITY: every keyGenerator below used to call `ipKeyGenerator(req as any)` —
 // passing the whole Express Request where ipKeyGenerator(ip: string, ...)
 // expects an IP address string. net.isIPv6() on a non-string returns false, so
@@ -322,31 +356,4 @@ export const socialRateLimit = buildRateLimiter({
   code: 'RATE_LIMITED',
 });
 
-/**
- * Charge additional generation-budget hits for batch/fan-out endpoints.
- * WHY: authJobRateLimit counts 1 request; a batch of 7 would otherwise amplify
- * past the hourly job cap. Charges (jobCount - 1) extra against the same Redis
- * prefix the limiter uses. Best-effort — Redis failures don't block the response.
- */
-export async function chargeGenerationBudget(userKey: string, jobCount: number): Promise<void> {
-  const extra = Math.max(0, Math.floor(jobCount) - 1);
-  if (extra === 0) return;
-  const client = getRedisClient();
-  if (!client) return;
-  try {
-    // rate-limit-redis default key shape: `${prefix}${id}` with prefix `rl:auth:`
-    const key = `rl:auth:${userKey}`;
-    const hits = await client.incrby(key, extra);
-    if (hits === extra) {
-      // First write for this window — mirror the limiter's 1h TTL.
-      await client.expire(key, 60 * 60);
-    }
-  } catch (err: unknown) {
-    logger.warn('Failed to charge generation budget', {
-      userKey,
-      extra,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
 

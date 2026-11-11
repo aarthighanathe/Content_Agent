@@ -4,14 +4,17 @@
 // oauth.ts; the token storage layer (DB + in-memory fallback) moved to
 // lib/socialTokens.ts since workers/publishWorker.ts and lib/socialPublish.ts
 // need it without pulling in Express route handlers. This file keeps the
-// remaining CRUD-shaped routes: connections list, disconnect, post, schedule.
+// remaining CRUD-shaped routes: connections list, disconnect, post.
+// NOTE: POST /social/schedule (in-memory Map) was removed 2026-11 — Calendar
+// auto-publish lives in scheduled_posts + publishWorker; the Map never delivered.
 import { Router, Response } from 'express';
 import type { NextFunction } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
-import { parseBody, postSocialSchema, scheduleSocialSchema } from '../../schemas/index.js';
+import { parseBody, postSocialSchema } from '../../schemas/index.js';
 import { socialRateLimit } from '../../middleware/rateLimit.js';
 import { publishToSocialPlatform } from '../../lib/socialPublish.js';
 import { dbGetTokens, dbDeleteToken, dbGetToken, ensureFreshSocialToken, PLATFORM_LABELS } from '../../lib/socialTokens.js';
+import { env } from '../../config.js';
 import oauthRoutes from './oauth.js';
 
 const router = Router();
@@ -30,7 +33,17 @@ router.get('/connections', async (req: AuthRequest, res: Response, next: NextFun
       displayName: data.displayName || null,
       expiresAt: data.expiresAt || null,
     }));
-    return res.json({ connections });
+    // WHY oauthConfigured: Brand's Connect buttons looked enabled even when
+    // LINKEDIN_/TWITTER_CLIENT_ID were empty — clicks only then failed with a
+    // generic toast. Surfacing config up front lets the UI disable Connect
+    // with a clear "Not configured" state instead of a dead-end click.
+    return res.json({
+      connections,
+      oauthConfigured: {
+        linkedin: Boolean(env.LINKEDIN_CLIENT_ID?.trim()),
+        twitter: Boolean(env.TWITTER_CLIENT_ID?.trim()),
+      },
+    });
   } catch (error: unknown) {
     next(error);
   }
@@ -80,66 +93,6 @@ router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response, ne
       return;
     }
   } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/social/schedule — store a scheduled post intent
-// Currently saves to an in-memory schedule (BullMQ delayed jobs can be wired
-// here once a scheduler table exists; for now the client shows scheduled state).
-// WHY content: unknown: mirrors postSocialSchema's own validated shape
-// (record|array|string — content varies by platform, same reasoning as
-// schemas/jobs.ts's patchContentSchema) — this map only stores and later
-// forwards it, never reads a key off it directly.
-//
-// WHY this is a SEPARATE concept from routes/scheduledPosts.ts's DB-backed
-// scheduled_posts table, not the same thing under two names: this Map tracks
-// a platform+exact-datetime+content publish intent (no date-precision
-// requirement, no jobId requirement); scheduledPosts.ts's table tracks a
-// calendar date-placement tied to a jobId (no platform/content/time — the
-// platform and content already live on the referenced contentJobs row). A
-// user can place the same job on the Calendar (scheduledPosts.ts) AND queue a
-// social-schedule intent for it here independently — nothing currently
-// cross-checks the two. CLAUDE.md §9 "Known Limitations" describes the
-// eventual real auto-publish feature as unifying this Map with that table
-// into one concept once a real delivery worker exists; until then, treat
-// them as two separate, uncoordinated reminder mechanisms, not duplicates of
-// each other.
-// WHY renamed from scheduledPosts to socialScheduleIntents: the old name
-// shadowed the DB table name from db/schema.ts, making it easy to confuse
-// the two systems. The new name makes the distinction explicit in the type
-// system, not just in comments.
-const socialScheduleIntents = new Map<string, { userId: string; platform: string; scheduledAt: string; content: unknown; jobId?: string; createdAt: string }>();
-
-router.post('/schedule', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const body = parseBody(scheduleSocialSchema, req.body, res);
-    if (!body) return;
-    const { platform, content, jobId, scheduledAt } = body;
-    const userId = req.dbUserId || req.userId || 'demo';
-
-    const scheduledDate = new Date(scheduledAt);
-    if (scheduledDate <= new Date()) {
-      return res.status(400).json({ error: 'scheduledAt must be a future date', code: 'VALIDATION_ERROR', retryable: false });
-    }
-
-    const conn = await dbGetToken(userId, platform);
-    if (!conn?.accessToken) {
-      return res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED', retryable: false });
-    }
-
-    const scheduleId = `${userId}:${platform}:${Date.now()}`;
-    socialScheduleIntents.set(scheduleId, {
-      userId, platform, scheduledAt, content, jobId,
-      createdAt: new Date().toISOString(),
-    });
-
-    // Auto-evict after scheduled time + 1 hour
-    const msUntil = scheduledDate.getTime() - Date.now() + 60 * 60 * 1000;
-    setTimeout(() => socialScheduleIntents.delete(scheduleId), msUntil);
-
-    return res.json({ ok: true, scheduleId, scheduledAt, platform });
-  } catch (error: unknown) {
     next(error);
   }
 });

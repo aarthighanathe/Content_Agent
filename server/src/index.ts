@@ -39,6 +39,8 @@ import { startWorker, stopWorker } from './workers/contentWorker.js';
 import { startPublishWorker, stopPublishWorker } from './workers/publishWorker.js';
 import { startFeedMonitorWorker, stopFeedMonitorWorker } from './workers/feedMonitorWorker.js';
 import { closeBrowserPool, stopPngCacheSweep } from './lib/carousel.js';
+import { closeDb } from './db/index.js';
+import { startStaleJobSweep, stopStaleJobSweep } from './lib/persistJob.js';
 import { demoJobRateLimit, sanitizeGenerationInput, contentRateLimit, imageRateLimit } from './middleware/rateLimit.js';
 
 const app = express();
@@ -50,14 +52,21 @@ const PORT = parseInt(env.PORT, 10);
 app.set('trust proxy', 1);
 
 // Security headers — helmet must come before cors and routes
+// SECURITY: localhost origins are for local dev only — never allow them in
+// production (SEC-013). FRONTEND_URL is always allowed; CORS_ORIGINS adds extras.
 const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://127.0.0.1:5173',
+  ...(env.NODE_ENV === 'production'
+    ? []
+    : [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+    ]),
+  env.FRONTEND_URL,
   ...(env.CORS_ORIGINS
-    ? env.CORS_ORIGINS.split(',').map((o) => o.trim())
+    ? env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
     : []),
-];
+].filter((origin, i, arr) => arr.indexOf(origin) === i);
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -104,11 +113,17 @@ app.use(helmet.frameguard({ action: 'deny' }));
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
+  // WHY expose: exportPNG reads X-Export-Warning; browsers hide custom headers
+  // from JS unless listed here, which used to make incomplete ZIPs look fine.
+  exposedHeaders: ['X-Export-Warning'],
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(clerkMiddleware({
   publishableKey: env.CLERK_PUBLISHABLE_KEY,
   secretKey: env.CLERK_SECRET_KEY,
+  // SECURITY: reject session JWTs whose azp is not our frontend (or extra
+  // CORS origins) — limits token replay from unexpected parties.
+  authorizedParties: allowedOrigins,
 }));
 
 // Liveness check — process is up, no dependency checks. Safe for a fast/frequent probe.
@@ -147,21 +162,31 @@ app.get('/api/ready', async (_req, res) => {
     }, 3000),
   ]);
 
+  // SECURITY (SEC-016): this probe is unauthenticated — never echo err.message
+  // (may contain hostnames / driver text). Operators use server logs + status.
+  if (!dbCheck.ok) {
+    logger.warn('/api/ready database check failed', { error: dbCheck.error });
+  }
+  if (!redisCheck.ok) {
+    logger.warn('/api/ready redis check failed', { error: redisCheck.error });
+  }
+
   const ready = dbCheck.ok && redisCheck.ok;
   res.status(ready ? 200 : 503).json({
     status: ready ? 'ready' : 'not_ready',
-    checks: { database: dbCheck, redis: redisCheck },
+    checks: {
+      database: { ok: dbCheck.ok },
+      redis: { ok: redisCheck.ok },
+    },
     timestamp: new Date().toISOString(),
   });
 });
 
 // Routes — all job routes go through authMiddleware.
-// The SSE stream endpoint (/:jobId/stream) verifies
-// their own Clerk JWT via the ?token= query param inside the route handler,
-// so they do NOT need to bypass authMiddleware here. The previous bypass has
-// been removed — every request to /api/jobs now passes through the middleware
-// chain and the route handlers enforce auth themselves for unauthenticated-
-// capable connections (EventSource).
+// The SSE stream endpoint (/:jobId/stream) verifies a short-lived Redis
+// stream token via ?token= (POST /:jobId/stream-token), not a Clerk session
+// JWT — EventSource cannot send Authorization headers. jobs/index.ts exempts
+// only the exact SSE path from authMiddleware; stream-token still requires auth.
 app.use('/api/jobs', sanitizeGenerationInput, jobRoutes);
 app.use('/api/content', authMiddleware, sanitizeGenerationInput, contentRateLimit, contentRoutes);
 app.use('/api/users', authMiddleware, sanitizeGenerationInput, userRoutes);
@@ -184,7 +209,10 @@ app.use('/api/social', (req, res, next) => {
 }, socialRoutes);
 app.use('/api/scheduled-posts', authMiddleware, scheduledPostsRoutes);
 app.use('/api/collections', authMiddleware, collectionsRoutes);
-app.use('/api/feed-monitors', authMiddleware, feedMonitorsRoutes);
+// WHY sanitizeGenerationInput: POST/PATCH bodies carry targetAudience / tone
+// fields that reach the writer via feed-monitor job creation — same LLM-facing
+// surface as /api/content and /api/jobs.
+app.use('/api/feed-monitors', authMiddleware, sanitizeGenerationInput, feedMonitorsRoutes);
 app.use('/api/demo', demoJobRateLimit, sanitizeGenerationInput, demoRoutes);
 app.use('/api/image', authMiddleware, sanitizeGenerationInput, imageRateLimit, imageGenRoutes);
 
@@ -240,6 +268,10 @@ const server = app.listen(PORT, async () => {
   } catch (error) {
     logger.warn('Feed monitor worker not started — RSS monitoring will be unavailable');
   }
+
+  // REL-001: periodic stale pending/in-flight sweep (also covers direct mode
+  // where the BullMQ worker never boots and never ran the startup sweep).
+  startStaleJobSweep();
 });
 
 // Coordinated graceful shutdown — order matters: stop accepting new HTTP
@@ -284,10 +316,18 @@ async function shutdown(signal: string) {
     console.error('Error closing browser pool:', err);
   }
 
+  try {
+    await closeDb();
+    logger.info('DB pool closed');
+  } catch (err) {
+    console.error('Error closing DB pool:', err);
+  }
+
   // WHY here even though the interval is unref()'d (so it wouldn't block exit on its
   // own): explicit cleanup during the coordinated shutdown sequence, consistent with
   // how the browser pool above is closed rather than left to the 'exit' handler.
   stopPngCacheSweep();
+  stopStaleJobSweep();
 
   clearTimeout(forceExit);
   process.exit(0);

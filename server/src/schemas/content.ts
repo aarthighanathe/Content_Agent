@@ -103,8 +103,21 @@ export const feedMonitorUpdateSchema = z.object({
   targetAudience: z.string().max(300).trim().optional(),
 });
 
+// WHY a dedicated enum (not job `platformEnum`): competitor analysis targets a
+// live social network profile (linkedin/twitter/instagram), while job platforms
+// are content formats (`instagram_carousel`, `linkedin_post`, etc.). Mixing them
+// would force the UI to map "LinkedIn Post" → LinkedIn and leave Instagram
+// carousel vs caption ambiguous.
+export const COMPETITOR_PLATFORMS = ['linkedin', 'twitter', 'instagram'] as const;
+export const competitorPlatformEnum = z.enum(COMPETITOR_PLATFORMS);
+
 export const competitorSchema = z.object({
-  handle: z.string().min(1, 'handle is required').max(100).trim(),
+  // WHY 300 not 100: users paste full profile URLs
+  // (https://www.linkedin.com/in/vanity-slug/) which exceed a username-only cap.
+  handle: z.string().min(1, 'handle is required').max(300).trim(),
+  // SECURITY: required — without a platform, bare-handle Tavily search often
+  // matches the wrong person/network (same username across LinkedIn vs Instagram).
+  platform: competitorPlatformEnum,
   industry: z.string().max(200).optional(),
 });
 

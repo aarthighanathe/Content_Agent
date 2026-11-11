@@ -55,13 +55,18 @@ export type OrchestratorResponse = z.infer<typeof orchestratorResponseSchema>;
 // here on purpose — that's what clampScore's own 0-20 clamp exists to handle,
 // keeping this schema's job scoped to "is it shaped like a number" only.
 export const criticResponseSchema = z.object({
-  hookStrength: z.number().catch(0).optional(),
-  platformCompliance: z.number().catch(0).optional(),
-  brandVoiceMatch: z.number().catch(0).optional(),
-  valueDelivery: z.number().catch(0).optional(),
-  ctaClarity: z.number().catch(0).optional(),
-  totalScore: z.number().catch(0).optional(),
-  feedback: z.string().optional(),
+  // WHY CN() (coerce+catch), not bare z.number().catch(0): an LLM that returns
+  // "hookStrength": "18" used to parse as success with that dimension set to 0
+  // because z.number() rejects strings and .catch(0) fires. Coerce keeps the
+  // real score. feedback uses CS so null/omitted become '' instead of failing
+  // the whole scorecard and substituting the flat 50 fallback.
+  hookStrength: CN().optional(),
+  platformCompliance: CN().optional(),
+  brandVoiceMatch: CN().optional(),
+  valueDelivery: CN().optional(),
+  ctaClarity: CN().optional(),
+  totalScore: CN().optional(),
+  feedback: CS().optional(),
 });
 
 export type CriticResponse = z.infer<typeof criticResponseSchema>;

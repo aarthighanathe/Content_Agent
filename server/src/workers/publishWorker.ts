@@ -10,7 +10,7 @@ import { env } from '../config.js';
 import { logger } from '../lib/logger.js';
 import { db } from '../db/index.js';
 import { scheduledPosts, contentJobs } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { dbGetToken, ensureFreshSocialToken, PLATFORM_LABELS } from '../lib/socialTokens.js';
 import { publishToSocialPlatform } from '../lib/socialPublish.js';
 import { readOutputs } from '../routes/content/shared.js';
@@ -38,8 +38,27 @@ export async function processPublishJob(job: Job): Promise<void> {
   if (!platform) return; // reminder-only scheduling — nothing to publish
 
   try {
+    // WHY atomic claim (CORR-006): two overlapping delayed jobs for the same
+    // row must not both call LinkedIn/Twitter. Only the winner of
+    // pending→publishing proceeds; the loser exits as a no-op.
+    const claimed = await db.update(scheduledPosts)
+      .set({ publishStatus: 'publishing' })
+      .where(and(
+        eq(scheduledPosts.id, scheduledPostId),
+        eq(scheduledPosts.publishStatus, 'pending'),
+      ))
+      .returning({ id: scheduledPosts.id });
+    if (claimed.length === 0) return;
+
     const [jobRow] = await db.select().from(contentJobs).where(eq(contentJobs.id, row.jobId)).limit(1);
-    if (!jobRow) throw new Error('Source job not found');
+    // SECURITY: soft-deleted jobs / ownership mismatch must not publish even if
+    // scheduled_posts cleanup raced the worker (SEC-011).
+    if (!jobRow || jobRow.deleted === 1 || jobRow.userId !== row.userId) {
+      await db.update(scheduledPosts)
+        .set({ publishStatus: 'failed', publishError: 'Source job unavailable' })
+        .where(eq(scheduledPosts.id, scheduledPostId));
+      return;
+    }
 
     const outputRows = await db.query.contentOutputs.findMany({ where: (o, { eq: eqOp }) => eqOp(o.jobId, row.jobId) });
     const assembled = assembleJobFromDB({ ...jobRow, outputs: outputRows });
