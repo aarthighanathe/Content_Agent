@@ -15,6 +15,15 @@
 
 ---
 
+## 2026-11-11 — Render: resilient Redis reconnect (rate-limit / worker noise)
+
+- Redis `retryStrategy` no longer gives up after 2 attempts (~1s). Render
+  cold-start + Upstash TLS blips previously left the shared client permanently
+  closed, which flooded logs with `express-rate-limit … Connection is closed`
+  and BullMQ `ECONNRESET` even though the service was “live”.
+- Reconnect on `ECONNRESET` / closed-stream errors; throttle Redis error logs;
+  suppress the same transient worker errors in content + publish workers.
+
 ## 2026-11-11 — Render: Chrome for carousel export + safer Redis logs
 
 - **Puppeteer on Render:** `render.yaml` build installs Chrome via

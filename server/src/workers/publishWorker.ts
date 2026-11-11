@@ -118,7 +118,18 @@ export function startPublishWorker(): Worker | null {
     });
 
     worker.on('error', (err) => {
-      if (err.message.includes('ECONNREFUSED') || err.message.includes('Connection is closed')) return;
+      // WHY swallow transient Redis reconnect noise: Upstash/Render blips show
+      // up as ECONNRESET / Connection is closed while ioredis is already
+      // retrying — Sentry-ing every one is alert fatigue, not a real job failure.
+      const msg = err.message || '';
+      if (
+        msg.includes('ECONNREFUSED')
+        || msg.includes('ECONNRESET')
+        || msg.includes('Connection is closed')
+        || msg.includes('ETIMEDOUT')
+      ) {
+        return;
+      }
       console.error('[PublishWorker] Worker error:', err.message);
       Sentry.captureException(err, { tags: { action: 'publish-worker-error' } });
     });

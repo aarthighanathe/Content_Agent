@@ -183,7 +183,22 @@ function makeStore(prefix: string): RedisStore | undefined {
   const call = client.call.bind(client) as (...args: string[]) => Promise<unknown>;
   return new RedisStore({
     prefix: `rl:${prefix}:`,
-    sendCommand: (...args: string[]) => call(...args) as ReturnType<RedisStore['sendCommand']>,
+    // WHY wrap: RedisStore init + first requests can race a reconnect. Letting
+    // the rejection propagate still fail-closes the limiter for that request;
+    // without a catch here, express-rate-limit logs a noisy unhandled async
+    // "Connection is closed" stack per limiter at boot.
+    sendCommand: ((...args: string[]) =>
+      call(...args).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          msg.includes('Connection is closed')
+          || msg.includes('ECONNRESET')
+          || msg.includes('Stream isn\'t writeable')
+        ) {
+          logger.warn('Rate-limit Redis command failed during reconnect', { prefix, msg });
+        }
+        throw err;
+      })) as RedisStore['sendCommand'],
   });
 }
 

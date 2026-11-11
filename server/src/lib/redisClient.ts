@@ -23,30 +23,56 @@ function redisHostForLog(redisUrl: string): string {
   }
 }
 
+// WHY patient retries: Render cold-start + Upstash TLS often fails the first
+// handshake(s). The old strategy returned null after 2 tries (~1s), leaving the
+// shared client permanently closed — every RedisStore init then logged
+// "Connection is closed" and BullMQ workers spammed ECONNRESET while the API
+// still reported "live". Keep reconnecting with capped backoff instead.
+const REDIS_IO_OPTIONS = {
+  maxRetriesPerRequest: null as null,
+  enableReadyCheck: false,
+  retryStrategy: (times: number): number | null => {
+    if (times > 30) return null;
+    return Math.min(times * 250, 5000);
+  },
+  reconnectOnError: (err: Error): boolean | 1 | 2 => {
+    const msg = err.message || '';
+    if (
+      msg.includes('READONLY')
+      || msg.includes('ECONNRESET')
+      || msg.includes('ETIMEDOUT')
+      || msg.includes('EPIPE')
+      || msg.includes('Connection is closed')
+    ) {
+      // WHY 2: reconnect and resend the failed command when safe.
+      return 2;
+    }
+    return false;
+  },
+};
+
 function buildConnection(): IORedis | null {
   const redisUrl = env.UPSTASH_REDIS_URL || env.REDIS_URL || '';
   const redisToken = env.UPSTASH_REDIS_TOKEN || '';
 
   if (redisUrl && (redisUrl.startsWith('rediss://') || redisUrl.startsWith('redis://'))) {
     logger.info('[Redis] Creating Redis connection', { host: redisHostForLog(redisUrl) });
-    return new IORedis(redisUrl, {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-      retryStrategy: (times) => (times > 2 ? null : Math.min(times * 200, 1000)),
-    });
+    return new IORedis(redisUrl, REDIS_IO_OPTIONS);
   }
 
   if (redisUrl && redisUrl.startsWith('https://')) {
+    // Upstash REST hostname still speaks Redis on 6379 over TLS when given the
+    // REST token as the password — prefer rediss:// from the console when possible.
     const host = redisUrl.replace(/^https?:\/\//, '').split('/')[0] ?? '';
-    logger.info('[Redis] Creating Redis connection (REST mode)', { host: host || '(unknown-host)' });
+    logger.info('[Redis] Creating Redis connection (REST host + TLS)', {
+      host: host || '(unknown-host)',
+    });
     return new IORedis({
       host,
       port: 6379,
       password: redisToken,
       tls: {},
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-      retryStrategy: (times) => (times > 2 ? null : Math.min(times * 200, 1000)),
+      ...REDIS_IO_OPTIONS,
     });
   }
 
@@ -72,8 +98,20 @@ export function getRedisClient(): IORedis | null {
     const conn = buildConnection();
     if (conn) {
       _client = conn;
+      // WHY throttle error logs: during reconnect storms ioredis emits many
+      // identical errors; logging every one drowned useful startup signal.
+      let lastErrLog = 0;
       _client.on('error', (err) => {
+        const now = Date.now();
+        if (now - lastErrLog < 10_000) return;
+        lastErrLog = now;
         console.warn('[RedisClient] Redis error:', err?.message || err);
+      });
+      _client.on('reconnecting', () => {
+        logger.warn('[Redis] Reconnecting…');
+      });
+      _client.on('ready', () => {
+        logger.info('[Redis] Connection ready');
       });
     }
     return _client;
@@ -81,7 +119,6 @@ export function getRedisClient(): IORedis | null {
     console.warn('[RedisClient] Failed to create Redis client:', err);
     return null;
   }
-}
 
 /**
  * Returns a dedicated ioredis connection for BullMQ Queue/Worker use, cloned

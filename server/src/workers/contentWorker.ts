@@ -181,8 +181,16 @@ export function startWorker() {
     });
 
     worker.on('error', (err) => {
-      // Suppress Redis connection errors
-      if (err.message.includes('ECONNREFUSED') || err.message.includes('Connection is closed')) return;
+      // Suppress transient Redis reconnect noise (same as publishWorker).
+      const msg = err.message || '';
+      if (
+        msg.includes('ECONNREFUSED')
+        || msg.includes('ECONNRESET')
+        || msg.includes('Connection is closed')
+        || msg.includes('ETIMEDOUT')
+      ) {
+        return;
+      }
       console.error('Worker error:', err.message);
       Sentry.captureException(err, { tags: { action: 'worker-error' } });
     });
