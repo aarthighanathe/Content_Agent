@@ -187,6 +187,8 @@ function makeStore(prefix: string): RedisStore | undefined {
     // the rejection propagate still fail-closes the limiter for that request;
     // without a catch here, express-rate-limit logs a noisy unhandled async
     // "Connection is closed" stack per limiter at boot.
+    // WHY cast via unknown: rate-limit-redis's SendCommandFn overload union
+    // includes a cluster shape that doesn't match ioredis `.call(...string[])`.
     sendCommand: ((...args: string[]) =>
       call(...args).catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -198,7 +200,7 @@ function makeStore(prefix: string): RedisStore | undefined {
           logger.warn('Rate-limit Redis command failed during reconnect', { prefix, msg });
         }
         throw err;
-      })) as RedisStore['sendCommand'],
+      })) as unknown as RedisStore['sendCommand'],
   });
 }
 
