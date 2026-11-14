@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Social Media Template
- * Optimized for social platforms with engaging layouts,
- * emoji-friendly design, and mobile-first aesthetics.
- */
 export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function SocialMediaTemplate({
   slide,
@@ -47,7 +42,6 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Social header */}
         <div
           style={{
             display: 'flex',
@@ -91,7 +85,6 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </div>
         </div>
 
-        {/* Engagement bar */}
         <div
           style={{
             display: 'flex',
@@ -106,7 +99,6 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           <span>🔄 Share</span>
         </div>
 
-        {/* Headline */}
         {slide.headline && (
           <h2
             style={{
@@ -123,7 +115,6 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </h2>
         )}
 
-        {/* Body text */}
         {slide.body && (
           <p
             style={{
@@ -139,7 +130,7 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </p>
         )}
 
-        {/* Points with hashtag style — unlike ModernMinimalTemplate's points
+        {/* WHY: Points with hashtag style — unlike ModernMinimalTemplate's points
             block, this list has no flex:1/minHeight:0/overflow:hidden guard:
             each row is a single short hashtag-style line (icon + one-word
             label), never the multi-line label+desc pairs other templates
@@ -174,7 +165,6 @@ export const SocialMediaTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </div>
         )}
 
-        {/* Social footer */}
         <div
           style={{
             marginTop: 'auto',

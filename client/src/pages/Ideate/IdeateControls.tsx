@@ -39,10 +39,10 @@ export function IdeateControls({
     const platform = competitorPlatformLabel(a.platform);
     return { value: a.id, label: platform ? `@${a.handle} · ${platform}` : `@${a.handle}` };
   });
-  // WHY fallback to first analysis when competitorAnalysisId is undefined: when the user
+  // WHY: fallback to first analysis when competitorAnalysisId is undefined: when the user
   // first enables the competitor-gap toggle, we auto-select the most recent analysis
   // rather than forcing them to manually pick one. This provides a smoother UX.
-  // WHY guard analysisOptions[0]: if competitorAnalyses is empty, analysisOptions is also empty,
+  // WHY: guard analysisOptions[0]: if competitorAnalyses is empty, analysisOptions is also empty,
   // so accessing [0] would crash. The surrounding {analysisOptions.length > 0} guard on line 80
   // prevents the Dropdown from rendering, but selectedAnalysisId is still computed in render.
   const selectedAnalysisId = competitorAnalysisId ?? (analysisOptions.length > 0 ? analysisOptions[0].value : undefined);
@@ -74,7 +74,7 @@ export function IdeateControls({
             }}
           />
         </div>
-        {/* WHY stretch to the focus field: size="sm" padding is shorter than the
+        {/* WHY: stretch to the focus field: size="sm" padding is shorter than the
             topic input, so the count control sat visibly shorter on the same row. */}
         <div className="ideate-count-dropdown">
           <Dropdown

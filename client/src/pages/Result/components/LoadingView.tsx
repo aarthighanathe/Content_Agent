@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { VisibleScroller } from '../../../components/VisibleScroller';
 import { agentNames, agentSubs, agentColors, stageOrder } from '../constants';
@@ -25,9 +25,34 @@ function getStageIndex(s: string): number {
   return stageOrder.indexOf(s);
 }
 
+function formatElapsed(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m <= 0) return `${s}s`;
+  return `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
 export function LoadingView({ regenerating, currentStage, stageMessage, progress, agentLogs }: Props) {
   const latestLogRef = useRef<HTMLDivElement>(null);
   const ci = getStageIndex(currentStage);
+  // WHY: client elapsed — Gemini 503/timeouts can stretch past ~30s with no new
+  // SSE copy; without a timer the UI keeps saying "~30 sec" and looks stuck.
+  const [elapsedSec, setElapsedSec] = useState(0);
+
+  useEffect(() => {
+    setElapsedSec(0);
+    const id = window.setInterval(() => {
+      setElapsedSec((prev) => prev + 1);
+    }, 1000);
+    return () => window.clearInterval(id);
+    // WHY: regenerating only — resetting on every stage SSE would hide slow-provider hints.
+  }, [regenerating]);
+
+  const slowHint = elapsedSec >= 90
+    ? 'Still working — the AI provider may be busy. Retries are automatic; hang tight.'
+    : elapsedSec >= 45
+      ? 'Taking longer than usual — retrying against the AI provider…'
+      : null;
 
   return (
     <div className="rp-lv card">
@@ -42,12 +67,19 @@ export function LoadingView({ regenerating, currentStage, stageMessage, progress
         </div>
         <h3 className="rp-lv-title">{regenerating ? 'Regenerating content…' : 'Generating your content…'}</h3>
         <div>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', margin: 0, fontFamily: "var(--font-mono)", letterSpacing: 0.5 }}>
-            Estimated time: ~30 sec · {progress}%
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', margin: 0, fontFamily: 'var(--font-mono)', letterSpacing: 0.5 }}>
+            {elapsedSec < 45
+              ? `Typically ~30–60 sec · ${progress}% · ${formatElapsed(elapsedSec)}`
+              : `Elapsed ${formatElapsed(elapsedSec)} · ${progress}%`}
           </p>
           {stageMessage && (
             <p key={stageMessage} aria-live="polite" style={{ fontSize: 12, color: 'color-mix(in srgb, var(--accent) 75%, transparent)', textAlign: 'center', animation: 'rp-fadeUp .3s ease both', margin: 0 }}>
               {stageMessage}
+            </p>
+          )}
+          {slowHint && (
+            <p aria-live="polite" style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', margin: '6px 0 0', maxWidth: 320, marginInline: 'auto', lineHeight: 1.45 }}>
+              {slowHint}
             </p>
           )}
         </div>
@@ -83,8 +115,12 @@ export function LoadingView({ regenerating, currentStage, stageMessage, progress
       {agentLogs && agentLogs.length > 0 ? (
         <VisibleScroller className="rp-lv-feed" frameClassName="rp-lv-feed-frame" stackClassName="rp-lv-logs" gutter={false}>
           {agentLogs.slice(-6).map((log, i, arr) => (
-            <div key={`${log.agentName}::${log.action}::${log.durationMs ?? 'x'}`} ref={i === arr.length - 1 ? latestLogRef : undefined} className="rp-lv-log">
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--accent)', textTransform: 'uppercase', flexShrink: 0, paddingTop: 1, minWidth: 62 }}>[{log.agentName}]</span>
+            <div
+              key={`${agentLogs.length - arr.length + i}::${log.agentName}::${log.action}::${log.durationMs ?? 'x'}`}
+              ref={i === arr.length - 1 ? latestLogRef : undefined}
+              className="rp-lv-log"
+            >
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--accent)', textTransform: 'uppercase', flexShrink: 0, paddingTop: 1, minWidth: 62 }}>[{log.agentName}]</span>
               <span style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{log.action}</span>
             </div>
           ))}

@@ -15,7 +15,7 @@ function formatRetryAfter(ms: number): string {
   return `in about ${hours} hour${hours > 1 ? 's' : ''}`;
 }
 
-// WHY this exists: the server already returns { error, code, retryable, retryAfterMs }
+// WHY: this exists: the server already returns { error, code, retryable, retryAfterMs }
 // per CLAUDE.md's error-shape convention, but callers used to read only `.error` (or a
 // hardcoded generic string), so a rate limit and a validation failure rendered as the
 // same generic banner with the same generic "try again" advice. This maps `code` to copy
@@ -32,6 +32,30 @@ export function getSubmitError(err: unknown, fallback = 'Something went wrong. P
     if (code === 'RATE_LIMITED') {
       const when = typeof data?.retryAfterMs === 'number' ? ` Try again ${formatRetryAfter(data.retryAfterMs)}.` : '';
       return { message: `${data?.error || 'Rate limit reached.'}${when}`, retryable: false, retryAfterMs: data?.retryAfterMs };
+    }
+    // WHY: distinct from RATE_LIMITED: imageGen concurrency gate (max 2) —
+    // retryable immediately once a slot frees, not a timed quota.
+    if (code === 'IMAGE_GEN_BUSY') {
+      return {
+        message: data?.error || 'Image generation is busy — please retry shortly.',
+        retryable: true,
+      };
+    }
+    // WHY: process-wide carousel ZIP export semaphore (max 2) — same class as
+    // IMAGE_GEN_BUSY; not a timed rate limit.
+    if (code === 'EXPORT_BUSY') {
+      return {
+        message: data?.error || 'Export is busy — please retry shortly.',
+        retryable: true,
+      };
+    }
+    // WHY: 409 when regenerate/multiply/edit hits an in-flight job — UI must
+    // show this instead of swallowing the catch (Result regenerate used to).
+    if (code === 'JOB_IN_PROGRESS') {
+      return {
+        message: data?.error || 'This job is still generating — wait for it to finish.',
+        retryable: true,
+      };
     }
     if (code === 'VALIDATION_ERROR') {
       return { message: data?.error || fallback, retryable: true };

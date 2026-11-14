@@ -1,6 +1,4 @@
-// WHY inline SVG brand icons: replaces react-icons brand icon dependency to reduce
-// bundle size and avoid version conflicts. Custom SVGs give exact control over icon
-// appearance and match the app's design system.
+// WHY: inline SVGs: drop react-icons brand weight and keep platform glyphs on-theme.
 import type { CSSProperties } from 'react';
 
 interface IconProps {
@@ -33,5 +31,5 @@ export function XTwitter({ size = 16, color = 'currentColor', style }: IconProps
   );
 }
 
-// Legacy Twitter bird alias — maps to X/Twitter
+// NOTE: Twitter alias for older call sites — same glyph as XTwitter.
 export const Twitter = XTwitter;

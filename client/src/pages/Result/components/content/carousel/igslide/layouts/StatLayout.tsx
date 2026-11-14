@@ -4,8 +4,6 @@ import { FONT, BOTTOM_PAD, H_PAD } from '../constants';
 import { GridLines, GlowBlob, StatWatermark, LeftStripe } from '../decorativePrimitives';
 import { PillTag } from '../contentPieces';
 
-// ── Stat layout ───────────────────────────────────────────────────────────────
-
 export function StatLayout({ slide, colors }: { slide: SlideData; colors: ColorSystem }) {
   const match = (slide.headline || '').match(/^(\$?[\d,.]+[KMBx%+×]*(?:\s*[×xX]\s*\d+)?)/);
   const stat  = match ? match[1].trim() : '';

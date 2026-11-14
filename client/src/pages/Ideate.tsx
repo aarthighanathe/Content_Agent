@@ -14,7 +14,7 @@ import { SavedIdeasSection } from './Ideate/SavedIdeasSection';
 
 export default function IdeatePage() {
   const navigate = useNavigate();
-  // WHY store instead of local state: ideas must survive navigating to /create and back,
+  // WHY: store instead of local state: ideas must survive navigating to /create and back,
   // AND a hard refresh — the store persists ideatedIdeas to localStorage (store.ts) so the
   // list only changes when the user explicitly regenerates.
   const ideas = useAppStore((s) => s.ideatedIdeas);
@@ -30,16 +30,16 @@ export default function IdeatePage() {
   const [focusTopic, setFocusTopic] = useState('');
   const [platformFilter, setPlatformFilter] = useState<string | null>(null);
   const [count, setCount] = useState(10);
-  // WHY competitor-gap ideation mode is off by default: only meaningful once
+  // WHY: competitor-gap ideation mode is off by default: only meaningful once
   // a past analysis exists (see competitorHistoryQuery below). The toggle
   // in IdeateControls only shows when the history list is non-empty.
   const [useCompetitorGaps, setUseCompetitorGaps] = useState(false);
   const [competitorAnalysisId, setCompetitorAnalysisId] = useState<string | undefined>(undefined);
-  // WHY track which single idea is regenerating: shows a spinner/disabled state
+  // WHY: track which single idea is regenerating: shows a spinner/disabled state
   // only on that specific card, not the entire list.
-  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
-  // WHY reuse C1's history endpoint: checks if the user has at least one saved analysis.
+  // WHY: reuse C1's history endpoint: checks if the user has at least one saved analysis.
   // IdeateControls only shows the competitor-gap toggle when this list is non-empty.
   const competitorHistoryQuery = useQuery({ queryKey: ['competitor', 'history'], queryFn: getCompetitorHistory });
   const competitorAnalyses = competitorHistoryQuery.data?.analyses || [];
@@ -60,7 +60,7 @@ export default function IdeatePage() {
       const { ideas: newIdeas } = await generateIdeas(count, focusTopic.trim() || undefined, activeAnalysisId);
       setIdeas(newIdeas);
     } catch (err) {
-      // WHY context-aware copy (#40): when ideas already exist and regeneration fails,
+      // WHY: context-aware copy (#40): when ideas already exist and regeneration fails,
       // a generic error banner reads ambiguously — the user can't tell whether the old
       // ideas are still actionable or have been cleared. The fallback explicitly
       // acknowledges the previous ideas are still shown and usable; getSubmitError still
@@ -78,29 +78,30 @@ export default function IdeatePage() {
     navigateToCreate(navigate, { topic: idea.title, platform: idea.platform });
   }
 
-  function handleDismiss(index: number) {
-    setIdeas(ideas.filter((_, i) => i !== index));
+  // WHY: by id, read from the live store: index-based removal raced with in-flight regenerates
+  function handleDismiss(id: string | undefined): void {
+    setIdeas(useAppStore.getState().ideatedIdeas.filter((idea) => idea.id !== id));
   }
 
-  // WHY regenerate in place via map: replacing the idea at `index` without
+  // WHY: regenerate in place via map: replacing the idea at `index` without
   // filtering/splicing preserves stable indices for other cards. This prevents
   // mid-flight index shifts that would confuse the UI during regeneration.
-  async function handleRegenerateOne(index: number) {
-    if (regeneratingIndex !== null) return;
-    setRegeneratingIndex(index);
+  async function handleRegenerateOne(id: string | undefined): Promise<void> {
+    if (regeneratingId !== null || !id) return;
+    setRegeneratingId(id);
     try {
-      // WHY getState() for exclude titles + map: `ideas` from the render closure can be
+      // WHY: getState() for exclude titles + map: `ideas` from the render closure can be
       // stale if another regenerate finished between click and this await — reading the
       // live store avoids writing an outdated snapshot back over fresher cards.
       const currentIdeas = useAppStore.getState().ideatedIdeas;
       const excludeTitles = currentIdeas.map((i) => i.title);
       const activeAnalysisId = useCompetitorGaps ? competitorAnalysisId : undefined;
       const newIdea = await regenerateIdea(focusTopic.trim() || undefined, excludeTitles, activeAnalysisId);
-      setIdeas(useAppStore.getState().ideatedIdeas.map((idea, i) => (i === index ? newIdea : idea)));
+      setIdeas(useAppStore.getState().ideatedIdeas.map((idea) => (idea.id === id ? { ...newIdea, id } : idea)));
     } catch (err) {
       setError(getSubmitError(err, 'Failed to regenerate that idea — please try again.').message);
     }
-    setRegeneratingIndex(null);
+    setRegeneratingId(null);
   }
 
   function handleToggleSave(idea: IdeatedIdea) {
@@ -113,7 +114,6 @@ export default function IdeatePage() {
 
   return (
     <div>
-      {/* Page Header */}
       <div style={{ marginBottom: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h1 style={{ fontFamily: "var(--font-heading)", fontSize: "clamp(20px, 5vw, 28px)", fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
@@ -157,7 +157,7 @@ export default function IdeatePage() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
         }}>
           <span>{error}</span>
-          {/* WHY inline retry: the only other way to retry was the "Regenerate ideas"
+          {/* WHY: inline retry: the only other way to retry was the "Regenerate ideas"
               button up in IdeateControls, which can be scrolled out of view — this
               puts the recovery action right next to the error that caused it. */}
           <button
@@ -175,7 +175,6 @@ export default function IdeatePage() {
         </div>
       )}
 
-      {/* Loading skeletons — same 3-column grid as the idea cards */}
       {loading && (
         <div className="ideate-grid">
           {Array.from({ length: count }, (_, i) => `idea-skel-${i}`).map((id) => (
@@ -187,11 +186,10 @@ export default function IdeatePage() {
         </div>
       )}
 
-      {/* Ideas grid — 3 columns on desktop; see .ideate-grid in index.css */}
       {!loading && visibleIdeas.length > 0 && (
         <div className="ideate-grid">
           {visibleIdeas.map((idea) => {
-            // WHY the full-array index, not the loop-position index: filtering
+            // WHY: the full-array index, not the loop-position index: filtering
             // visibleIdeas by platform reshuffles loop position on every filter
             // change even though the same idea is still showing — keying on
             // that position caused React to remount (not update) the card,
@@ -202,7 +200,7 @@ export default function IdeatePage() {
             const stableIndex = ideas.indexOf(idea);
             return (
               <IdeaCard
-                // WHY idea.title, not stableIndex: React key must identify the
+                // WHY: idea.title, not stableIndex: React key must identify the
                 // idea itself, not its current array position — dismissing or
                 // regenerating an earlier card shifts every later idea's index,
                 // which would make React reuse a later card's DOM node (and its
@@ -216,17 +214,16 @@ export default function IdeatePage() {
                 index={stableIndex}
                 saved={savedTitles.has(idea.title)}
                 onUse={handleCreate}
-                onDismiss={handleDismiss}
+                onDismiss={() => handleDismiss(idea.id)}
                 onToggleSave={handleToggleSave}
-                onRegenerate={handleRegenerateOne}
-                regenerating={regeneratingIndex === stableIndex}
+                onRegenerate={() => { handleRegenerateOne(idea.id).catch(() => {}); }}
+                regenerating={regeneratingId !== null && regeneratingId === idea.id}
               />
             );
           })}
         </div>
       )}
 
-      {/* Empty state */}
       {!loading && ideas.length === 0 && (
         <div style={{
           background: 'var(--bg-raised)', border: '1px dashed var(--rule)',

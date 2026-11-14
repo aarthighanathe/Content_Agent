@@ -16,7 +16,7 @@ describe('useFocusTrap', () => {
   });
 
   it('focuses the first focusable element when activated', () => {
-    // WHY appendChild(container) to document.body: the hook's getFocusable()
+    // WHY: appendChild(container) to document.body: the hook's getFocusable()
     // filters out elements whose offsetParent is null (skips hidden/detached
     // elements) — see setup.ts's offsetParent stub for why this needs a real
     // document.body attachment to read as "visible" under jsdom.
@@ -37,7 +37,7 @@ describe('useFocusTrap', () => {
   });
 
   it('handles Tab key to cycle focus', () => {
-    // WHY dispatch on document, not container: the hook listens at the
+    // WHY: dispatch on document, not container: the hook listens at the
     // document level (so Tab is trapped regardless of what currently has
     // focus, not just events bubbling up through the container) — see the
     // hook's own `document.addEventListener('keydown', ...)`.
@@ -53,7 +53,7 @@ describe('useFocusTrap', () => {
     const ref = { current: container };
     const { unmount } = renderHook(() => useFocusTrap(ref, true));
 
-    // WHY focus button2 first: the hook only intervenes at the trap boundary
+    // WHY: focus button2 first: the hook only intervenes at the trap boundary
     // — Tab from the last focusable element wraps back to the first (and
     // Shift+Tab from the first wraps to the last). Tabbing forward from the
     // *first* element is native browser behavior the hook deliberately lets
@@ -61,7 +61,7 @@ describe('useFocusTrap', () => {
     // test the wrong case.
     button2.focus();
 
-    // WHY cancelable: true: KeyboardEvent defaults to cancelable: false, which
+    // WHY: cancelable: true: KeyboardEvent defaults to cancelable: false, which
     // makes preventDefault() a silent no-op — without this the assertion
     // below would fail regardless of whether the hook calls preventDefault().
     const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });

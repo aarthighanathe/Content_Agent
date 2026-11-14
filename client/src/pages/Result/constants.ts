@@ -3,12 +3,8 @@ import { Instagram, Linkedin, XTwitter } from '../../components/BrandIcons';
 import type { ComponentType, CSSProperties } from 'react';
 import type { TemplateId as TemplateSystemId } from '../../lib/templateSystem';
 
-// New template system id — re-exported from templateSystem.ts (the single
-// source of truth for the 10 template ids) rather than independently
-// redeclared here. Was a second hand-copied literal union that had already
-// silently drifted out of grep-verified sync risk; kept as a distinct name
-// (not just importing TemplateId directly) since every existing call site
-// already imports `NewTemplateId` from this file.
+// WHY: alias, not a copy: templateSystem.ts is the single source of truth for template
+// ids (a hand-copied union drifts). Name kept because call sites import it from here.
 export type NewTemplateId = TemplateSystemId;
 
 export const stageOrder = ['planning', 'researching', 'writing', 'formatting', 'critiquing', 'done'];

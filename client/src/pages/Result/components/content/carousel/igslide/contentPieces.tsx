@@ -3,8 +3,6 @@ import type { SlidePoint, BgMode } from './types';
 import { FONT } from './constants';
 import { FeatureIcon } from './decorativePrimitives';
 
-// ── Pill + label components ───────────────────────────────────────────────────
-
 export function PillTag({ text, bgMode, colors }: { text: string; bgMode: BgMode; colors: ColorSystem }) {
   const styles = {
     light:  { bg: colors.BRAND_PRIMARY + '14', border: colors.BRAND_PRIMARY + '30', color: colors.BRAND_PRIMARY },
@@ -53,7 +51,7 @@ export function InitialsCircle({ name, size = 36, colors }: { name: string; size
   );
 }
 
-// WHY render nothing without a brandName: this used to always show an initials circle
+// WHY: render nothing without a brandName: this used to always show an initials circle
 // and "Brand"/"@yourbrand" placeholder text, even for users who never set a brand name.
 // That's fabricated identity on the slide, not a real fallback — omit the whole lockup
 // instead of showing a made-up one.
@@ -71,8 +69,6 @@ export function BrandLockup({ brandName, handle, bgMode, colors }: { brandName: 
     </div>
   );
 }
-
-// ── Feature / step components ─────────────────────────────────────────────────
 
 export function FeatureRow({ point, colors, isLight, isLast, fi }: { point: SlidePoint; colors: ColorSystem; isLight: boolean; isLast: boolean; fi: number }) {
   const borderColor = isLight ? colors.LIGHT_BORDER : 'rgba(255,255,255,0.07)';

@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { Sparkles } from 'lucide-react';
-import { getJobs, getProfile, deleteJob, getScheduledPosts, getFeedMonitors } from '../api';
+import { getJobs, getProfile, deleteJob, getFeedMonitors } from '../api';
+import { fetchScheduledPostsCurrentAndNext } from './Calendar/calendarHelpers';
 import { ErrorState } from '../components/ErrorState';
 import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { RecentGenerations } from './Dashboard/RecentGenerations';
@@ -40,7 +41,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  // WHY gated on authLoaded && isSignedIn: same race AuthLayout.tsx's own
+  // WHY: gated on authLoaded && isSignedIn: same race AuthLayout.tsx's own
   // profile query guards against — Dashboard mounts in the same render pass
   // as AuthLayout (nested route via <Outlet/>, not after its effects run), so
   // without this gate these queries could fire before window.Clerk.session is
@@ -58,12 +59,14 @@ export default function Dashboard() {
     queryFn: getProfile,
     enabled: authLoaded && isSignedIn,
   });
-  // WHY the same keys as NextScheduledCard / FeedHealthCard: those cards own
+  // WHY: the same keys as NextScheduledCard / FeedHealthCard: those cards own
   // the UI, but the page has to know when they settle so it can reveal every
   // section in one paint. React Query dedupes the request.
+  // WHY: same key + fn as NextScheduledCard — React Query dedupes; API is
+  // month-scoped so the helper fetches current + next local month.
   const scheduleQuery = useQuery({
     queryKey: ['dashboard', 'nextScheduled'],
-    queryFn: () => getScheduledPosts(),
+    queryFn: fetchScheduledPostsCurrentAndNext,
     enabled: authLoaded && isSignedIn,
   });
   const feedQuery = useQuery({
@@ -80,7 +83,7 @@ export default function Dashboard() {
   const stats: ProfileStats = profileQuery.data?.stats || DEFAULT_STATS;
   const contentDna = profileQuery.data?.contentDna || null;
 
-  // WHY isPending, not isLoading: while Clerk is still hydrating these queries
+  // WHY: isPending, not isLoading: while Clerk is still hydrating these queries
   // are disabled, and isLoading is false in that state. The page used to paint
   // zeros and an empty job list, then swap in skeletons, then fill each card
   // as its own request returned.
@@ -88,7 +91,7 @@ export default function Dashboard() {
     || profileQuery.isPending
     || scheduleQuery.isPending
     || feedQuery.isPending;
-  // WHY per-query, not one combined isError: audit #26 — a single `isError` wiped the
+  // WHY: per-query, not one combined isError: audit #26 — a single `isError` wiped the
   // entire content area even when only one of the two independent queries failed. Each
   // section below only replaces its own area with ErrorState; the full-page fallback
   // is reserved for the (rarer) case where both fail at once.
@@ -161,7 +164,7 @@ export default function Dashboard() {
     <div className="dashboard-page-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
       <style>{DASHBOARD_STYLES}</style>
       <style>{`
-        /* WHY scoped to .dash-header, not the shared .section-header class: the global
+        /* WHY: scoped to .dash-header, not the shared .section-header class: the global
            .section-header mobile rule stacks title-above-button, which Brand/Create rely
            on. Dashboard's title + "New content" button both fit on one line even on
            small screens, so this overrides just this page's header back to a row. */
@@ -173,7 +176,6 @@ export default function Dashboard() {
         }
       `}</style>
 
-      {/* ── Page header ── */}
       <div className="section-header dash-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'var(--text-primary)', margin: 0 }}>
@@ -196,7 +198,6 @@ export default function Dashboard() {
 
       {!pagePending && !bothFailed && (
         <>
-          {/* ── Stats grid + Content DNA bubble (profileQuery-scoped) ── */}
           <StatsOverview
             isError={profileQuery.isError}
             isLoading={profileQuery.isPending}
@@ -207,13 +208,10 @@ export default function Dashboard() {
             contentDna={contentDna}
           />
 
-          {/* ── Next scheduled post (Calendar-awareness card) ── */}
           <NextScheduledCard />
 
-          {/* ── Feed monitor health (F9) — hidden when user has zero monitors ── */}
           <FeedHealthCard />
 
-          {/* ── Recent generations (jobsQuery-scoped) ── */}
           {jobsQuery.isError ? (
             <ErrorState message="We couldn't load your recent generations. Please try again." onRetry={handleRetryJobs} />
           ) : (
@@ -225,7 +223,6 @@ export default function Dashboard() {
             />
           )}
 
-          {/* ── Quality trend chart + predicted-engagement card (profileQuery-scoped) ── */}
           <div className="grid-halves" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <QualityTrendChart
               loading={profileQuery.isPending}
@@ -239,9 +236,9 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* ── Bottom cards — degrades gracefully if one query failed (empty tips/no
-              breakdown) rather than needing its own ErrorState, since neither half is
-              essential to the other rendering usefully. ── */}
+          {/* NOTE: bottom cards degrade gracefully if one query failed (empty tips / no platform
+              breakdown) rather than needing their own ErrorState, since neither half is
+              essential to the other rendering usefully. */}
           <InsightsCards
             loading={false}
             platformBreakdown={profileQuery.isError ? undefined : stats.platformBreakdown}
@@ -251,7 +248,6 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* ── Delete confirm modal ── */}
       {deleteConfirm && (
         <ConfirmDeleteModal
           title="Delete this job?"

@@ -12,15 +12,11 @@ import type { ColorSystem } from '../../../lib/colorSystem';
 import type { MultiplyEntry }  from '../hooks/useMultiplier';
 import type { ContentJob, PlatformContent, VideoScriptContentData } from '../../../types/job';
 
-// WHY union instead of a single shape: this column dispatches to one of five renderers
-// (carousel slide array, LinkedIn/Twitter/Instagram's PlatformContent, or the structurally
-// distinct VideoScriptContentData) based on which fields are present — same discriminated-
-// by-field-presence pattern the JSX below already used before typing existed.
-// WHY exported from here (not types/job.ts): SlideData is owned by the carousel/IGSlide
-// module (page-specific, currently mid-split into carousel/igslide/ by a concurrent change);
-// types/job.ts is the generic shared-types module and shouldn't import back down into a
-// page's component tree. Result.tsx and ExportModal.tsx both import this alias rather than
-// redefining an equivalent union, so the three stay structurally identical.
+// WHY: union — this column picks a renderer from the fields present (slides,
+// PlatformContent, or VideoScriptContentData).
+// WHY: exported here (not types/job.ts) — SlideData lives under carousel/IGSlide;
+// shared types must not import down into page components. Result + ExportModal
+// import this alias so all three stay identical.
 export type ResultContent = SlideData[] | PlatformContent | VideoScriptContentData;
 
 interface Props {
@@ -40,8 +36,7 @@ interface Props {
   handle:          string;
   colorSystem:     ColorSystem;
   designPreset:    number;
-  // New template system fields — optional for backward compatibility with
-  // carousels created before this feature shipped.
+  // WHY: optional — pre-template carousels have no templateId/paletteId.
   templateId?:     string;
   paletteId?:      string;
   onTemplateChange?: (templateId: string, paletteId?: string) => void;
@@ -99,12 +94,12 @@ export function ContentColumn({
         </div>
       )}
 
-      {/* WHY cast to PlatformContent per branch: `content` is a ResultContent union once
+      {/* WHY: cast to PlatformContent per branch: `content` is a ResultContent union once
           !isCarousel narrows out SlideData[]; the four platform components below are
           distinguished by which fields the writer/formatter agents actually populated
           (segments => video script, tweets => thread, etc.) rather than a discriminant
           tag in the data itself — same runtime check the pre-typing JSX already used. */}
-      {/* WHY Adapt lives inside .rp-copy-stage: keeps caption/thread and Adapt
+      {/* WHY: Adapt lives inside .rp-copy-stage: keeps caption/thread and Adapt
           on the same full-width column (the old 720px reading cap was removed). */}
       {!isCarousel && (
         <VisibleScroller frameClassName="rp-copy-scroll">

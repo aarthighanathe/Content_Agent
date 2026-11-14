@@ -1,8 +1,6 @@
 import type { ColorSystem } from '../../../../../lib/colorSystem';
 import type { SlideData } from './IGSlide';
 
-// ── Theme resolution ──────────────────────────────────────────────────────────
-
 type VisualMode = 'chart' | 'flow' | 'rise' | 'pulse';
 
 function resolveVisualMode(slide: SlideData, index: number): VisualMode {
@@ -17,11 +15,7 @@ function resolveVisualMode(slide: SlideData, index: number): VisualMode {
   return cycle[index % cycle.length];
 }
 
-// ── Shared prop type ──────────────────────────────────────────────────────────
-
 type VP = { p: string; l: string; d: string; w: number; h: number; id: string };
-
-// ── CHART — animated bar chart with trend line ────────────────────────────────
 
 function ChartVisual({ p, l, w, h, id }: VP) {
   const padX = 14, padY = 10;
@@ -64,7 +58,6 @@ function ChartVisual({ p, l, w, h, id }: VP) {
         </linearGradient>
       </defs>
 
-      {/* Subtle grid */}
       {[0.35, 0.68].map((f, i) => (
         <line key={i}
           x1={startX - 4} y1={baseY - drawH * f}
@@ -72,30 +65,24 @@ function ChartVisual({ p, l, w, h, id }: VP) {
           stroke={p} strokeOpacity="0.07" strokeWidth="1" strokeDasharray="3 3" />
       ))}
 
-      {/* Bars */}
       {bars.map((b, i) => (
         <rect key={i} x={b.x} y={b.y} width={bw} height={b.bh}
           fill={b.accent ? `url(#${id}b)` : `url(#${id}a)`}
           rx={Math.max(2, bw * 0.14)} />
       ))}
 
-      {/* Trend line */}
       <path d={bezier} stroke={l} strokeWidth="1.5" fill="none"
         opacity="0.7" strokeLinecap="round" strokeLinejoin="round" />
 
-      {/* Endpoint glow + dot */}
       <circle cx={last.x} cy={last.y} r={7} fill={l} opacity="0.15" />
       <circle cx={last.x} cy={last.y} r={4} fill={l} opacity="0.9" />
       <circle cx={last.x} cy={last.y} r={2} fill="white" opacity="0.55" />
 
-      {/* Left axis */}
       <line x1={startX - 7} y1={padY} x2={startX - 7} y2={baseY}
         stroke={p} strokeOpacity="0.14" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
-
-// ── FLOW — network / connection graph ─────────────────────────────────────────
 
 function FlowVisual({ p, l, w, h }: VP) {
   const ns = [
@@ -113,17 +100,14 @@ function FlowVisual({ p, l, w, h }: VP) {
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: '100%' }}>
-      {/* Edges */}
       {edges.map(([a, b], i) => (
         <line key={i}
           x1={ns[a].x} y1={ns[a].y} x2={ns[b].x} y2={ns[b].y}
           stroke={p} strokeOpacity="0.13" strokeWidth="1" />
       ))}
-      {/* Hub glows */}
       {ns.filter(n => n.hub).map((n, i) => (
         <circle key={i} cx={n.x} cy={n.y} r={n.r + 9} fill={p} opacity="0.07" />
       ))}
-      {/* Nodes */}
       {ns.map((n, i) => (
         <circle key={i} cx={n.x} cy={n.y} r={n.r}
           fill={n.hub ? p : 'none'}
@@ -132,15 +116,12 @@ function FlowVisual({ p, l, w, h }: VP) {
           strokeWidth="1.5"
           opacity={n.hub ? 0.62 : 0.40} />
       ))}
-      {/* Light center on hubs */}
       {ns.filter(n => n.hub).map((n, i) => (
         <circle key={i} cx={n.x} cy={n.y} r={2.5} fill={l} opacity="0.85" />
       ))}
     </svg>
   );
 }
-
-// ── RISE — growth S-curve with milestones ─────────────────────────────────────
 
 function RiseVisual({ p, l, w, h, id }: VP) {
   const pad = 10;
@@ -170,7 +151,6 @@ function RiseVisual({ p, l, w, h, id }: VP) {
         </linearGradient>
       </defs>
 
-      {/* Scatter dots */}
       {Array.from({ length: 10 }, (_, i) => (
         <circle key={i}
           cx={(i * 37 + 15) % (w - 20) + 10}
@@ -178,13 +158,10 @@ function RiseVisual({ p, l, w, h, id }: VP) {
           r="1.5" fill={p} opacity="0.07" />
       ))}
 
-      {/* Area fill */}
       <path d={area}  fill={`url(#${id}r)`} />
-      {/* Curve */}
       <path d={curve} stroke={p} strokeWidth="2" fill="none"
         opacity="0.60" strokeLinecap="round" />
 
-      {/* Milestones */}
       {milestones.map((pt, i) => (
         <circle key={i} cx={pt.x} cy={pt.y}
           r={pt.last ? 5 : 2.5}
@@ -192,15 +169,12 @@ function RiseVisual({ p, l, w, h, id }: VP) {
           opacity={pt.last ? 0.95 : 0.45} />
       ))}
 
-      {/* Arrowhead at endpoint */}
       <path d={`M${x3-8},${y3-4} L${x3+1},${y3+1} L${x3-5},${y3+9}`}
         stroke={l} strokeWidth="1.5" fill="none"
         strokeLinecap="round" strokeLinejoin="round" opacity="0.82" />
     </svg>
   );
 }
-
-// ── PULSE — radial / ideas composition ───────────────────────────────────────
 
 function PulseVisual({ p, l, w, h }: VP) {
   const cx = w * 0.68, cy = h / 2;
@@ -209,7 +183,6 @@ function PulseVisual({ p, l, w, h }: VP) {
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: '100%' }}>
-      {/* Radial spokes */}
       {Array.from({ length: N }, (_, i) => {
         const a   = (i / N) * Math.PI * 2;
         const len = i % 2 === 0 ? R : R * 0.68;
@@ -222,23 +195,19 @@ function PulseVisual({ p, l, w, h }: VP) {
         );
       })}
 
-      {/* Concentric rings */}
       {[0.30, 0.55, 0.80].map((r, i) => (
         <circle key={i} cx={cx} cy={cy} r={R * r}
           fill="none" stroke={p}
           strokeOpacity={0.09 - i * 0.025} strokeWidth="1" />
       ))}
 
-      {/* Center */}
       <circle cx={cx} cy={cy} r={9}   fill={p} opacity="0.50" />
       <circle cx={cx} cy={cy} r={4.5} fill={l} opacity="0.90" />
 
-      {/* Left-side orbital blobs */}
       <circle cx={w * 0.18} cy={h * 0.28} r={11} fill={p} opacity="0.11" />
       <circle cx={w * 0.32} cy={h * 0.74} r={7}  fill={p} opacity="0.09" />
       <circle cx={w * 0.07} cy={h * 0.68} r={5}  fill={l} opacity="0.16" />
 
-      {/* Particles */}
       {[[0.04,0.38],[0.16,0.12],[0.38,0.90],[0.50,0.08],[0.90,0.82],[0.96,0.22]].map(([rx,ry],i) => (
         <circle key={i} cx={rx*w} cy={ry*h} r={1.5} fill={l} opacity="0.22" />
       ))}
@@ -246,24 +215,18 @@ function PulseVisual({ p, l, w, h }: VP) {
   );
 }
 
-// ── QUOTE BG — abstract geometric background (tall format) ───────────────────
-
 function QuoteBgVisual({ p, l, w, h }: { p: string; l: string; w: number; h: number }) {
   return (
     <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: '100%' }}>
-      {/* Large ring — off-centre top-right */}
       <circle cx={w * 0.78} cy={h * 0.28} r={w * 0.46}
         fill="none" stroke={p} strokeOpacity="0.22" strokeWidth="1" />
       <circle cx={w * 0.78} cy={h * 0.28} r={w * 0.28}
         fill="none" stroke={p} strokeOpacity="0.14" strokeWidth="1" />
 
-      {/* Lower-left accent */}
       <circle cx={w * 0.14} cy={h * 0.72} r={w * 0.20} fill={p} opacity="0.07" />
 
-      {/* Mid accent */}
       <circle cx={w * 0.58} cy={h * 0.80} r={22} fill={l} opacity="0.06" />
 
-      {/* Diagonal lines */}
       {Array.from({ length: 5 }, (_, i) => (
         <line key={i}
           x1={w * 0.05 + i * w * 0.22} y1={0}
@@ -271,15 +234,12 @@ function QuoteBgVisual({ p, l, w, h }: { p: string; l: string; w: number; h: num
           stroke={p} strokeOpacity="0.04" strokeWidth="1" />
       ))}
 
-      {/* Floating dots */}
       {[[0.08,0.15],[0.25,0.90],[0.50,0.06],[0.88,0.93],[0.72,0.50],[0.35,0.55]].map(([rx,ry],i) => (
         <circle key={i} cx={rx*w} cy={ry*h} r={2} fill={p} opacity="0.10" />
       ))}
     </svg>
   );
 }
-
-// ── Main export ───────────────────────────────────────────────────────────────
 
 export function SlideVisual({
   slide,

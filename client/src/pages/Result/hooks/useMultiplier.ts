@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getJob, getJobStatus, getRelatedJobs, multiplyJob } from '../../../api';
+import { useIsMountedRef } from '../../../hooks/useTrackedTimeout';
+import { getSubmitError } from '../../../lib/errorMessages';
 import type { PlatformContent } from '../../../types/job';
+
+const MAX_POLL_MS = 20 * 60 * 1000;
 
 export type MultiplyEntry = {
   jobId: string;
@@ -10,9 +14,11 @@ export type MultiplyEntry = {
   /** True when this row came from GET /related (family lineage), not this session's Adapt click. */
   fromFamily?: boolean;
   isRoot?: boolean;
+  /** Set when POST /multiply fails (e.g. 409 JOB_IN_PROGRESS). */
+  error?: string;
 };
 
-// WHY guard: JobOutput.content is `unknown` (shape varies by outputType per job.ts).
+// WHY: guard: JobOutput.content is `unknown` (shape varies by outputType per job.ts).
 // A 'final' output's content is always an object (single PlatformContent) or an array of
 // them (carousel slides) — narrow to that before trusting it as PlatformContent, matching
 // the null-safety pattern used in historyHelpers.ts/dashboardTypes.ts.
@@ -24,12 +30,16 @@ function asPlatformContent(content: unknown): PlatformContent | PlatformContent[
 
 export function useMultiplier(jobId: string | undefined) {
   const [multiplyJobs, setMultiplyJobs] = useState<Record<string, MultiplyEntry>>({});
-  // WHY a ref set of interval handles, cleared on unmount: each handleMultiply call
-  // creates its own setInterval (one per target platform) outside any useEffect, so
-  // nothing previously cleaned them up if the user navigated away from Result before
-  // a multiply job finished — the interval kept firing getJob() against an unmounted
-  // component indefinitely (FUNCTIONAL_AUDIT_2026-07.md finding #14).
+  // WHY: a ref set of interval handles, cleared on unmount: handleMultiply starts one
+  // setInterval per platform outside any effect, so without tracking they would keep
+  // polling getJob() after the user leaves Result.
   const activeIntervals = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
+  const isMountedRef = useIsMountedRef();
+  // WHY: ref: poll closures outlive renders; compare against the live jobId.
+  const jobIdRef = useRef(jobId);
+  useEffect(() => {
+    jobIdRef.current = jobId;
+  }, [jobId]);
 
   const refreshFamily = useCallback(async (id: string): Promise<void> => {
     try {
@@ -84,10 +94,10 @@ export function useMultiplier(jobId: string | undefined) {
     };
   }, []);
 
-  // WHY reset + reload when jobId changes: Result reuses this component across
+  // WHY: reset + reload when jobId changes: Result reuses this component across
   // /result/:jobId navigations — leftover session state from job A would show
   // wrong Open links on job B.
-  // WHY clear intervals here too: the unmount cleanup never runs on a same-
+  // WHY: clear intervals here too: the unmount cleanup never runs on a same-
   // route jobId change (Result does not remount), so Adapt polls from job A
   // kept writing into job B's multiplyJobs after navigation.
   useEffect(() => {
@@ -129,13 +139,40 @@ export function useMultiplier(jobId: string | undefined) {
         ...p,
         [targetPlatform]: { jobId: newJobId, status: 'processing', progress: 10 },
       }));
+      const startedAt = Date.now();
+      // WHY: inFlight: a slow status/getJob call could overlap the next 2.5s tick
+      // and apply results out of order or double-fire the terminal branch.
+      let inFlight = false;
+      const stop = (): void => {
+        clearInterval(poll);
+        activeIntervals.current.delete(poll);
+      };
       const poll = setInterval(async () => {
+        if (inFlight) return;
+        // WHY: max duration: a lost job otherwise polled forever; mirror the
+        // 20-min stale window used by useJobData.
+        if (Date.now() - startedAt > MAX_POLL_MS) {
+          stop();
+          if (isMountedRef.current && jobIdRef.current === jobId) {
+            setMultiplyJobs((p) => ({
+              ...p,
+              [targetPlatform]: { jobId: newJobId, status: 'failed', progress: 0 },
+            }));
+          }
+          return;
+        }
+        inFlight = true;
         try {
           const s = await getJobStatus(newJobId);
+          // WHY: unmounted or navigated to another job — drop the result.
+          if (!isMountedRef.current || jobIdRef.current !== jobId) {
+            stop();
+            return;
+          }
           if (s?.status === 'done' && s.hasFinal) {
-            clearInterval(poll);
-            activeIntervals.current.delete(poll);
+            stop();
             const d = await getJob(newJobId);
+            if (!isMountedRef.current || jobIdRef.current !== jobId) return;
             const finalOutput = d?.outputs?.find((o) => o.outputType === 'final');
             const content = finalOutput ? asPlatformContent(finalOutput.content) : undefined;
             setMultiplyJobs((p) => ({
@@ -144,8 +181,7 @@ export function useMultiplier(jobId: string | undefined) {
             }));
             void refreshFamily(jobId);
           } else if (s?.status === 'failed') {
-            clearInterval(poll);
-            activeIntervals.current.delete(poll);
+            stop();
             setMultiplyJobs((p) => ({
               ...p,
               [targetPlatform]: { jobId: newJobId, status: 'failed', progress: 0 },
@@ -159,13 +195,20 @@ export function useMultiplier(jobId: string | undefined) {
               },
             }));
           }
-        } catch { /* keep polling */ }
+        } catch { /* keep polling */ } finally {
+          inFlight = false;
+        }
       }, 2500);
       activeIntervals.current.add(poll);
-    } catch {
+    } catch (err) {
       setMultiplyJobs((p) => ({
         ...p,
-        [targetPlatform]: { jobId: '', status: 'failed', progress: 0 },
+        [targetPlatform]: {
+          jobId: '',
+          status: 'failed',
+          progress: 0,
+          error: getSubmitError(err, 'Adapt failed — please try again.').message,
+        },
       }));
     }
   }

@@ -37,7 +37,7 @@ export function useQualityAside(rpRef: RefObject<HTMLDivElement | null>): Qualit
     const measure = (): void => {
       const width = el.clientWidth;
       setLayoutWide(width >= WIDE_MIN_PX);
-      // WHY skip during the toggle: rewriting --rp-aside-open with the instant
+      // WHY: skip during the toggle: rewriting --rp-aside-open with the instant
       // class drops the column transition, which is the flicker on open/close.
       if (asideAnimatingRef.current) return;
       el.classList.add('rp-aside-instant');

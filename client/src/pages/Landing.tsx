@@ -14,6 +14,7 @@ import { SocialProof } from './Landing/SocialProof';
 import { CtaFooter } from './Landing/CtaFooter';
 
 const SIGNED_IN_BANNER_KEY = 'ca_landing_signed_in_banner_dismissed';
+const MOBILE_MENU_ID = 'landing-mobile-menu';
 
 export default function LandingPage() {
   const { isSignedIn, isLoaded } = useAuth();
@@ -27,7 +28,7 @@ export default function LandingPage() {
     }
   });
 
-  /* ── Scroll-reveal observer (page-wide: watches every .rv element across all sections) ── */
+  // NOTE: page-wide scroll-reveal — observes every .rv element across sections.
   useEffect(() => {
     const obs = new IntersectionObserver(
       (entries) =>
@@ -48,7 +49,7 @@ export default function LandingPage() {
     return () => obs.disconnect();
   }, []);
 
-  /* ── Sticky nav shadow (page-wide scroll listener) ── */
+  // NOTE: sticky nav shadow via page-wide scroll listener.
   useEffect(() => {
     const handler = () => {
       const nav = document.getElementById('lnav');
@@ -58,7 +59,7 @@ export default function LandingPage() {
     return () => window.removeEventListener('scroll', handler);
   }, []);
 
-  /* ── Lock body scroll when mobile menu is open ── */
+  /* NOTE: Lock body scroll when mobile menu is open */
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
@@ -71,7 +72,7 @@ export default function LandingPage() {
     } catch { /* ignore */ }
   }
 
-  // WHY soft banner (not Navigate): signed-in users sharing / or the live demo
+  // WHY: soft banner (not Navigate): signed-in users sharing / or the live demo
   // used to get hard-redirected to /dashboard before they could try the demo (L13/F14).
   const showSignedInBanner = Boolean(isLoaded && isSignedIn && !bannerDismissed);
 
@@ -81,6 +82,11 @@ export default function LandingPage() {
       style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-body)' }}
     >
       <LandingStyles />
+
+      {/* WHY: skip link first in DOM: keyboard users jump past sticky nav chrome. */}
+      <a href="#main-content" className="skip-to-content">
+        Skip to content
+      </a>
 
       <div className="lnav-shell">
         {showSignedInBanner && (
@@ -129,20 +135,32 @@ export default function LandingPage() {
             </button>
           </div>
         )}
-        <Nav isSignedIn={isSignedIn} onOpenMobileMenu={() => setMobileOpen(true)} />
+        <Nav
+          isSignedIn={isSignedIn}
+          onOpenMobileMenu={() => setMobileOpen(true)}
+          mobileMenuOpen={mobileOpen}
+          mobileMenuId={MOBILE_MENU_ID}
+        />
       </div>
 
-      <MobileMenu open={mobileOpen} isSignedIn={isSignedIn} onClose={() => setMobileOpen(false)} />
+      <MobileMenu
+        id={MOBILE_MENU_ID}
+        open={mobileOpen}
+        isSignedIn={isSignedIn}
+        onClose={() => setMobileOpen(false)}
+      />
 
-      {/* WHY demo before features: the live sample is the strongest proof —
+      {/* WHY: demo before features: the live sample is the strongest proof —
           burying it under Features/How/Quality made visitors bounce before trying. */}
-      <Hero isSignedIn={isSignedIn} />
-      <LiveDemo />
-      <Features />
-      <HowItWorks />
-      <QualityDemo />
-      <SocialProof />
-      <CtaFooter isSignedIn={isSignedIn} />
+      <main id="main-content">
+        <Hero isSignedIn={isSignedIn} />
+        <LiveDemo />
+        <Features />
+        <HowItWorks />
+        <QualityDemo />
+        <SocialProof />
+        <CtaFooter isSignedIn={isSignedIn} />
+      </main>
     </div>
   );
 }

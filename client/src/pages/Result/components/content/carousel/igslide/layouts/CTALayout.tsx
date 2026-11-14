@@ -4,8 +4,6 @@ import { FONT, H_PAD, BOTTOM_PAD } from '../constants';
 import { RadialBurst } from '../decorativePrimitives';
 import { PillTag, InitialsCircle } from '../contentPieces';
 
-// ── CTA layout ────────────────────────────────────────────────────────────────
-
 export function CTALayout({ slide, colors, brandName, handle }: { slide: SlideData; colors: ColorSystem; brandName: string; handle: string }) {
   const ctaAction = slide.cta?.action || 'Follow for more';
   const ctaHandle = slide.cta?.handle || handle;

@@ -48,7 +48,6 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
               position: 'relative',
             }}
           >
-            {/* Icon and header */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%' }}>
               <div style={{ width: 48, height: 48, borderRadius: 10, background: p.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: sel ? `0 0 16px ${p.accent}40` : 'none' }}>
                 <p.Icon size={24} color="#fff" strokeWidth={1.75} />
@@ -58,7 +57,6 @@ export function PlatformSelector({ value, onChange, onSelect }: PlatformSelector
               )}
             </div>
 
-            {/* Label and description */}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 'clamp(13px,2vw,15px)', fontWeight: 600, color: sel ? 'var(--text-primary)' : 'var(--text-secondary)', marginBottom: 4 }}>
                 {p.label}

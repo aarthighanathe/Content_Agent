@@ -1,4 +1,4 @@
-// WHY this panel exists: implements FUTURE_FEATURES.md's Library "No per-job
+// WHY: this panel exists: implements FUTURE_FEATURES.md's Library "No per-job
 // version history" item — "Regenerate" used to overwrite the previous 'final'
 // output in place with no way to look back. See server/src/db/schema.ts's
 // jobOutputVersions WHY comment for why the snapshot is taken only at
@@ -14,10 +14,20 @@ import { SkeletonBlock } from '../../../../components/SkeletonCard';
 interface Props {
   jobId: string | undefined;
   onClose: () => void;
+  onRestoreBegin?: () => boolean;
   onRestored: () => void;
+  onRestoreEnd?: () => void;
+  restoreDisabled?: boolean;
 }
 
-export function HistoryPanel({ jobId, onClose, onRestored }: Props) {
+export function HistoryPanel({
+  jobId,
+  onClose,
+  onRestoreBegin,
+  onRestored,
+  onRestoreEnd,
+  restoreDisabled = false,
+}: Props) {
   const queryClient = useQueryClient();
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
@@ -31,11 +41,25 @@ export function HistoryPanel({ jobId, onClose, onRestored }: Props) {
     mutationFn: (versionId: string) => restoreJobVersion(jobId as string, versionId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobVersions', jobId] });
+      // WHY: restore changes the job's final content/score shown in list cards.
+      Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] }),
+      ]).catch(() => {});
       setConfirmingId(null);
       onRestored();
       onClose();
     },
+    onError: () => {
+      onRestoreEnd?.();
+    },
   });
+
+  function beginRestore(versionId: string): void {
+    if (restoreDisabled || restoreMutation.isPending) return;
+    if (onRestoreBegin && !onRestoreBegin()) return;
+    restoreMutation.mutate(versionId);
+  }
 
   const versions = versionsQuery.data?.versions ?? [];
 
@@ -89,13 +113,13 @@ export function HistoryPanel({ jobId, onClose, onRestored }: Props) {
                   <Button
                     variant="primary"
                     size="sm"
-                    disabled={restoreMutation.isPending}
+                    disabled={restoreMutation.isPending || restoreDisabled}
                     icon={
                       restoreMutation.isPending
                         ? <Loader2 size={11} className="btn-spinner" />
                         : undefined
                     }
-                    onClick={() => restoreMutation.mutate(v.id)}
+                    onClick={() => beginRestore(v.id)}
                   >
                     Confirm
                   </Button>
@@ -113,6 +137,7 @@ export function HistoryPanel({ jobId, onClose, onRestored }: Props) {
                   variant="secondary"
                   size="sm"
                   icon={<RotateCcw size={11} />}
+                  disabled={restoreDisabled}
                   onClick={() => setConfirmingId(v.id)}
                 >
                   Restore

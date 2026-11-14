@@ -8,14 +8,8 @@ interface EmptyStateIllustrationProps {
   style?: CSSProperties;
 }
 
-// WHY hand-drawn line art instead of a filled icon-in-a-box: REVIEW_FINDINGS.md §4.5 —
-// empty states previously reused the same rounded-square + centered-glyph pattern as
-// ErrorState.tsx (see components/ErrorState.tsx), so an empty dashboard and a broken one
-// looked almost identical apart from color. Each variant below is a small stroke-based
-// SVG relevant to that specific page (matches the lucide-style convention already used
-// throughout this codebase: fill="none" stroke="currentColor" strokeWidth="1.5"
-// strokeLinecap="round" — see InsightsSidebar.tsx / PostPanel.tsx for the sibling pattern),
-// deliberately faint (low opacity) so it reads as a watermark, not competing with the CTA.
+// WHY: stroke-based line art (not ErrorState's filled alert box): empty and error states
+// must look different at a glance — faint watermark SVGs per page, lucide-style strokes.
 const commonProps = {
   fill: 'none',
   stroke: 'currentColor',
@@ -24,8 +18,7 @@ const commonProps = {
   strokeLinejoin: 'round' as const,
 };
 
-// Faint agent-pipeline relay — echoes the Orchestrator→Researcher→Writer→Formatter→Critic
-// chain that's the product's real loading-state hero (see LoadingView.tsx / 4.1).
+// WHY: pipeline dots: echoes the five-agent chain users see while a job is generating.
 function DashboardIllustration() {
   return (
     <svg viewBox="0 0 120 60" width="100%" height="100%" {...commonProps}>
@@ -39,7 +32,7 @@ function DashboardIllustration() {
   );
 }
 
-// Faint clock-on-timeline — echoes History's chronological job list.
+// WHY: clock + timeline: reads as chronological history, not a generic empty icon.
 function HistoryIllustration() {
   return (
     <svg viewBox="0 0 120 60" width="100%" height="100%" {...commonProps}>
@@ -51,9 +44,7 @@ function HistoryIllustration() {
   );
 }
 
-// Faint magnifier over a blank card — used for "no search results" (distinct from the
-// true empty states above; a search yielding nothing isn't "you have nothing", it's
-// "nothing matched" — worth a slightly different visual even within 4.5's scope).
+// WHY: magnifier over a card: "no matches" should not reuse the true-empty visuals above.
 function SearchIllustration() {
   return (
     <svg viewBox="0 0 120 60" width="100%" height="100%" {...commonProps}>
@@ -72,12 +63,7 @@ const VARIANTS: Record<EmptyStateVariant, typeof DashboardIllustration> = {
   search: SearchIllustration,
 };
 
-/**
- * Page-specific line-art illustration for empty states — see REVIEW_FINDINGS.md §4.5.
- * Distinct from ErrorState.tsx's alert-triangle-in-a-box pattern (reserved for actual
- * fetch failures) so a first-time user can tell "nothing here yet" apart from "something
- * broke" at a glance, not just by re-reading the copy underneath.
- */
+/** Page-specific empty-state watermark — not used for fetch/generation failures (ErrorState). */
 export function EmptyStateIllustration({ variant, size = 96, style }: EmptyStateIllustrationProps) {
   const Illustration = VARIANTS[variant];
   return (

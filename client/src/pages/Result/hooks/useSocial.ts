@@ -6,7 +6,7 @@ import type { PlatformContent, VideoScriptContentData } from '../../../types/job
 import type { SocialConnection } from '../../../types/api';
 import type { SlideData } from '../components/content/carousel/IGSlide';
 
-// WHY the full ResultContent-shaped union (not just PlatformContent): Result.tsx passes
+// WHY: the full ResultContent-shaped union (not just PlatformContent): Result.tsx passes
 // whatever `content` currently is — carousel slides, a flat platform post, or a video
 // script — straight through to this hook (same as before typing, when it was `any`).
 // postToSocial's own signature is widened to match below.
@@ -18,13 +18,10 @@ export function useSocial(
 ): { socialConnections: SocialConnection[]; postingTo: string | null; postResult: Record<string, 'ok' | 'error'>; postLinks: Record<string, string>; handlePostNow: (platform: string) => Promise<void> } {
   const [postingTo, setPostingTo]   = useState<string | null>(null);
   const [postResult, setPostResult] = useState<Record<string, 'ok' | 'error'>>({});
-  // WHY not cleared alongside postResult's 4s timeout: unlike the ok/error badge
-  // (which is meant to be transient), "View post" should stay clickable for as
-  // long as the drawer session lasts — clearing it after 4s would make a real,
-  // successfully-posted link vanish while the user is still looking at the panel
-  // (FUNCTIONAL_AUDIT_2026-07.md finding #10).
+  // WHY: not cleared with postResult's 4s timeout: the ok/error badge is transient, but
+  // "View post" should stay clickable for the whole drawer session.
   const [postLinks, setPostLinks] = useState<Record<string, string>>({});
-  // WHY handlePostNow fires from a click handler, not an effect: there's no
+  // WHY: handlePostNow fires from a click handler, not an effect: there's no
   // natural cleanup point for its 4s "clear the ok/error badge" timer, so it's
   // tracked and cleared on unmount via the shared hook below.
   const pendingTimers = useTrackedTimeout();
@@ -35,29 +32,21 @@ export function useSocial(
   // component.
   const isMountedRef = useIsMountedRef();
 
-  // WHY React Query instead of the previous raw fetch in a mount effect: the old
-  // version hit GET /social/connections uncached on every Result mount, while
-  // Brand.tsx and DayDetailPanel had their own separate query keys — three
-  // independent cache entries for one cheap, rarely-changing endpoint (perf audit).
-  // Routing through the shared ['social','connections'] key means one fetch is
-  // cached and reused across all three surfaces; onConnectionChange isn't triggered
-  // here, so connected-only filtering stays local to this hook.
+  // WHY: shared ['social','connections'] query key: one cached fetch is reused by Result,
+  // Brand.tsx and DayDetailPanel. Connected-only filtering stays local to this hook.
   const { data: connectionsData } = useQuery({
     queryKey: ['social', 'connections'],
     queryFn: getSocialConnections,
     staleTime: 5 * 60 * 1000,
   });
-  // WHY effect replaced by a selector-style derive: same connected-only filtering as the
-  // old .then() but from the shared cache; no setState-in-effect, no per-mount refetch.
-  // Kept the `socialConnections` name so consumers (Result.tsx → ActionDrawer/ResultHeader)
-  // read it identically to before.
+  // WHY: derive, not an effect: avoids setState-in-effect and a per-mount refetch.
   const socialConnections = (connectionsData?.connections || []).filter((c) => c.connected);
 
   async function handlePostNow(platform: string) {
     if (!content || postingTo) return;
     setPostingTo(platform);
     try {
-      // WHY unknown->postToSocial's param cast: VideoScriptContentData (a plain interface,
+      // WHY: unknown->postToSocial's param cast: VideoScriptContentData (a plain interface,
       // no index signature) doesn't structurally satisfy Record<string, unknown> under TS's
       // rules even though it's a genuine object at runtime — the `!content` guard above
       // already confirmed it's defined, so this is a type-system technicality, not an

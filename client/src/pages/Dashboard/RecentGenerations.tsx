@@ -117,12 +117,10 @@ export function RecentGenerations({ jobs, loading, onNavigate, onRequestDelete }
                   onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = `${platform.color}22`; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = 'transparent'; }}
                 >
-                  {/* Platform icon */}
                   <div style={{ width: 36, height: 36, borderRadius: 10, background: platform.bg, border: `1px solid ${platform.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <platform.Icon size={15} style={{ color: platform.color }} />
                   </div>
 
-                  {/* Topic + meta */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0, lineHeight: 1.3 }}>
                       {job.topic}
@@ -134,7 +132,6 @@ export function RecentGenerations({ jobs, loading, onNavigate, onRequestDelete }
                     </div>
                   </div>
 
-                  {/* Score + time */}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                     <QualityTierBadge score={qualityScore} />
                     <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontFamily: "var(--font-mono)" }}>

@@ -27,7 +27,7 @@ interface BatchTopicListProps {
   onSubmit: () => void;
 }
 
-// WHY a flat list of topic+platform rows, not reusing TopicStep's full platform
+// WHY: a flat list of topic+platform rows, not reusing TopicStep's full platform
 // card grid per row: TopicStep's grid is designed for one big decision on a full
 // page; up to 7 of those stacked would be an enormous scroll. A compact dropdown
 // per row (same Dropdown component IdeateControls.tsx already uses for platform
@@ -37,12 +37,12 @@ export function BatchTopicList({
   rows, onRowsChange, tone, onToneChange, targetAudience, onTargetAudienceChange,
   loading, errorMsg, countdownText, onSubmit,
 }: BatchTopicListProps) {
-  // WHY a ref map, not a single ref: rows are added/removed dynamically, so each
+  // WHY: a ref map, not a single ref: rows are added/removed dynamically, so each
   // row's input needs its own addressable ref keyed by the row's stable id.
   const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
   const focusRowIdRef = useRef<string | null>(null);
 
-  // WHY an effect, not focusing inline in addRow(): the new row's <input> doesn't
+  // WHY: an effect, not focusing inline in addRow(): the new row's <input> doesn't
   // exist in the DOM until after this render commits, so the ref map has no entry
   // for it yet at the moment addRow() runs.
   useEffect(() => {
@@ -70,7 +70,7 @@ export function BatchTopicList({
 
   const validRowCount = rows.filter((r) => r.topic.trim().length >= 3 && !r.error).length;
 
-  // WHY blank rows aren't errors: Create.tsx's handleBatchSubmit already filters
+  // WHY: blank rows aren't errors: Create.tsx's handleBatchSubmit already filters
   // to rows with topic.trim().length >= 3 and silently ignores the rest, so a
   // user leaving one row blank (out of several) is a valid partial submission,
   // not a mistake. Only a row with SOME text that's too short is flagged, since

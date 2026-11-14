@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Editorial Classic Template
- * Magazine-style layout with elegant serif typography, ruled lines,
- * and sophisticated spacing. Inspired by print editorial design.
- */
 export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function EditorialClassicTemplate({
   slide,
@@ -47,7 +42,6 @@ export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, Carouse
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Top decorative line */}
         <div
           style={{
             width: '100%',
@@ -57,7 +51,6 @@ export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, Carouse
           }}
         />
 
-        {/* Header with page number */}
         <div
           style={{
             display: 'flex',
@@ -75,7 +68,6 @@ export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, Carouse
           <span>{String(index + 1).padStart(2, '0')}</span>
         </div>
 
-        {/* Drop cap style headline */}
         {slide.headline && (
           <h2
             style={{
@@ -92,7 +84,6 @@ export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, Carouse
           </h2>
         )}
 
-        {/* Decorative divider */}
         <div
           style={{
             width: 60,
@@ -102,7 +93,6 @@ export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, Carouse
           }}
         />
 
-        {/* Body text with editorial styling */}
         {slide.body && (
           <p
             style={{
@@ -119,7 +109,7 @@ export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, Carouse
           </p>
         )}
 
-        {/* Points with editorial bullet style — flex:1/minHeight:0/overflow:hidden
+        {/* WHY: Points with editorial bullet style — flex:1/minHeight:0/overflow:hidden
             so a long list clips within the fixed frame instead of pushing the
             bottom decorative line (marginTop:'auto' below) off it. */}
         {slide.points && slide.points.length > 0 && (
@@ -167,7 +157,6 @@ export const EditorialClassicTemplate = React.forwardRef<HTMLDivElement, Carouse
           </div>
         )}
 
-        {/* Bottom decorative line */}
         <div
           style={{
             marginTop: 'auto',

@@ -14,7 +14,7 @@ interface ContentDnaCardProps {
   dnaError: string;
   analyzingDna: boolean;
   onAnalyze: () => void;
-  // WHY optional: history is only available after clerkUserId resolves in Brand.tsx;
+  // WHY: optional: history is only available after clerkUserId resolves in Brand.tsx;
   // passing undefined is safe — the section simply won't render.
   dnaHistory?: DnaHistoryEntry[];
 }
@@ -24,7 +24,7 @@ export function ContentDnaCard({
   dnaHistory = [],
 }: ContentDnaCardProps) {
   return (
-    // WHY --accent-2, not fixed cyan: Content DNA has no cross-app "brand" meaning of its
+    // WHY: --accent-2, not fixed cyan: Content DNA has no cross-app "brand" meaning of its
     // own (unlike LinkedIn blue or a real status color) — it was fixed cyan by mistake
     // during the theme migration, which broke visual consistency under themes whose accent
     // isn't cyan-adjacent. Dashboard's own Content DNA bubble (StatsOverview.tsx) already
@@ -98,7 +98,6 @@ export function ContentDnaCard({
         )}
       </button>
 
-      {/* ── DNA History (last 3 fingerprints, newest first) ── */}
       {dnaHistory.length > 1 && (
         <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid color-mix(in srgb, var(--accent-2) 12%, transparent)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>

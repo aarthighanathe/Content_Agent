@@ -13,7 +13,7 @@ import { IGSlide, type SlideData } from '../pages/Result/components/content/caro
 import type { ColorSystem } from '../lib/colorSystem';
 
 // esbuild inlines these as `data:font/woff2;base64,...` strings (--loader:.woff2=dataurl).
-// WHY inline: headless Chrome renders with JavaScript disabled, so document.fonts.ready
+// WHY: inline: headless Chrome renders with JavaScript disabled, so document.fonts.ready
 // is unavailable and a webfont fetched over the network can silently lose the race and
 // screenshot in a fallback face. Embedding removes the network entirely and makes the
 // output byte-identical across runs, which the PNG content-hash cache depends on.
@@ -44,7 +44,7 @@ export interface RenderSlideParams {
 // would drag in Tailwind and all the app chrome, so the value is redeclared verbatim
 // instead. If IGSlide starts using another var, it must be added here or it renders
 // unstyled.
-// WHY margin/padding/line-height: the preview's index.css resets every element and
+// WHY: margin/padding/line-height: the preview's index.css resets every element and
 // sets body line-height to 1.6. Without the same reset, exported h2/p keep browser
 // default margins and the last cards fall past the bottom of the PNG.
 const DOCUMENT_CSS = `

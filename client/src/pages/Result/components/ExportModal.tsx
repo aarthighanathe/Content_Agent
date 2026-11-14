@@ -6,7 +6,9 @@ import { VisibleScroller } from '../../../components/VisibleScroller';
 import type { ColorSystem } from '../../../lib/colorSystem';
 import type { ContentJob } from '../../../types/job';
 import type { ResultContent as ExportContent } from './ContentColumn';
-import { exportPNG, exportPDF, exportText, exportHTML } from './exportDownloaders';
+import {
+  exportPNG, exportPDF, exportText, exportHTML, isExportAbortError,
+} from './exportDownloaders';
 
 interface ExportFormat {
   id: 'png' | 'pdf' | 'txt' | 'html';
@@ -72,12 +74,28 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
   const [exportErrors, setExportErrors] = useState<Record<string, string>>({});
   const platform: string = jobData?.platform || '';
   const modalRef = useRef<HTMLDivElement>(null);
-  // WHY a ref-tracked Set, not bare setTimeout calls: handleExport fires from a
+  // WHY: a ref-tracked Set, not bare setTimeout calls: handleExport fires from a
   // click handler, not an effect, so its 3s/4s "reset to idle" timers have no
   // natural cleanup point. Without tracking them, closing the modal and
   // reopening it within the delay window lets a stale timer reset the
   // freshly-reopened modal's state out from under it.
   const pendingTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // WHY: abort + mount guard (M6/L3): PNG export can outlive close/unmount; without
+  // AbortController + isMountedRef, setState after leave races and the request keeps
+  // burning Puppeteer/export quota.
+  const isMountedRef = useRef(true);
+  const exportAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      exportAbortRef.current?.abort();
+      exportAbortRef.current = null;
+      pendingTimers.current.forEach(clearTimeout);
+      pendingTimers.current.clear();
+    };
+  }, []);
 
   // SECURITY/ACCESSIBILITY: Escape-to-close, cleaned up on unmount/deactivation.
   useEffect(() => {
@@ -89,7 +107,7 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
 
-  // WHY lock body scroll: same as ActionDrawer — page shouldn't scroll under the modal.
+  // WHY: lock body scroll: same as ActionDrawer — page shouldn't scroll under the modal.
   useEffect(() => {
     if (!isOpen) return undefined;
     const prev = document.body.style.overflow;
@@ -99,7 +117,7 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
     };
   }, [isOpen]);
 
-  // WHY this effect's cleanup runs on isOpen leaving true, not just on
+  // WHY: this effect's cleanup runs on isOpen leaving true, not just on
   // unmount: this component stays mounted across opens/closes (Result.tsx
   // toggles `isOpen`, it doesn't remount the modal), so a plain unmount-only
   // cleanup would miss the close→reopen-within-3s case this fix exists for.
@@ -108,8 +126,14 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
   // way, pending timers from the session that's ending are cleared before a
   // fresh session (reopen, or unmount) begins.
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen) {
+      exportAbortRef.current?.abort();
+      exportAbortRef.current = null;
+      return undefined;
+    }
     return () => {
+      exportAbortRef.current?.abort();
+      exportAbortRef.current = null;
       pendingTimers.current.forEach(clearTimeout);
       pendingTimers.current.clear();
     };
@@ -140,9 +164,11 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
     const ctx = {
       content, jobData, colorTheme, brandName, handle, colorSystem, designPreset, templateId, paletteId,
     };
+    const abort = new AbortController();
+    exportAbortRef.current = abort;
     try {
       if (formatId === 'png') {
-        await exportPNG(ctx);
+        await exportPNG(ctx, abort.signal);
       } else if (formatId === 'txt') {
         exportText(ctx);
       } else if (formatId === 'pdf') {
@@ -150,14 +176,17 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
       } else if (formatId === 'html') {
         exportHTML(ctx);
       }
+      if (!isMountedRef.current || abort.signal.aborted) return;
       setExportState((s) => ({ ...s, [formatId]: 'done' }));
       posthog?.capture?.('export_downloaded', { format: formatId, platform });
       const timer = setTimeout(() => {
         pendingTimers.current.delete(timer);
+        if (!isMountedRef.current) return;
         setExportState((s) => ({ ...s, [formatId]: 'idle' }));
       }, 3000);
       pendingTimers.current.add(timer);
     } catch (err: unknown) {
+      if (!isMountedRef.current || isExportAbortError(err) || abort.signal.aborted) return;
       const message = err instanceof Error && err.message.trim().length > 0
         ? err.message
         : 'Export failed. Try again.';
@@ -165,6 +194,7 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
       setExportState((s) => ({ ...s, [formatId]: 'error' }));
       const timer = setTimeout(() => {
         pendingTimers.current.delete(timer);
+        if (!isMountedRef.current) return;
         setExportState((s) => ({ ...s, [formatId]: 'idle' }));
         setExportErrors((s) => {
           const next = { ...s };
@@ -173,6 +203,8 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
         });
       }, 6000);
       pendingTimers.current.add(timer);
+    } finally {
+      if (exportAbortRef.current === abort) exportAbortRef.current = null;
     }
   }
 
@@ -182,7 +214,7 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
     return true;
   });
 
-  // WHY the count lives in the description, not the button: the server renders
+  // WHY: the count lives in the description, not the button: the server renders
   // every slide and returns one ZIP, so there is no per-slide progress to show.
   // Putting "Rendering N slides…" inside the nowrap button stretched that row
   // to several lines. The known slide count stays visible as one short line.

@@ -8,7 +8,7 @@ interface SampleCard {
   lines: string[];
 }
 
-// WHY static, labeled examples — not testimonials: we have no customer quotes
+// WHY: static, labeled examples — not testimonials: we have no customer quotes
 // to show yet, and inventing them would undercut the honesty pass on this page.
 // These are illustrative output shapes visitors can expect from the demo/pipeline.
 const samples: SampleCard[] = [

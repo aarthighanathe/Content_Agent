@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Copy, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '../../../../components/Button';
 import { researchHashtags } from '../../../../api';
-import { useIsMountedRef } from '../../../../hooks/useTrackedTimeout';
+import { useIsMountedRef, useTrackedTimeout } from '../../../../hooks/useTrackedTimeout';
 import type { ContentJob, PlatformContent } from '../../../../types/job';
 import type { ResultContent } from '../ContentColumn';
 
@@ -12,14 +13,6 @@ interface Props {
   onClose:  () => void;
   /** Merge researched tags into the final caption/post and persist (F8). */
   onInsertHashtags?: (tags: string[]) => Promise<void>;
-}
-
-interface HashtagResearch {
-  broad: string[];
-  niche: string[];
-  branded: string[];
-  strategy: string;
-  reachTier?: 'large' | 'medium' | 'niche';
 }
 
 const tiers: { label: string; key: 'broad' | 'niche' | 'branded'; color: string }[] = [
@@ -33,40 +26,31 @@ function canInsertInto(platform: string | undefined): boolean {
 }
 
 export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHashtags }: Props) {
-  const [data, setData]       = useState<HashtagResearch | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState('');
   const [inserting, setInserting] = useState(false);
   const [insertMsg, setInsertMsg] = useState('');
+  const [insertError, setInsertError] = useState('');
   const [copied, setCopied] = useState(false);
   const isMountedRef = useIsMountedRef();
+  const trackedTimeout = useTrackedTimeout();
 
-  function fetchHashtags(): void {
-    if (!jobData) return;
-    setLoading(true);
-    setError('');
-    const hashtagContent = content as unknown as PlatformContent | PlatformContent[] | undefined;
-    researchHashtags({ topic: jobData.topic, platform: jobData.platform, content: hashtagContent })
-      .then((result) => {
-        if (!isMountedRef.current) return;
-        setData(result);
-      })
-      .catch(() => {
-        if (!isMountedRef.current) return;
-        setError('Failed to research hashtags — please try again.');
-      })
-      .finally(() => {
-        if (!isMountedRef.current) return;
-        setLoading(false);
-      });
-  }
+  // WHY: React Query (not mount useEffect + useState): server state needs cache/
+  // dedupe across remounts of the drawer; remount previously re-hit the LLM.
+  const hashtagContent = content as unknown as PlatformContent | PlatformContent[] | undefined;
+  const hashtagsQuery = useQuery({
+    queryKey: ['hashtags', jobData?.id, jobData?.topic, jobData?.platform],
+    queryFn: () => researchHashtags({
+      topic: jobData!.topic,
+      platform: jobData!.platform,
+      content: hashtagContent,
+    }),
+    enabled: Boolean(jobData?.id && jobData.topic && jobData.platform),
+    staleTime: 5 * 60 * 1000,
+  });
 
-  useEffect(() => {
-    if (!jobData || data || loading) return;
-    const t = setTimeout(fetchHashtags, 0);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const data = hashtagsQuery.data ?? null;
+  const loading = hashtagsQuery.isLoading || hashtagsQuery.isFetching;
+  const error = insertError
+    || (hashtagsQuery.isError ? 'Failed to research hashtags — please try again.' : '');
 
   async function handleInsertAll(): Promise<void> {
     if (!data || !onInsertHashtags) return;
@@ -76,6 +60,7 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
     if (tags.length === 0) return;
     setInserting(true);
     setInsertMsg('');
+    setInsertError('');
     try {
       await onInsertHashtags(tags);
       if (!isMountedRef.current) return;
@@ -83,7 +68,7 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
     } catch {
       if (!isMountedRef.current) return;
       setInsertMsg('');
-      setError('Could not save hashtags — please try again.');
+      setInsertError('Could not save hashtags — please try again.');
     } finally {
       if (isMountedRef.current) setInserting(false);
     }
@@ -94,7 +79,7 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
     const all = [...(data.broad || []), ...(data.niche || []), ...(data.branded || [])].join(' ');
     navigator.clipboard.writeText(all).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      trackedTimeout.set(() => setCopied(false), 1800);
     }).catch(() => {});
   }
 
@@ -102,7 +87,7 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
 
   return (
     <div className="rp-hashtag-panel">
-      {loading && (
+      {loading && !data && (
         <div className="rp-panel-status">
           <span className="rp-panel-spinner" aria-hidden />
           <span>Researching hashtags…</span>
@@ -112,7 +97,14 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
       {!loading && error && (
         <div className="rp-panel-banner rp-panel-banner-error">
           <span>{error}</span>
-          <Button variant="secondary" size="sm" onClick={fetchHashtags}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setInsertError('');
+              hashtagsQuery.refetch().catch(() => {});
+            }}
+          >
             Retry
           </Button>
         </div>
@@ -130,7 +122,7 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
                 variant="secondary"
                 size="sm"
                 icon={<RefreshCw size={12} />}
-                onClick={fetchHashtags}
+                onClick={() => { hashtagsQuery.refetch().catch(() => {}); }}
                 disabled={loading}
               >
                 Refresh
@@ -144,7 +136,7 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
                   <div className="rp-hashtag-chips">
                     {(data[key] || []).map((tag: string) => (
                       <button
-                        key={tag}
+                        key={`${key}-${tag}`}
                         type="button"
                         className="rp-hashtag-chip"
                         style={{
@@ -193,7 +185,7 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
                   variant="ghost"
                   size="sm"
                   icon={<RefreshCw size={12} />}
-                  onClick={fetchHashtags}
+                  onClick={() => { hashtagsQuery.refetch().catch(() => {}); }}
                   disabled={loading}
                 >
                   Refresh

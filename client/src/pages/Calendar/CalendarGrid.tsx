@@ -87,7 +87,6 @@ export function CalendarGrid({
         </div>
       </div>
 
-      {/* Grid */}
       {isError ? (
         <ErrorState message="Couldn't load your content. Please try again." onRetry={onRetry} />
       ) : loading ? (
@@ -141,7 +140,7 @@ export function CalendarGrid({
                   );
                 })}
                 {dayJobs.length > 3 && (
-                  // WHY its own <button>, not just text inside the cell: previously this
+                  // WHY: its own <button>, not just text inside the cell: previously this
                   // was inert text — clicking it only worked because it happened to sit
                   // inside the whole-cell click target, and it never explicitly opened the
                   // day (a click while already selected would toggle it closed instead of

@@ -16,7 +16,7 @@ interface IdeaCardProps {
   regenerating: boolean;
 }
 
-// WHY the exact same high/medium/low color scheme as Dashboard/PredictionInsights.tsx's
+// WHY: the exact same high/medium/low color scheme as Dashboard/PredictionInsights.tsx's
 // TIER_META: tier colors are meaningful signal, not brand decoration (CLAUDE.md §13) —
 // this codebase's own convention is to reuse one fixed mapping for this concept everywhere
 // it appears, not invent a second one local to this card.
@@ -44,7 +44,7 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
       setCopied(true);
       pendingTimers.set(() => setCopied(false), 1500);
     } catch {
-      // WHY no user-facing error: clipboard access can be denied by browser
+      // WHY: no user-facing error: clipboard access can be denied by browser
       // permissions/insecure context — the button staying non-"copied" is
       // sufficient feedback that it didn't work, without an intrusive toast
       // for what's a low-stakes convenience action.
@@ -74,7 +74,6 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-raised)';
       }}
     >
-      {/* Number badge */}
       <div style={{
         width: 28, height: 28, borderRadius: 8, flexShrink: 0,
         background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
@@ -144,7 +143,6 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         )}
       </div>
 
-      {/* Actions */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         <button
           type="button"
@@ -201,7 +199,7 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         >
           <X size={14} />
         </button>
-        {/* WHY a dedicated button, not the whole card being role="button": real
+        {/* WHY: a dedicated button, not the whole card being role="button": real
             <button> elements (Save/Copy/Regenerate/Dismiss above) nested inside a
             parent with an interactive role is invalid ARIA/HTML — nested
             interactive controls confuse both keyboard nav and screen readers
@@ -222,7 +220,7 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
           <ArrowRight size={14} />
         </button>
       </div>
-      {/* WHY a local keyframe, not reusing Ideate.tsx's @keyframes spin: that
+      {/* WHY: a local keyframe, not reusing Ideate.tsx's @keyframes spin: that
           one only exists in the DOM while the page-level `loading` state is
           true (its <style> block is inside the loading-skeletons branch) — a
           per-card regenerate spin needs to work independently of that. */}

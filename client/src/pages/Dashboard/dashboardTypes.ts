@@ -1,4 +1,4 @@
-// WHY content: unknown — an output's content shape varies by outputType (research/draft/
+// WHY: content: unknown — an output's content shape varies by outputType (research/draft/
 // critique/final/prediction); matches the canonical JobOutput in types/job.ts. Callers must
 // narrow with a type guard (see getCritiqueScores in Dashboard.tsx) instead of assuming shape.
 export interface JobOutput {

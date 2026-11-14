@@ -2,26 +2,9 @@ import { forwardRef } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 
-// WHY this component exists (#34): every button across the app was independently
-// bespoke-styled, duplicating hover/disabled/loading logic ad hoc. The audit found:
-//   - 14 btn-primary call sites
-//   - 16 btn-secondary call sites
-//   - 1 btn-ghost call site
-//   - 3 independent inline danger-button implementations (no shared class)
-// This component consolidates all four into one place while delegating visual language
-// to the existing CSS classes (btn-primary, btn-secondary, btn-ghost) + a new btn-danger
-// class added to index.css, so it's a thin wrapper, not a redesign.
-//
-// SCOPE BOUNDARIES (documented exceptions — not migrated):
-//   - Landing hero/CTA/nav <Link> elements: they use React Router <Link> (not <button>),
-//     have landing-specific onMouseEnter JS hover for transform/boxShadow beyond CSS,
-//     and are brand-gradient CTAs, not interactive-state buttons. Forcing them through
-//     this component would require an `as` prop polymorphism that adds complexity for
-//     no structural benefit.
-//   - mobile-menu-cta, Calendar sc-btn-ghost: scoped to their own CSS class systems.
-//   - Icon-only status/UI buttons (e.g. EditSlideModal X close, kebab toggles): these
-//     have unique sizing and no text content — they don't benefit from a shared loading
-//     or danger variant.
+// WHY: one thin wrapper over btn-primary/secondary/ghost/danger — shared loading/disabled
+// without re-styling every page. Landing <Link> CTAs, icon-only closes, and scoped page
+// classes stay native — polymorphic `as` or forced migration wouldn't buy much.
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md';
@@ -37,7 +20,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: ReactNode;
 }
 
-// WHY forwardRef: callers may need to attach a ref for focus management (e.g. modals
+// WHY: forwardRef: callers may need to attach a ref for focus management (e.g. modals
 // returning focus to the trigger after close). Forwarding ref is a drop-in requirement
 // for any button abstraction that replaces native <button> usage.
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -47,7 +30,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ) {
     const cssClass = variantClass(variant);
 
-    // WHY inline style for size rather than a CSS class: the existing btn-primary /
+    // WHY: inline style for size rather than a CSS class: the existing btn-primary /
     // btn-secondary CSS classes already define default sizing. Overriding only font-size
     // and padding for `sm` via inline style is the minimal delta — we don't want to add
     // a second CSS class (btn-primary-sm) just to override two properties.

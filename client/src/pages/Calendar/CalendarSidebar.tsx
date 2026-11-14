@@ -35,7 +35,7 @@ export function CalendarSidebar({
   viewYear, viewMonth, scheduledDays, onSchedule,
   mobileOpen, onMobileClose,
 }: CalendarSidebarProps) {
-  // WHY local state (#12): the "which card's picker is open" state belongs to the
+  // WHY: local state (#12): the "which card's picker is open" state belongs to the
   // sidebar because it's purely a UI concern — the parent only needs to know about
   // confirmed schedule allocations, not which picker is currently open.
   const [pickerJobId, setPickerJobId] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export function CalendarSidebar({
         <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
           {loading ? '…' : `${unscheduled.length} unscheduled`}
         </div>
-        {/* WHY updated hint (#12): old text said "Drag a card…" — now acknowledges both
+        {/* WHY: updated hint (#12): old text said "Drag a card…" — now acknowledges both
             drag and the new click-to-schedule path so keyboard/touch users know they
             have an option. */}
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
@@ -99,12 +99,12 @@ export function CalendarSidebar({
                 draggable
                 onDragStart={() => onDragStart(job.id)}
                 onDragEnd={onDragEnd}
-                // WHY aria-label on the card (#12): screen readers need to announce
+                // WHY: aria-label on the card (#12): screen readers need to announce
                 // the card's purpose since its visual affordance is a grip icon.
                 aria-label={`${job.topic} — ${cfg.label}. Draggable. Use the Schedule button to pick a date with keyboard.`}
               >
                 <GripVertical size={13} style={{ color: 'var(--text-muted)', marginTop: 2, flexShrink: 0 }} aria-hidden />
-                {/* WHY a platform-colored thumbnail, not raw content text: GET /jobs
+                {/* WHY: a platform-colored thumbnail, not raw content text: GET /jobs
                     (the endpoint this sidebar's data comes from) intentionally omits
                     each output's `content` column to keep the list response light
                     (server/src/routes/jobs/manage.ts) — the topic string is the only
@@ -131,7 +131,7 @@ export function CalendarSidebar({
                     {score}
                   </div>
                 )}
-                {/* WHY this button is inside the draggable div (#12): placing it here keeps
+                {/* WHY: this button is inside the draggable div (#12): placing it here keeps
                     the affordance visually co-located with its card, and its click event
                     doesn't bubble to drag handlers since drag events are separate. The
                     button stops the card from being the only scheduling path — keyboard and
@@ -152,7 +152,6 @@ export function CalendarSidebar({
                 </button>
               </div>
 
-              {/* Inline expanded picker below the card */}
               {isPickerOpen && (
                 <SchedulePicker
                   jobId={job.id}
@@ -199,7 +198,6 @@ export function CalendarSidebar({
         aria-label="Content library — pick content to schedule"
       >
         <div className="sc-mobile-sheet-handle" />
-        {/* Close button row */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 12px', borderBottom: '1px solid var(--rule)' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)' }}>
             Content Library
@@ -216,7 +214,6 @@ export function CalendarSidebar({
         {inner}
       </div>
 
-      {/* Scrim behind mobile sheet */}
       {mobileOpen && (
         <div
           className="sc-mobile-scrim"

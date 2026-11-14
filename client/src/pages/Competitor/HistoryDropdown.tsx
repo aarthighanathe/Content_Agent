@@ -12,7 +12,7 @@ interface HistoryDropdownProps {
   onSelect: (item: CompetitorAnalysisHistoryItem) => void;
 }
 
-// WHY a small self-contained dropdown, not a modal/drawer: the task calls for
+// WHY: a small self-contained dropdown, not a modal/drawer: the task calls for
 // keeping this addition small and consistent with the existing page's card
 // styling — a modal would be a heavier UI commitment than "click a past
 // handle to reload it client-side" warrants. Matches the existing page's
@@ -39,7 +39,7 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
     }
   }
 
-  // WHY hidden entirely (not shown-empty): a user with no past analyses yet
+  // WHY: hidden entirely (not shown-empty): a user with no past analyses yet
   // has nothing meaningful to browse — an empty dropdown trigger would just
   // be visual noise on first use.
   if (!isLoading && items.length === 0) return null;
@@ -65,7 +65,7 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
 
       {open && (
         <>
-          {/* WHY a full-viewport click-catcher, not onBlur: onBlur on the
+          {/* WHY: a full-viewport click-catcher, not onBlur: onBlur on the
               trigger button fires before the option's onClick registers,
               closing the dropdown before the selection is read. */}
           <div

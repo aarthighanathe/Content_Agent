@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-// WHY this hook exists: the "track every live setTimeout in a ref Set and
+// WHY: this hook exists: the "track every live setTimeout in a ref Set and
 // clear them all on unmount" pattern was independently reimplemented in
 // useSocial.ts, ExportModal.tsx, and FeedMonitorPanel.tsx (each with its own
 // near-identical ref + cleanup effect) rather than sharing one. A timer set
@@ -31,7 +31,7 @@ export function useTrackedTimeout(): {
   return { set };
 }
 
-// WHY a separate hook, not folded into useTrackedTimeout: HashtagPanel.tsx's
+// WHY: a separate hook, not folded into useTrackedTimeout: HashtagPanel.tsx's
 // cancelledRef guards a plain in-flight promise (.then/.catch/.finally), not
 // a timer — a component can need "am I still mounted" with no timers
 // involved at all. Kept as the single shared implementation of that check

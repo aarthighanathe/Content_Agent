@@ -1,4 +1,4 @@
-// WHY this contract, and not more: Create.tsx (client/src/pages/Create.tsx) only ever reads
+// WHY: this contract, and not more: Create.tsx (client/src/pages/Create.tsx) only ever reads
 // `topic`/`platform` off `location.state` on mount — tone/targetAudience are draft-only
 // (sessionStorage via Create/useDraft.ts, populated by the user typing on the page itself,
 // never by router state), and `templateId` was previously passed by Library.tsx but never
@@ -7,7 +7,7 @@
 // exists to fix. If Create.tsx's draft-handling grows to accept tone/audience/templateId as
 // real prefill, extend this type and Create.tsx's `prefill` read together, in the same change.
 //
-// WHY industry/competitorContext/competitorAnalysisId were added together (not
+// WHY: industry/competitorContext/competitorAnalysisId were added together (not
 // industry alone): Competitor.tsx's "Create content →" CTAs (content gap /
 // suggested angle) needed a way to carry enough competitor-analysis context
 // for POST /jobs/create to inject it into the writer's prompt (see
@@ -25,7 +25,7 @@ export interface CreateHandoff {
   competitorAnalysisId?: string;
 }
 
-// WHY this narrow navigate type, not react-router's NavigateFunction: some call sites
+// WHY: this narrow navigate type, not react-router's NavigateFunction: some call sites
 // (Dashboard/RecentGenerations.tsx) aren't route components — they receive `navigate` as a
 // prop typed to only what that component actually calls, not the full NavigateFunction
 // overload set. Accepting the minimal shape this helper actually uses lets every call site

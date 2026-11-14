@@ -15,7 +15,7 @@ export const SORT_OPTS: { key: SortKey; label: string }[] = [
   { key: 'platform', label: 'Platform'         },
 ];
 
-// WHY content: unknown — an output's content shape varies by outputType; matches the
+// WHY: content: unknown — an output's content shape varies by outputType; matches the
 // canonical JobOutput in types/job.ts. getQualityScore narrows it via a type guard below
 // instead of assuming shape (same pattern as Dashboard/dashboardTypes.ts).
 export interface JobOutput {
@@ -31,19 +31,19 @@ export interface LibraryJob {
   status: string;
   createdAt: string;
   outputs?: JobOutput[] | null;
-  // WHY optional: only set on jobs created via Repurpose's "paste a URL" flow
+  // WHY: optional: only set on jobs created via Repurpose's "paste a URL" flow
   sourceUrl?: string | null;
-  // WHY optional: tag column is nullable; the PATCH /:jobId/tag endpoint writes it
+  // WHY: optional: tag column is nullable; the PATCH /:jobId/tag endpoint writes it
   // (tagJobSchema: 1–30 chars). Jobs with no tag simply omit this field.
   tag?: string | null;
-  // WHY optional: only set on multiply/repurpose-origin jobs (sourceJobId
+  // WHY: optional: only set on multiply/repurpose-origin jobs (sourceJobId
   // exists in the DB but may be null for jobs created directly via Create).
   sourceJobId?: string | null;
   sourcePlatform?: string | null;
 }
 
 export function getQualityScore(job: LibraryJob): number | null {
-  // WHY last final/critique (CORR-004): critic retries append multiple rows —
+  // WHY: last final/critique (CORR-004): critic retries append multiple rows —
   // .find() picked the first (often lower) score while Result used the last.
   return getLatestQualityScore(job.outputs);
 }
@@ -58,7 +58,7 @@ function normalizeTopicKey(topic: string): string {
   return topic.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-// WHY topic-based, not job-based: Library cards collapse Adapt siblings and
+// WHY: topic-based, not job-based: Library cards collapse Adapt siblings and
 // same-topic generations into one row, so paging by raw jobs (10) often showed
 // only a handful of topics. Paginate the grouped list at this size instead.
 export const TOPICS_PER_PAGE = 10;

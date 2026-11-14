@@ -34,7 +34,7 @@ function renderList(overrides: Partial<Parameters<typeof BatchTopicList>[0]> = {
     errorMsg: '',
     onSubmit: vi.fn(),
   };
-  // WHY typed via an explicit intersection, not `{ ...defaults, ...overrides }`
+  // WHY: typed via an explicit intersection, not `{ ...defaults, ...overrides }`
   // inferred alone: spreading a Partial<Props> over the defaults widens each
   // mocked callback's inferred type back to the plain Props function
   // signature (`(rows: BatchRow[]) => void`), losing the `Mock` type
@@ -110,7 +110,7 @@ describe('BatchTopicList', () => {
   });
 
   it('a lone 1-2 character topic leaves validRowCount at 0, disabling submit before validation can even run', () => {
-    // WHY this, not clicking the button: validRowCount only counts rows with
+    // WHY: this, not clicking the button: validRowCount only counts rows with
     // topic.trim().length >= 3, so a single 2-char row alone means the submit
     // button is disabled — handleSubmitWithValidation never fires. The
     // inline "must be at least 3 characters" error path is only reachable
@@ -135,7 +135,7 @@ describe('BatchTopicList', () => {
     const validated = onRowsChange.mock.calls[0][0] as BatchRow[];
     expect(validated[0].error).toBe('Topic must be at least 3 characters');
     expect(validated[1].error).toBeUndefined();
-    // WHY onSubmit does NOT fire here: handleSubmitWithValidation requires
+    // WHY: onSubmit does NOT fire here: handleSubmitWithValidation requires
     // EVERY row to be error-free (`validated.every((r) => !r.error)`) before
     // submitting — a too-short row blocks the whole batch rather than being
     // silently dropped, forcing the user to fix or clear it first.
@@ -180,7 +180,7 @@ describe('BatchTopicList', () => {
 
   it('the submit button is disabled when there are zero valid rows, even while not loading', () => {
     renderList({ rows: [{ id: 'r1', topic: '', platform: 'instagram_carousel' }] });
-    // WHY the accessible name is "Generate" with no count when 0 rows are
+    // WHY: the accessible name is "Generate" with no count when 0 rows are
     // valid: `Generate ${validRowCount || ''} ...` renders as bare "Generate"
     // when validRowCount is 0.
     const submitButton = screen.getByRole('button', { name: /^Generate/i });

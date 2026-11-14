@@ -7,7 +7,7 @@ interface PlatformSelectorProps {
   disabled?: boolean;
 }
 
-// WHY required single-select (not deselectable like ToneSelector): the server
+// WHY: required single-select (not deselectable like ToneSelector): the server
 // refuses analysis without a platform — clearing the pill would only re-disable
 // Analyze with no benefit, and a missing platform was the root cause of
 // wrong-person matches for ambiguous handles.

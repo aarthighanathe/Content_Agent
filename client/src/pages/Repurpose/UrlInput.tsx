@@ -1,5 +1,5 @@
-// URL input section for Repurpose — split from Repurpose.tsx to stay under the 400-line rule.
-// Renders either a single URL input (default) or a multi-URL textarea (batchMode).
+// WHY: extracted from Repurpose.tsx to stay under the 400-line cap.
+// Single-URL input by default; batchMode swaps in a multi-URL textarea.
 import { Link2 } from 'lucide-react';
 
 interface UrlInputProps {
@@ -15,15 +15,12 @@ interface UrlInputProps {
 export function UrlInput({
   url, onUrlChange, batchMode, onToggleBatchMode, batchUrls, onBatchUrlsChange, loading,
 }: UrlInputProps) {
-  // Count valid-looking lines for the batch count badge
   const batchLineCount = batchUrls.split('\n').filter(l => l.trim().length > 0).length;
   const MAX_BATCH_LINES = 50;
 
-  // Handle batch URLs change with max-line guard
   const handleBatchUrlsChange = (value: string) => {
     const lines = value.split('\n');
     if (lines.length > MAX_BATCH_LINES) {
-      // Truncate to max lines
       const truncated = lines.slice(0, MAX_BATCH_LINES).join('\n');
       onBatchUrlsChange(truncated);
     } else {
@@ -33,7 +30,6 @@ export function UrlInput({
 
   return (
     <div style={{ marginBottom: 24 }}>
-      {/* Label row with single/batch toggle */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
           Source URL{batchMode ? 's' : ''}

@@ -16,7 +16,7 @@ interface DropdownProps<T extends string | number> {
   size?: 'sm' | 'md';
 }
 
-// WHY a custom listbox instead of a native <select>: native selects render with the
+// WHY: a custom listbox instead of a native <select>: native selects render with the
 // OS/browser's own popup styling (system font, platform accent color) that can't be
 // themed via CSS, so they break out of the app's dark, per-theme design system — this
 // is the one shared dropdown component all pages should use for value pickers.
@@ -31,7 +31,7 @@ export function Dropdown<T extends string | number>({
   const selectedIndex = Math.max(0, options.findIndex((o) => o.value === value));
   const selected = options[selectedIndex];
 
-  // WHY set together, not derived via a separate open-triggered effect: setting
+  // WHY: set together, not derived via a separate open-triggered effect: setting
   // activeIndex synchronously inside an effect body causes an extra cascading render
   // on every open. Since every code path that opens the dropdown already knows
   // selectedIndex at that moment, resetting both in the same event handler avoids it.

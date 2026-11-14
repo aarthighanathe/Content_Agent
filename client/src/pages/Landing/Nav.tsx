@@ -7,9 +7,11 @@ import { BrandMark } from './BrandMark';
 export interface NavProps {
   isSignedIn: boolean | undefined;
   onOpenMobileMenu: () => void;
+  mobileMenuOpen: boolean;
+  mobileMenuId: string;
 }
 
-export function Nav({ isSignedIn, onOpenMobileMenu }: NavProps) {
+export function Nav({ isSignedIn, onOpenMobileMenu, mobileMenuOpen, mobileMenuId }: NavProps) {
   return (
     <nav className="lnav" id="lnav">
       <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
@@ -19,7 +21,6 @@ export function Nav({ isSignedIn, onOpenMobileMenu }: NavProps) {
         </span>
       </Link>
 
-      {/* Desktop links */}
       <div className="lnav-links-desktop" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
         {navLinks.map((l) => (
           <a key={l.href} href={l.href} className="lnav-link">
@@ -63,7 +64,14 @@ export function Nav({ isSignedIn, onOpenMobileMenu }: NavProps) {
           should be able to switch themes without having to discover the menu first. */}
       <div className="lnav-mobile-controls" style={{ display: 'none', alignItems: 'center', gap: 8 }}>
         <ThemeSwitcher collapsed align="down" />
-        <button className="lnav-hamburger" onClick={onOpenMobileMenu} aria-label="Open menu">
+        <button
+          type="button"
+          className="lnav-hamburger"
+          onClick={onOpenMobileMenu}
+          aria-label="Open menu"
+          aria-expanded={mobileMenuOpen}
+          aria-controls={mobileMenuId}
+        >
           <Menu size={20} />
         </button>
       </div>

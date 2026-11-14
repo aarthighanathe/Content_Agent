@@ -1,14 +1,5 @@
-// Template data record for Instagram Carousels — 10 templates × 3 curated
-// color palettes each. Split out of templateSystem.ts (2026-08-10, that file
-// was 722 lines, mostly this record) to stay under the 400-line file cap.
-// templateSystem.ts keeps the type definitions and helper functions
-// (getTemplate/getPalette/getDefaultPalette/isTemplateId) as the public
-// surface; the actual per-template data lives one level further, in
-// lib/templates/ (one file per template — even a single combined data file
-// here still exceeded 400 lines, so this went one step further than a
-// two-file split). To add an 11th template, add a new file in lib/templates/
-// following the same shape and register it below (see CLAUDE.md §11a for the
-// full checklist — this is only step 1).
+// WHY: split across lib/templates/*.ts: the 10×3 palette record alone exceeds the 400-line cap.
+// templateSystem.ts stays the public import; register new templates in TEMPLATES below.
 import type { TemplateId, CarouselTemplate } from './templateSystem';
 import { modernMinimal } from './templates/modernMinimal';
 import { boldStatement } from './templates/boldStatement';

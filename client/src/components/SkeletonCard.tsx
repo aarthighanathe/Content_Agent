@@ -1,15 +1,7 @@
-// WHY: HistorySkeleton.tsx and CardSkeleton.tsx were near-identical (same layout, only
-// differing in a few px of sizing and animation-name). Consolidated into one parameterized
-// component per REVIEW_FINDINGS.md Section 3.
-//
-// WHY SkeletonBlock also lives here (audit #29): Dashboard.tsx/InsightsCards.tsx/Calendar/
-// Ideate each had their own near-identical single-div shimmer primitive (a sized, rounded,
-// animated placeholder rect) composed freely into custom multi-piece skeletons (a progress-bar
-// row's icon+label+bar+number, a stat card's number, a grid cell). That's a genuinely different
-// shape than SkeletonCard's fixed avatar+title+badge row, so rather than forcing every caller
-// onto one rigid row layout, the shared primitive underneath both is extracted and exported —
-// SkeletonCard is built from it below, and free-form callers use it directly. The keyframe
-// lives in SkeletonBlock (not SkeletonCard) so it's declared regardless of which one a page uses.
+// WHY: HistorySkeleton and CardSkeleton were the same row layout with minor size tweaks —
+// one parameterized SkeletonCard replaces both.
+// WHY: SkeletonBlock is exported separately: many pages need ad-hoc shimmer rects, not the
+// fixed avatar+title+badge row — keyframes live on SkeletonBlock so either shape works.
 export interface SkeletonBlockProps {
   width?: string | number;
   height?: string | number;

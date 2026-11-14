@@ -20,7 +20,6 @@ export function HowItWorks() {
     <>
       <SectionDivider label="The process" />
 
-      {/* ══════════ HOW IT WORKS ══════════ */}
       <section className="section" id="how" style={{ padding: '100px 32px' }}>
         <div className="rv" style={{ marginBottom: 56 }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: 3, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>

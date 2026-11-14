@@ -19,7 +19,6 @@ export function QualityDemo() {
     <>
       <SectionDivider label="Quality standard" />
 
-      {/* ══════════ QUALITY ══════════ */}
       <section className="section" id="quality" style={{ padding: '100px 32px' }}>
         <div className="quality-wrap rv" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center', background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 22%, transparent)', borderRadius: 18, padding: 56, position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, right: 0, width: '340px', height: '340px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent-2) 8%, transparent),transparent 70%)', pointerEvents: 'none' }} />

@@ -2,7 +2,7 @@
 // LIBRARY_STYLES in libraryStyles.ts) to keep the page component under the 400-line
 // limit. Pure CSS string — no logic — safe to colocate outside the component file.
 //
-// WHY var(--bg-*)/var(--accent) instead of the previous hardcoded navy (#07071A/#0B0B22/
+// WHY: var(--bg-*)/var(--accent) instead of the previous hardcoded navy (#07071A/#0B0B22/
 // #08081C) + amber (#F59E0B/rgba(245,158,11,...)): those were fixed values with no
 // connection to a real brand/status/badge-class identity — just the original Aurora
 // theme's own palette baked in directly, so every other theme rendered this whole page
@@ -10,7 +10,7 @@
 // the active [data-theme]'s tokens, matching how Library/Dashboard's own extracted
 // styles (LIBRARY_STYLES, DASHBOARD_STYLES) already do this.
 export const CALENDAR_STYLES = `
-  /* WHY a flex column on the shell: percentage height was collapsing, so the
+  /* WHY: a flex column on the shell: percentage height was collapsing, so the
      library and the month sized to their content and ended at different
      bottoms. Both columns stretch to the same viewport height. */
   .main-content:has(.sc-page) { display:flex; flex-direction:column; height:100dvh; max-height:100dvh; min-height:0; overflow:hidden; }
@@ -92,7 +92,7 @@ export const CALENDAR_STYLES = `
   .sc-add-item:hover,.sc-add-item:focus-visible { background:color-mix(in srgb, var(--accent-2) 7%, transparent); outline:none; }
 
   /* ── Mobile bottom-sheet drawer (#12) ── */
-  /* WHY a separate element rather than moving the sidebar (#12): the sidebar's
+  /* WHY: a separate element rather than moving the sidebar (#12): the sidebar's
      desktop layout (fixed-width flex column) and the mobile sheet's layout (full-width,
      slides from bottom) are too different to share gracefully. Rendering both and
      showing only the appropriate one via CSS lets the desktop and mobile paths be
@@ -118,7 +118,7 @@ export const CALENDAR_STYLES = `
   }
   @media(max-width:640px){
     .sc-legend{display:none;}
-    /* WHY sidebar stays at 0 on mobile (#12): instead of fighting this rule, we render
+    /* WHY: sidebar stays at 0 on mobile (#12): instead of fighting this rule, we render
        a separate .sc-mobile-sheet element (bottom drawer) that replaces the sidebar on
        touch-sized screens. The existing .sc-sidebar stays collapsed — the mobile path
        routes entirely through the sheet, which is toggled by the same GripVertical

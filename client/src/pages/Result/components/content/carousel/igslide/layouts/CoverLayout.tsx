@@ -6,11 +6,8 @@ import { SlideVisual } from '../../SlideVisual';
 import { DotGrid, DiagStripes, CornerRings, DiamondAccent, RadialBurst, GlowBlob } from '../decorativePrimitives';
 import { BrandLockup, PillTag, InitialsCircle } from '../contentPieces';
 
-// ── Cover layouts ─────────────────────────────────────────────────────────────
-
 type CoverLayoutProps = { slide: SlideData; index: number; colors: ColorSystem; brandName: string; handle: string };
 
-// Variant A: Brand lockup at top, divider, featured pill, headline + body, dot accent bottom
 function CoverLayoutA({ slide, colors, brandName, handle }: CoverLayoutProps) {
   const pad = H_PAD;
   const rp  = Math.max(pad, 50);
@@ -56,7 +53,6 @@ function CoverLayoutA({ slide, colors, brandName, handle }: CoverLayoutProps) {
   );
 }
 
-// Variant B: Brand-centric — initials circle in center, headline bottom-anchored, brand at bottom
 function CoverLayoutB({ slide, colors, brandName, handle }: CoverLayoutProps) {
   const pad = H_PAD;
   const rp  = Math.max(pad, 50);
@@ -66,18 +62,15 @@ function CoverLayoutB({ slide, colors, brandName, handle }: CoverLayoutProps) {
       <GlowBlob color={colors.BRAND_PRIMARY} x="50%" y="38%" size={260} opacity={0.09} />
       <DotGrid color={colors.BRAND_PRIMARY} opacity={0.04} />
 
-      {/* Top: pill + slide count */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <PillTag text="START HERE" bgMode="light" colors={colors} />
         <span style={{ fontSize: 10, fontWeight: 700, color: colors.BRAND_DARK + '60', fontFamily: FONT, letterSpacing: 1 }}>01</span>
       </div>
 
-      {/* Center: brand initials circle */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <InitialsCircle name={brandName} size={72} colors={colors} />
       </div>
 
-      {/* Bottom: divider + headline + brand lockup */}
       <div style={{ flexShrink: 0 }}>
         <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
           <div style={{ width: 28, height: 3, background: colors.BRAND_PRIMARY, borderRadius: 2 }} />
@@ -101,8 +94,7 @@ function CoverLayoutB({ slide, colors, brandName, handle }: CoverLayoutProps) {
   );
 }
 
-// CoverLayout dispatcher — uses preset.cover so each generation gets a different cover style.
-// WHY the brandName check: CoverLayoutB's centerpiece IS the brand initials circle — with
+// WHY: CoverLayoutB centers on brand initials — without brandName the circle shows a
 // no real brand name that circle would show an empty/placeholder glyph as the visual focus
 // of the whole slide, so fall back to CoverLayoutA (brand row is just one optional line).
 export function CoverLayout({ slide, index, colors, brandName, handle, preset }: CoverLayoutProps & { preset: DesignPresetConfig }) {

@@ -1,4 +1,4 @@
-// WHY extracted from exportDownloaders: the PDF writer needs real typography
+// WHY: extracted from exportDownloaders: the PDF writer needs real typography
 // (label / headline / body / points) and Unicode sanitization. Keeping that
 // here stops exportDownloaders from growing past the line-cap again.
 import type { jsPDF } from 'jspdf';
@@ -23,7 +23,7 @@ export function pdfSafeText(input: string): string {
     .replace(/\u2026/g, '...')
     .replace(/\u00A0/g, ' ')
     .replace(/[\u2000-\u200A\u202F\u205F]/g, ' ')
-    // WHY delete ZWSP/ZWNJ rather than space: a zero-width char becoming a
+    // WHY: delete ZWSP/ZWNJ rather than space: a zero-width char becoming a
     // real space changes wrap points and can look like stretched tracking.
     .replace(/[\u200B-\u200F\uFEFF]/g, '')
     .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '')
@@ -49,7 +49,7 @@ function writeLines(
   ctx.doc.setFont('helvetica', opts.font);
   ctx.doc.setFontSize(opts.size);
   ctx.doc.setTextColor(opts.color);
-  // WHY split then draw one string at a time: passing a character-spread array
+  // WHY: split then draw one string at a time: passing a character-spread array
   // to doc.text() is what produces the stretched letter-spacing in Preview.
   const lines = ctx.doc.splitTextToSize(safe, ctx.maxW) as string[];
   lines.forEach((line) => {
@@ -132,7 +132,7 @@ export async function buildContentPdf(
     lineH: 24,
   });
   writeBlockGap(ctx, 6);
-  // WHY ASCII separator: middot (·) is stripped by pdfSafeText / Helvetica.
+  // WHY: ASCII separator: middot (·) is stripped by pdfSafeText / Helvetica.
   const meta = [jobData?.platform, jobData?.tone, jobData?.targetAudience]
     .filter((part): part is string => typeof part === 'string' && part.length > 0)
     .join(' | ');

@@ -69,7 +69,6 @@ export function TopicStep({
         )}
       </div>
 
-      {/* Topic Input */}
       <div style={{ marginBottom: 20 }}>
         <SectionLabel>Write your topic</SectionLabel>
         <div ref={suggestRef} style={{ position: 'relative' }}>
@@ -96,7 +95,7 @@ export function TopicStep({
                 : {}),
             }}
           />
-          {/* WHY overlaid inside the textarea, not a block row below it: a trailing
+          {/* WHY: overlaid inside the textarea, not a block row below it: a trailing
               row here added extra height only this section had, making the gap
               before "Select a tone" visibly larger than every other section's
               gap (which all end flush at their marginBottom:20 boundary). */}
@@ -115,7 +114,7 @@ export function TopicStep({
             inputRef={topicRef}
           />
         </div>
-        {/* WHY match BatchTopicList: server min is 3 chars — show it before submit. */}
+        {/* WHY: match BatchTopicList: server min is 3 chars — show it before submit. */}
         {topic.trim().length > 0 && topic.trim().length < 3 && (
           <p style={{ margin: '6px 0 0', fontSize: 11.5, color: 'var(--color-error)' }}>
             Topic must be at least 3 characters
@@ -169,7 +168,7 @@ export function TopicStep({
             </Link>
           </div>
         ) : null}
-        {/* WHY a separate line, not folded into the banner above: Content DNA is sent to
+        {/* WHY: a separate line, not folded into the banner above: Content DNA is sent to
             every job (create.ts) regardless of whether the brand-voice banner is showing
             the "configured" or "not set up" state — this confirms on-screen that it's
             active independent of that banner's own state. */}
@@ -221,7 +220,6 @@ export function TopicStep({
         onPaletteChange={onPaletteChange}
       />
 
-      {/* Error message */}
       {errorMsg && (
         <div style={{ marginBottom: 20, padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, fontSize: 12, color: 'var(--color-error)', display: 'flex', alignItems: 'center', gap: 6 }} role="alert">
           <AlertTriangle size={13} /> {errorMsg}{countdownText && <span style={{ marginLeft: 6, fontWeight: 600 }}>({countdownText})</span>}

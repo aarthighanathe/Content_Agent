@@ -1,6 +1,6 @@
 import type { Typography } from '../../../../../../lib/templateSystem';
 
-// WHY only two real font faces: the SSR export bundle (client/src/ssr/renderSlideHtml.tsx)
+// WHY: only two real font faces: the SSR export bundle (client/src/ssr/renderSlideHtml.tsx)
 // only embeds Plus Jakarta Sans and Playfair Display as @font-face data URIs — the same
 // two fonts the legacy carousel system (IGCarouselPreview.tsx's FONT constant) has always
 // used. templateSystem.ts's Typography type also allows 'Inter'/'DM Sans', but those were

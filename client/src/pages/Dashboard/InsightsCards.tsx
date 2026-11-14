@@ -14,7 +14,6 @@ interface InsightsCardsProps {
 export function InsightsCards({ loading, platformBreakdown, personalizedTips, hasCritiqueData }: InsightsCardsProps) {
   return (
     <div className="grid-halves" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-      {/* Platform breakdown */}
       <div className="card">
         <CardHeader icon={<TrendingUp size={12} style={{ color: 'var(--accent)' }} />} title="Platform breakdown" />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -59,7 +58,6 @@ export function InsightsCards({ loading, platformBreakdown, personalizedTips, ha
         </div>
       </div>
 
-      {/* Tips */}
       <div className="card">
         <CardHeader
           icon={<Lightbulb size={12} style={{ color: 'var(--accent-2)' }} />}
@@ -77,8 +75,8 @@ export function InsightsCards({ loading, platformBreakdown, personalizedTips, ha
                 </div>
               </div>
             ))
-          ) : personalizedTips.map((tip, i) => (
-            <div key={`${i}-${tip}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '11px 13px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--rule)' }}>
+          ) : personalizedTips.map((tip) => (
+            <div key={tip} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '11px 13px', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--rule)' }}>
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent), var(--accent-2))', marginTop: 7, flexShrink: 0, boxShadow: '0 0 6px var(--accent-glow)' }} />
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.62 }}>{tip}</div>
             </div>

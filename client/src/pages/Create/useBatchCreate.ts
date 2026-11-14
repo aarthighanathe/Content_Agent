@@ -5,7 +5,7 @@ import { posthog } from '../../main';
 import { getSubmitError } from './errorMessages';
 import type { BatchRow } from './BatchTopicList';
 
-// WHY extracted from Create.tsx: Create.tsx exceeded the 400-line file-size cap
+// WHY: extracted from Create.tsx: Create.tsx exceeded the 400-line file-size cap
 // (436 lines) by mixing single-topic and batch-mode state/handlers in one
 // component — batch submits up to 7 topic+platform pairs in one request
 // (POST /jobs/batch), a genuinely different shape of input than the single
@@ -25,7 +25,7 @@ export function useBatchCreate(
   const [batchAudience, setBatchAudience] = useState('');
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchError, setBatchError] = useState('');
-  // WHY ref: same double-click race as Create's handleSubmit — both clicks
+  // WHY: ref: same double-click race as Create's handleSubmit — both clicks
   // see batchLoading===false before the next paint.
   const submittingRef = useRef(false);
 
@@ -47,7 +47,7 @@ export function useBatchCreate(
       );
       posthog.capture('batch_content_generated', { count: jobs.length, failedCount: failedItems.length });
       if (failedItems.length > 0) {
-        // WHY map server index -> validRows -> row id, not display directly:
+        // WHY: map server index -> validRows -> row id, not display directly:
         // the server's failedItems[].index refers to a position in the
         // validRows array actually sent (a filtered subset of batchRows), not
         // the full row list the user sees — mapping through validRows keeps
@@ -63,7 +63,7 @@ export function useBatchCreate(
         )));
       }
       if (jobs.length === 0) {
-        // WHY still surface the batch-level error, not just the per-row ones:
+        // WHY: still surface the batch-level error, not just the per-row ones:
         // a total failure (every item rejected) previously navigated away with
         // an empty job list and no explanation — this keeps the user on the
         // form with each row's specific error visible instead.
@@ -72,7 +72,7 @@ export function useBatchCreate(
         submittingRef.current = false;
         return;
       }
-      // WHY also sessionStorage (L12): BatchResult used to rely only on router
+      // WHY: also sessionStorage (L12): BatchResult used to rely only on router
       // state, so a hard refresh showed "No batch found". Persist the job list
       // for this tab so refresh recovers; URL stays clean (no job IDs in query).
       try {

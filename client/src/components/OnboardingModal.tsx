@@ -1,4 +1,4 @@
-﻿// WHY first-run onboarding modal: captures brand name and preferred tone from new users
+// WHY: first-run onboarding modal: captures brand name and preferred tone from new users
 // to personalize their content generation experience. Two-step flow (brand setup → sample preview)
 // ensures users understand the value before completing setup.
 import { useState, useEffect, useRef } from 'react';
@@ -30,12 +30,12 @@ export function OnboardingModal() {
   const [brandName, setBrandName] = useState('');
   const [tone, setTone]           = useState('professional');
   const [saveError, setSaveError] = useState('');
-  // WHY local dismiss: session skip shouldn't wait on a refetch that may 401 mid-logout.
+  // WHY: local dismiss: session skip shouldn't wait on a refetch that may 401 mid-logout.
   const [dismissed, setDismissed] = useState(
     () => sessionStorage.getItem('ca_onboarding_dismissed') === '1',
   );
   const modalRef = useRef<HTMLDivElement>(null);
-  // WHY gated on authLoaded && isSignedIn: same race Dashboard.tsx/AuthLayout.tsx's
+  // WHY: gated on authLoaded && isSignedIn: same race Dashboard.tsx/AuthLayout.tsx's
   // own profile queries guard against — without this, the request could fire before
   // window.Clerk.session is hydrated, get no Authorization header, and 401.
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
@@ -58,7 +58,7 @@ export function OnboardingModal() {
       void queryClient.invalidateQueries({ queryKey: ['dashboard', 'profile'] });
     },
     onError: () => {
-      // WHY keep open on failure: dismissing anyway left Brand without the
+      // WHY: keep open on failure: dismissing anyway left Brand without the
       // name the user typed, and this session would never show the modal again.
       setSaveError("Couldn't save — try again.");
     },
@@ -80,7 +80,7 @@ export function OnboardingModal() {
     setDismissed(true);
   }
 
-  // SECURITY/ACCESSIBILITY: Escape-to-close, cleaned up on unmount/deactivation.
+  // NOTE: Escape calls handleSkip; listener removed when the modal unmounts or hides.
   useEffect(() => {
     if (!show) return undefined;
     function onKeyDown(e: KeyboardEvent): void {

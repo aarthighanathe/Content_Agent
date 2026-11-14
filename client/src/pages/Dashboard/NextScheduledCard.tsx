@@ -3,27 +3,27 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { CalendarClock, ChevronRight } from 'lucide-react';
-import { getScheduledPosts } from '../../api';
 import { platformMeta } from '../../lib/platformMeta';
 import { SkeletonBlock } from '../../components/SkeletonCard';
-import { todayDateKey, formatDateKey } from '../Calendar/calendarHelpers';
+import {
+  todayDateKey,
+  formatDateKey,
+  fetchScheduledPostsCurrentAndNext,
+} from '../Calendar/calendarHelpers';
 
-// WHY its own query + component (not reusing Calendar's useSchedule hook):
+// WHY: its own query + component (not reusing Calendar's useSchedule hook):
 // Dashboard only needs the single nearest-future scheduled post plus that
 // one job's topic/platform — pulling in Calendar's whole ScheduleMap plus a
 // second N-job fetch (fetchCalendarJobs's 4-page pull) would be a much
-// heavier fetch for a small "next up" card. GET /scheduled-posts with no
-// `month` already returns all of the user's scheduled posts cheaply, and now
-// includes each row's job topic/platform inline (server-side join) — this no
-// longer needs a second, sequential GET /jobs/:jobId per mount just to show
-// a topic string.
+// heavier fetch for a small "next up" card. Month-scoped API: shared
+// fetchScheduledPostsCurrentAndNext covers this month + next.
 export function NextScheduledCard() {
-  // WHY gated on authLoaded && isSignedIn: same Clerk-session-not-hydrated-yet
+  // WHY: gated on authLoaded && isSignedIn: same Clerk-session-not-hydrated-yet
   // race as Dashboard.tsx's own queries — see that file's matching comment.
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const scheduleQuery = useQuery({
     queryKey: ['dashboard', 'nextScheduled'],
-    queryFn: () => getScheduledPosts(),
+    queryFn: fetchScheduledPostsCurrentAndNext,
     enabled: authLoaded && isSignedIn,
   });
 
@@ -35,10 +35,10 @@ export function NextScheduledCard() {
       .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))[0] ?? null;
   }, [scheduleQuery.data]);
 
-  // WHY isPending: isLoading is false while the query is disabled waiting on
+  // WHY: isPending: isLoading is false while the query is disabled waiting on
   // Clerk, which flashed the empty "no posts" copy before the skeleton.
   const loading = scheduleQuery.isPending;
-  // WHY treat a row with no joined job as "nothing to show" rather than
+  // WHY: treat a row with no joined job as "nothing to show" rather than
   // rendering a broken card: the server only omits `job` when the
   // scheduled_posts row outlived its job (e.g. deleted before the cleanup in
   // jobs/manage.ts's DELETE handler ran, or from data scheduled before that
@@ -46,7 +46,7 @@ export function NextScheduledCard() {
   // worse than the plain empty state.
   const orphaned = !!nextEntry && !nextEntry.job;
 
-  // WHY silently render the empty state on error, not an ErrorState block:
+  // WHY: silently render the empty state on error, not an ErrorState block:
   // this is a small "nice to have" awareness card, not essential dashboard
   // data — matching InsightsCards.tsx's own precedent of degrading quietly
   // when one of several independent queries fails rather than blocking the

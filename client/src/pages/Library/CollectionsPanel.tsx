@@ -10,7 +10,7 @@ interface CollectionsPanelProps {
   onSelectCollection: (id: string | null) => void;
   onCreateCollection: (name: string) => void;
   creating: boolean;
-  /** WHY (id, name): confirm modal needs the name for "Delete <name>?". */
+  /** WHY: (id, name): confirm modal needs the name for "Delete <name>?". */
   onRequestDeleteCollection: (id: string, name: string) => void;
   deletingId: string | null;
   loading: boolean;

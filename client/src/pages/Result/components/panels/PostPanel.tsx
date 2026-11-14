@@ -1,14 +1,23 @@
-﻿import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import axios from 'axios';
 import { useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Send, Clock, CheckCircle, AlertCircle, RefreshCw, ExternalLink, Calendar, ChevronRight, ChevronLeft } from 'lucide-react';
 import { scheduleJob } from '../../../../api';
+import { isSafeHttpUrl } from '../../../../lib/utils';
 import { VisibleScroller } from '../../../../components/VisibleScroller';
 import { flattenContentToPreview } from '../../../../lib/contentFlattener.js';
 import type { SocialConnection } from '../../../../types/api';
 import type { ContentJob } from '../../../../types/job';
 import type { PublishPlatform } from '../../../../types/scheduledPost';
 import type { ResultContent } from '../ContentColumn';
+import {
+  PLATFORM_ICON_COMPONENTS,
+  PLATFORM_COLORS,
+  SCHEDULE_SUPPORTED,
+  hexToRgb,
+  Spinner,
+} from './postPanelIcons';
 
 interface Props {
   connections:  SocialConnection[];
@@ -22,51 +31,11 @@ interface Props {
   onClose:      () => void;
 }
 
-// Brand SVG icons (lucide-react doesn't export social brand icons)
-function LinkedInIcon({ size = 18, style }: { size?: number; style?: React.CSSProperties }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" style={style}>
-      <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
-      <rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/>
-    </svg>
-  );
-}
-function TwitterIcon({ size = 18, style }: { size?: number; style?: React.CSSProperties }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" style={style}>
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-    </svg>
-  );
-}
-function InstagramIcon({ size = 18, style }: { size?: number; style?: React.CSSProperties }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
-      <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
-      <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
-    </svg>
-  );
-}
-
-type PlatIconProps = { size?: number; style?: React.CSSProperties };
-const PLATFORM_ICON_COMPONENTS: Record<string, React.ComponentType<PlatIconProps>> = {
-  linkedin:  LinkedInIcon,
-  twitter:   TwitterIcon,
-  instagram: InstagramIcon,
-};
-
-const PLATFORM_COLORS: Record<string, string> = {
-  linkedin:  '#0A66C2',
-  twitter:   '#1DA1F2',
-  instagram: '#E1306C',
-};
-
-const SCHEDULE_SUPPORTED = ['linkedin', 'twitter'];
-
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-// WHY local wall-clock parts, not toISOString(): datetime-local is local time.
+// WHY: local wall-clock parts, not toISOString(): datetime-local is local time.
 // toISOString() is UTC, so in timezones ahead of UTC the picker accepted times
 // that were already past locally (and the server then published immediately).
 function getMinDateTime(): string {
@@ -103,7 +72,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
     setScheduling(true);
     setScheduleError(null);
     try {
-      // WHY Calendar scheduledPosts + publish worker, not social/schedule Map:
+      // WHY: Calendar scheduledPosts + publish worker, not social/schedule Map:
       // the in-memory reminder path never delivered posts and was lost on restart.
       // jobId is required here so we can upsert into the real scheduled_posts table
       // with optional auto-publish on the chosen platform (fires ~9am user TZ).
@@ -117,10 +86,10 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
       const mm = String(local.getMonth() + 1).padStart(2, '0');
       const dd = String(local.getDate()).padStart(2, '0');
       const scheduledDateKey = `${yyyy}-${mm}-${dd}`;
-      // WHY hour from datetime-local (L10/F12): Calendar publish worker fires at
+      // WHY: hour from datetime-local (L10/F12): Calendar publish worker fires at
       // a whole hour in the user's TZ — minutes are floored to the selected hour.
       const publishHour = local.getHours();
-      // WHY refuse the current hour when it's already underway: the worker fires
+      // WHY: refuse the current hour when it's already underway: the worker fires
       // at :00 of publishHour, so picking 15:40 when it is 15:40 would queue a
       // past instant and (before the server fix) publish immediately.
       const topOfHour = new Date(local);
@@ -141,7 +110,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         ok: true,
         scheduledAt: res.scheduledPost.scheduledDate,
       });
-      // WHY invalidate calendar/dashboard schedule caches: otherwise a post
+      // WHY: invalidate calendar/dashboard schedule caches: otherwise a post
       // scheduled from Result stayed invisible on Calendar for up to 5 minutes.
       queryClient.invalidateQueries({ queryKey: ['calendar', 'schedule'] }).catch(() => {});
       queryClient.invalidateQueries({ queryKey: ['dashboard', 'nextScheduled'] }).catch(() => {});
@@ -154,7 +123,6 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
     }
   }
 
-  // Platform selection step
   if (view === 'select') {
     return (
       <div className="rp-post-select">
@@ -200,9 +168,9 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
           <div className="rp-panel-empty">
             <p className="rp-panel-empty-title">No connected accounts</p>
             <p className="rp-panel-empty-blurb">
-              <a href="/brand" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+              <Link to="/brand" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
                 Connect LinkedIn or X in Brand settings →
-              </a>
+              </Link>
             </p>
           </div>
         )}
@@ -210,7 +178,6 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
     );
   }
 
-  // Content preview step
   if (view === 'preview') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -261,7 +228,8 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
             <CheckCircle size={14} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-success)' }}>Posted successfully!</div>
-              {postLink && (
+              {postLink && isSafeHttpUrl(postLink) && (
+                // SECURITY: postLink is server/provider-supplied — only link http(s).
                 <a href={postLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#60a5fa', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3, marginTop: 3 }}>
                   View post <ExternalLink size={9} />
                 </a>
@@ -310,7 +278,6 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
     );
   }
 
-  // Schedule picker step
   if (view === 'schedule') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -345,7 +312,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
           </div>
         </div>
 
-        {/* WHY Calendar scheduled_posts: Result schedule upserts the same table
+        {/* WHY: Calendar scheduled_posts: Result schedule upserts the same table
             Calendar uses; publishHour comes from the datetime-local control. */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'color-mix(in srgb, var(--accent) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 8, padding: '9px 12px', fontSize: 11.5, color: 'color-mix(in srgb, var(--accent) 85%, transparent)', lineHeight: 1.5 }}>
           <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -376,7 +343,6 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
     );
   }
 
-  // Done state (after schedule or after post)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '8px 0' }}>
       <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -388,7 +354,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         </div>
         {scheduleResult?.scheduledAt && (
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 260 }}>
-            {/* WHY not “around 9:00”: schedule now sends publishHour from the
+            {/* WHY: not “around 9:00”: schedule now sends publishHour from the
                 datetime-local control (L10/F12), so the copy must match. */}
             Added to Calendar for {scheduleResult.scheduledAt}
             {scheduleDate
@@ -404,19 +370,5 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         Close
       </button>
     </div>
-  );
-}
-
-// Helpers
-
-function hexToRgb(hex: string): string {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (!result) return '255,255,255';
-  return `${parseInt(result[1], 16)},${parseInt(result[2], 16)},${parseInt(result[3], 16)}`;
-}
-
-function Spinner() {
-  return (
-    <div style={{ width: 11, height: 11, border: '1.5px solid var(--rule)', borderTopColor: 'currentColor', borderRadius: '50%', animation: 'rp-spin .7s linear infinite', flexShrink: 0 }} />
   );
 }

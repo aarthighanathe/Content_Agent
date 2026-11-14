@@ -20,21 +20,10 @@ interface TemplateLayoutProps {
 }
 
 /**
- * Base template layout component that applies template-specific styling
- * (typography, spacing, layout) to child content.
- *
- * This component serves as a wrapper that applies the template's design system
- * to the slide content. Template-specific layouts extend this to add their
- * unique structural elements.
+ * Shared fixed-size, clipping wrapper for every *Template.tsx component.
  *
  * NOTE: decorative elements are NOT rendered generically here — each
- * *Template.tsx component already builds its own hand-crafted decorative
- * shapes inline (see e.g. StorytellerTemplate's quote mark, LuxuryDarkTemplate's
- * corner ornaments). A prior generic `<div className="template-deco-{element}">`
- * loop here rendered empty, unstyled divs with no backing CSS — pure dead
- * output — and was removed, along with the `layout.decorativeElements` data
- * field itself (2026-08-10 — its only real consumer, TemplateGallery.tsx, was
- * already deleted in the 2026-08-06 migration to CompactTemplatePicker.tsx).
+ * *Template.tsx builds its own decorative shapes inline.
  */
 export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutProps>(
   function TemplateLayout({ width, height, template, slide, children }, ref) {
@@ -61,7 +50,7 @@ export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutPro
       : null;
 
     return (
-      // WHY no padding/background here: every *Template.tsx component already
+      // WHY: no padding/background here: every *Template.tsx component already
       // applies its own `padding: spacing.padding` and `background` to its inner
       // content div (that's where each template's actual surface color lives).
       // This box's only job is fixed sizing + clipping; full-bleed styling is
@@ -79,7 +68,7 @@ export const TemplateLayout = React.forwardRef<HTMLDivElement, TemplateLayoutPro
         }}
         data-template={template.id}
       >
-        {/* WHY behind children: AI slide image (F2) is decorative backdrop —
+        {/* WHY: behind children: AI slide image (F2) is decorative backdrop —
             template content still owns typography/layout on top. */}
         {imageDataUrl && (
           <img

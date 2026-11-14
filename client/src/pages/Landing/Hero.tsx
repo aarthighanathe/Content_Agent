@@ -22,18 +22,16 @@ const qualityMiniBars = [
 export function Hero({ isSignedIn }: HeroProps) {
   return (
     <>
-      {/* ══════════ HERO ══════════ */}
       <section
         className="hero-section"
         style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '130px 32px 88px', position: 'relative', overflow: 'hidden' }}
       >
-        <div className="aurora-orb orb-float-a" style={{ width: '750px', height: '750px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent-2) 16%, transparent) 0%,transparent 70%)', top: '-250px', left: '-200px' }} />
-        <div className="aurora-orb orb-float-b" style={{ width: '580px', height: '580px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent) 10%, transparent) 0%,transparent 70%)', top: '3%', right: '-120px' }} />
-        <div className="aurora-orb orb-float-c" style={{ width: '480px', height: '480px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent) 7%, transparent) 0%,transparent 70%)', bottom: '-60px', left: '38%', transform: 'translateX(-50%)' }} />
-        <div className="hero-grid" />
-        <div className="hero-dots" />
+        <div className="aurora-orb orb-float-a" aria-hidden="true" style={{ width: '750px', height: '750px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent-2) 16%, transparent) 0%,transparent 70%)', top: '-250px', left: '-200px' }} />
+        <div className="aurora-orb orb-float-b" aria-hidden="true" style={{ width: '580px', height: '580px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent) 10%, transparent) 0%,transparent 70%)', top: '3%', right: '-120px' }} />
+        <div className="aurora-orb orb-float-c" aria-hidden="true" style={{ width: '480px', height: '480px', background: 'radial-gradient(circle,color-mix(in srgb, var(--accent) 7%, transparent) 0%,transparent 70%)', bottom: '-60px', left: '38%', transform: 'translateX(-50%)' }} />
+        <div className="hero-grid" aria-hidden="true" />
+        <div className="hero-dots" aria-hidden="true" />
 
-        {/* Eyebrow */}
         <div className="eyebrow">
           <span className="eyebrow-dot" />
           5 AI agents — live now
@@ -54,7 +52,6 @@ export function Hero({ isSignedIn }: HeroProps) {
           Pensie<span style={{ color: 'var(--accent)' }}>ve</span>
         </div>
 
-        {/* Headline */}
         <h1
           style={{
             fontFamily: 'var(--font-heading)',
@@ -74,7 +71,6 @@ export function Hero({ isSignedIn }: HeroProps) {
           </span>
         </h1>
 
-        {/* Sub */}
         <p
           style={{
             fontSize: 17,
@@ -91,7 +87,6 @@ export function Hero({ isSignedIn }: HeroProps) {
           — working in sequence to produce quality-gated, platform-optimised content automatically.
         </p>
 
-        {/* CTAs */}
         <div className="hero-actions" style={{ display: 'flex', gap: 14, alignItems: 'center', animation: 'fadeUp .8s .34s ease both' }}>
           <Link
             to={isSignedIn ? '/dashboard' : '/sign-up'}
@@ -111,7 +106,6 @@ export function Hero({ isSignedIn }: HeroProps) {
           </a>
         </div>
 
-        {/* Trust stats strip */}
         <div className="hero-stats">
           <div className="hero-stat-item">
             <span className="hero-stat-live" />
@@ -123,10 +117,8 @@ export function Hero({ isSignedIn }: HeroProps) {
         </div>
       </section>
 
-      {/* ══════════ MOCKUP ══════════ */}
       <div className="rv mockup-section" style={{ maxWidth: 980, margin: '72px auto', width: '100%', padding: '0 32px' }}>
         <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 22%, transparent)', borderRadius: 18, overflow: 'hidden', boxShadow: '0 48px 96px rgba(0,0,0,0.65), 0 0 0 1px color-mix(in srgb, var(--accent-2) 8%, transparent)' }}>
-          {/* Browser chrome */}
           <div style={{ background: 'var(--bg-base)', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid color-mix(in srgb, var(--accent-2) 12%, transparent)' }}>
             <div style={{ display: 'flex', gap: 6 }}>
               {['#ff5f56', '#ffbd2e', '#27c93f'].map((c) => (
@@ -138,9 +130,7 @@ export function Hero({ isSignedIn }: HeroProps) {
             </div>
           </div>
 
-          {/* 3-column mockup */}
           <div className="mockup-cards" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1, background: 'color-mix(in srgb, var(--accent-2) 7%, transparent)' }}>
-            {/* Card 1: Content */}
             <div style={{ background: 'var(--bg-raised)', padding: '24px 22px', display: 'flex', flexDirection: 'column', gap: 11 }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 4 }}>
                 Instagram Carousel · cover
@@ -158,7 +148,6 @@ export function Hero({ isSignedIn }: HeroProps) {
               </div>
             </div>
 
-            {/* Card 2: Quality */}
             <div style={{ background: 'var(--bg-raised)', padding: '24px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 2 }}>Quality Score</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -192,7 +181,6 @@ export function Hero({ isSignedIn }: HeroProps) {
               </div>
             </div>
 
-            {/* Card 3: Pipeline */}
             <div className="mockup-card-hide-sm" style={{ background: 'var(--bg-raised)', padding: '24px 22px', display: 'flex', flexDirection: 'column', gap: 9 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--accent)' }}>Pipeline</div>

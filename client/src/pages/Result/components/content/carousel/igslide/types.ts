@@ -1,4 +1,3 @@
-// ── Shared types for the IGSlide split ─────────────────────────────────────────
 // WHY: SlideData/SlidePoint are re-exported from IGSlide.tsx (the public entry point)
 // so external consumers (ssr/renderSlideHtml.tsx, IGCarouselPreview.tsx,
 // useCarouselDesignSeed.ts, EditSlideModal.tsx, SlideVisual.tsx) keep importing from
@@ -17,7 +16,7 @@ export interface SlideData {
   body?:          string;
   visual_hint?:   string;
   imagePrompt?:   string;
-  // WHY optional data URL (F2): set by EditSlideModal after imageGen — rendered
+  // WHY: optional data URL (F2): set by EditSlideModal after imageGen — rendered
   // as a full-bleed background under template content when present.
   imageDataUrl?:  string;
   bg_suggestion?: string;
@@ -28,7 +27,7 @@ export interface SlideData {
 
 export type BgMode = 'light' | 'dark' | 'accent';
 
-// WHY position-independent, not `${index}-${label}`: SlidePoint has no id
+// WHY: position-independent, not `${index}-${label}`: SlidePoint has no id
 // field, and a key that still embeds the array index shifts identity on
 // reorder exactly like a bare index key would — it only helps the
 // different-length-array case, not the reordered-array one (EditSlideModal
@@ -46,7 +45,7 @@ export function stablePointKeys(points: SlidePoint[]): string[] {
   });
 }
 
-// WHY a shared hook, not each template component calling stablePointKeys
+// WHY: a shared hook, not each template component calling stablePointKeys
 // inline: all 10 igslide/templates/*.tsx components previously repeated the
 // identical `slide.points ? stablePointKeys(slide.points) : []` guard, which
 // (a) is one more thing CLAUDE.md §11a's "copy an existing template" onboarding

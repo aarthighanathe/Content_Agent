@@ -19,7 +19,7 @@ interface PlatformPickerProps {
   loading: boolean;
 }
 
-// WHY extracted from Repurpose.tsx: the multi-platform toggle (added
+// WHY: extracted from Repurpose.tsx: the multi-platform toggle (added
 // alongside item 5's server-side fan-out) pushed the page to 401 lines, one
 // over the 400-line split threshold — this block has its own clear
 // props/state boundary (platform selection only), making it the natural
@@ -34,7 +34,7 @@ export function PlatformPicker({
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
           {multiPlatform ? 'Target Platforms' : 'Target Platform'}
         </label>
-        {/* WHY a toggle, not a permanent checkbox mode: multi-platform fans
+        {/* WHY: a toggle, not a permanent checkbox mode: multi-platform fans
             one fetch out to several jobs (a different request shape) — an
             explicit opt-in keeps the common single-platform path exactly as
             it always was, rather than silently turning every pill click

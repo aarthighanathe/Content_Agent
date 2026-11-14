@@ -103,11 +103,19 @@ export interface ExportedSocialAccount {
 export interface ExportDataResponse {
   exportedAt: string;
   user: ExportedUser | null;
-  // WHY unknown[]: raw DB rows (contentJobs) passed through as-is by the export
+  // WHY: unknown[]: raw DB rows (contentJobs) passed through as-is by the export
   // route — not remodeled into the client's ContentJob shape.
   contentJobs: unknown[];
   connectedSocialAccounts: ExportedSocialAccount[];
   onboarding: unknown | null;
+  scheduledPosts?: unknown[];
+  // WHY: optional: export caps at 100 jobs and always omits agent logs —
+  // Brand.tsx surfaces `warning` when truncated (or always if present).
+  truncated?: boolean;
+  warning?: string;
+  partial?: boolean;
+  jobTotal?: number;
+  jobExportLimit?: number;
 }
 
 export interface SocialConnection {

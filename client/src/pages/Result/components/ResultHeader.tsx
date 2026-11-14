@@ -39,13 +39,9 @@ interface Props {
   };
 }
 
-// WHY content/isCarousel/social stay unread: they're part of this component's
-// stable prop contract (passed by Result.tsx) but genuinely not needed here —
-// prefixed with `_` rather than dropped from Props to avoid changing the
-// public interface without tracing every caller's intent. criticResult/
-// currentStage/progress ARE read below (quality-tier badge + in-progress
-// stage label), restoring the header-level status summary StatusDisplay.tsx
-// used to provide before its removal.
+// NOTE: content/isCarousel/social are unread (`_`-prefixed) but kept in Props so
+// Result.tsx's call site stays unchanged. criticResult/currentStage/progress drive the
+// quality-tier badge and in-progress stage label.
 export function ResultHeader({
   jobData,
   content: _content,
@@ -78,7 +74,7 @@ export function ResultHeader({
         ? 'Could not load job'
         : 'Generating content…';
 
-  // WHY only when done: versions are snapshots taken on regenerate — empty while
+  // WHY: only when done: versions are snapshots taken on regenerate — empty while
   // the first generation is still running. Header affordance opens the History panel.
   const versionsQuery = useQuery({
     queryKey: ['jobVersions', jobId],
@@ -138,7 +134,7 @@ export function ResultHeader({
           </a>
         )}
 
-        {/* WHY two groups: Copy/Export/Regen are immediate. Rewrite/Post/Hashtags/
+        {/* WHY: two groups: Copy/Export/Regen are immediate. Rewrite/Post/Hashtags/
             History open one focused panel each — not a second tab strip that
             duplicated these same labels (the old drawer tabs). Adapt scrolls
             to the on-page section. */}

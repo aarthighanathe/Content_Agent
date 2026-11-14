@@ -1,6 +1,4 @@
-// FeedMonitorPanel.tsx — RSS/Atom feed subscription manager in the Repurpose sidebar.
-// Lets users subscribe a public feed URL; the server polls it every 30 min and
-// auto-creates a repurpose job when a new item is found.
+// FeedMonitorPanel — RSS/Atom subscriptions; server polls every 30 min → auto-repurpose.
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Rss, PlusCircle, Trash2, Play, Pause, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
@@ -8,7 +6,9 @@ import {
   getFeedMonitors, createFeedMonitor, toggleFeedMonitor,
   deleteFeedMonitor,
 } from '../../api';
+import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { SkeletonBlock } from '../../components/SkeletonCard';
+import { ErrorState } from '../../components/ErrorState';
 import { useFeedMonitorCheck } from './useFeedMonitorCheck';
 
 const PLATFORMS = [
@@ -42,11 +42,14 @@ export function FeedMonitorPanel() {
   });
   const monitors = monitorsQuery.data?.monitors || [];
   const loading = monitorsQuery.isLoading;
+  const loadError = monitorsQuery.isError;
 
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<AddFormState>(DEFAULT_FORM);
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState(false);
+  // WHY: confirm before delete: trash was one-click with no undo (Library pattern).
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const { checkMutation, checkingId, checkError } = useFeedMonitorCheck();
 
   const createMutation = useMutation({
@@ -61,7 +64,7 @@ export function FeedMonitorPanel() {
       setError('');
     },
     onError: (err: unknown) => {
-      // WHY surface server probe reason (QA-FEED-001): create now validates the
+      // WHY: surface server probe reason (QA-FEED-001): create now validates the
       // feed is fetchable/parseable — Axios puts that message on response.data.error.
       const axiosErr = err as { response?: { data?: { error?: string } } };
       const serverMsg = axiosErr.response?.data?.error;
@@ -109,10 +112,6 @@ export function FeedMonitorPanel() {
     toggleMutation.mutate({ id, active: !current });
   }
 
-  function handleDelete(id: string) {
-    deleteMutation.mutate(id);
-  }
-
   function fmtDate(iso: string | null): string {
     if (!iso) return 'Never';
     const d = new Date(iso);
@@ -128,7 +127,6 @@ export function FeedMonitorPanel() {
       background: 'var(--bg-raised)', border: '1px solid var(--rule)',
       borderRadius: 16, overflow: 'hidden', flexShrink: 0,
     }}>
-      {/* Header */}
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
@@ -159,7 +157,6 @@ export function FeedMonitorPanel() {
 
       {!collapsed && (
         <div style={{ padding: '0 20px 20px' }}>
-          {/* Monitor list */}
           {loading && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }} aria-busy="true">
               {['a', 'b'].map((id) => (
@@ -191,7 +188,16 @@ export function FeedMonitorPanel() {
             </div>
           )}
 
-          {!loading && monitors.length === 0 && !showAdd && (
+          {!loading && loadError && (
+            <div style={{ marginBottom: 12 }}>
+              <ErrorState
+                message="We couldn't load your feed monitors. Please try again."
+                onRetry={() => { monitorsQuery.refetch().catch(() => {}); }}
+              />
+            </div>
+          )}
+
+          {!loading && !loadError && monitors.length === 0 && !showAdd && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.55, marginBottom: 12 }}>
               Subscribe a blog or newsletter RSS feed — new articles are automatically repurposed.
             </p>
@@ -234,11 +240,12 @@ export function FeedMonitorPanel() {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                    {/* Check now */}
                     <button
+                      type="button"
                       onClick={() => checkMutation.mutate(m.id)}
                       disabled={checkingId === m.id}
                       title="Check now"
+                      aria-label="Check feed now"
                       style={{
                         background: 'none', border: 'none', cursor: 'pointer', padding: 4,
                         color: 'var(--text-muted)', display: 'flex', alignItems: 'center',
@@ -247,18 +254,20 @@ export function FeedMonitorPanel() {
                     >
                       <RefreshCw size={12} style={checkingId === m.id ? { animation: 'fm-spin 1s linear infinite' } : undefined} />
                     </button>
-                    {/* Pause / Resume */}
                     <button
+                      type="button"
                       onClick={() => handleToggle(m.id, m.active)}
                       title={m.active ? 'Pause' : 'Resume'}
+                      aria-label={m.active ? 'Pause feed monitor' : 'Resume feed monitor'}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: m.active ? 'var(--accent)' : 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
                     >
                       {m.active ? <Pause size={12} /> : <Play size={12} />}
                     </button>
-                    {/* Delete */}
                     <button
-                      onClick={() => handleDelete(m.id)}
+                      type="button"
+                      onClick={() => setDeleteConfirmId(m.id)}
                       title="Remove monitor"
+                      aria-label="Remove feed monitor"
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--color-error)', display: 'flex', alignItems: 'center', opacity: 0.6 }}
                     >
                       <Trash2 size={12} />
@@ -269,7 +278,6 @@ export function FeedMonitorPanel() {
             ))}
           </div>
 
-          {/* Add form */}
           {showAdd ? (
             <div style={{
               background: 'color-mix(in srgb, var(--accent) 4%, transparent)',
@@ -366,6 +374,20 @@ export function FeedMonitorPanel() {
       )}
 
       <style>{`@keyframes fm-spin { to { transform: rotate(360deg); } }`}</style>
+
+      {deleteConfirmId && (
+        <ConfirmDeleteModal
+          title="Remove this feed monitor?"
+          message="New articles from this feed will no longer be auto-repurposed. Existing jobs are kept."
+          confirmLabel="Remove"
+          pendingLabel="Removing…"
+          isPending={deleteMutation.isPending}
+          onCancel={() => { if (!deleteMutation.isPending) setDeleteConfirmId(null); }}
+          onConfirm={() => {
+            deleteMutation.mutate(deleteConfirmId, { onSettled: () => setDeleteConfirmId(null) });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -60,7 +60,7 @@ export function LibraryJobMenu({
       if (left + menuW > window.innerWidth - pad) {
         left = Math.max(pad, window.innerWidth - menuW - pad);
       }
-      // WHY flip above when near the bottom of the viewport
+      // WHY: flip above when near the bottom of the viewport
       if (top + menuH > window.innerHeight - pad && rect.top > menuH + pad) {
         top = rect.top - menuH - 6;
       }
@@ -90,7 +90,7 @@ export function LibraryJobMenu({
         onEditTag(null);
       }
     }
-    // WHY rAF: skip the same click that opened the menu
+    // WHY: rAF: skip the same click that opened the menu
     const openAt = performance.now();
     function onDocDeferred(e: MouseEvent): void {
       if (performance.now() - openAt < 50) return;

@@ -6,7 +6,7 @@ import App from './App.tsx';
 const POSTHOG_KEY  = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
 const POSTHOG_HOST = import.meta.env.VITE_POSTHOG_HOST as string | undefined;
 
-// WHY minimal interface: only the subset of the posthog-js API actually called from this
+// WHY: minimal interface: only the subset of the posthog-js API actually called from this
 // codebase (Create.tsx's posthog.capture, plus init/identify/reset used here) — not a full
 // SDK typing, just enough to keep the shim and the real module-loaded instance compatible.
 interface PosthogClient {

@@ -19,7 +19,7 @@ interface ThumbMetrics {
 
 const HIDDEN_THUMB: ThumbMetrics = { overflow: false, height: 0, top: 0 };
 
-// WHY a painted track, not the native bar: macOS overlay scrollbars stay
+// WHY: a painted track, not the native bar: macOS overlay scrollbars stay
 // hidden until the user is already scrolling, so a clipped column looks finished.
 export const VisibleScroller = forwardRef<HTMLDivElement, VisibleScrollerProps>(
   function VisibleScroller(
@@ -38,7 +38,7 @@ export const VisibleScroller = forwardRef<HTMLDivElement, VisibleScrollerProps>(
       const update = (): void => {
         const overflowPx = scroller.scrollHeight - scroller.clientHeight;
         const overflow = overflowPx > 8;
-        // WHY 12: the track is inset 6px from the top and bottom of the frame.
+        // WHY: 12: the track is inset 6px from the top and bottom of the frame.
         const trackHeight = Math.max(0, scroller.clientHeight - 12);
         const ratio = scroller.scrollHeight > 0 ? scroller.clientHeight / scroller.scrollHeight : 1;
         const height = Math.max(40, Math.round(trackHeight * ratio));
@@ -72,7 +72,7 @@ export const VisibleScroller = forwardRef<HTMLDivElement, VisibleScrollerProps>(
           className={['visible-scroll', className].filter(Boolean).join(' ')}
           style={style}
         >
-          {/* WHY pad the stack, not the scroller: callers often set padding on
+          {/* WHY: pad the stack, not the scroller: callers often set padding on
               the scroller. Overwriting paddingRight to 10 crushed that inset
               (AI Quality Analysis text sat on the card border). */}
           <div

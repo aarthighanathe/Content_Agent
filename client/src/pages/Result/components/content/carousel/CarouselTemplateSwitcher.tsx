@@ -12,7 +12,7 @@ interface Props {
   onChange: (templateId: string, paletteId?: string) => void;
 }
 
-// WHY a column of rows, not the Create form's wrapping pills: this control
+// WHY: a column of rows, not the Create form's wrapping pills: this control
 // sits in a narrow column beside the slide. Wide chips wrapped into a tall,
 // uneven stack and hid the color choice.
 export function CarouselTemplateSwitcher({ templateId, paletteId, onChange }: Props) {
@@ -45,7 +45,7 @@ export function CarouselTemplateSwitcher({ templateId, paletteId, onChange }: Pr
     <section className="rp-side-card rp-template" aria-label="Carousel template">
       <div className="rp-side-kicker">Template</div>
       <p className="rp-side-help">Changes the look. Your words stay the same.</p>
-      {/* WHY gutter on: the painted thumb sits over the right edge; without it
+      {/* WHY: gutter on: the painted thumb sits over the right edge; without it
           the selected Check collides with the gold scrollbar (see screenshot). */}
       <VisibleScroller ref={listRef} frameClassName="rp-template-scroll" stackClassName="rp-template-list">
       <div role="group" aria-label="Templates" style={{ display: 'contents' }}>

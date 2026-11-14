@@ -1,4 +1,4 @@
-// WHY shared with Brand.tsx hydrate/save: VoiceCard pills are Title Case labels, but
+// WHY: shared with Brand.tsx hydrate/save: VoiceCard pills are Title Case labels, but
 // onboarding + profileStore defaults store lowercase ids (`professional`). A case-
 // sensitive includes() left every pill deselected after load/reset (QA-BRAND-001).
 

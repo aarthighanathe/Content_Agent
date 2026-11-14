@@ -6,13 +6,8 @@ import {
 } from 'lucide-react';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
-// Tools items — ordered by user workflow: plan → research → create → schedule
-// WHY still no "Batch" entry (2026-08-04, batch UI now exists): batch creation
-// lives inside Create.tsx's "Plan multiple topics" toggle, not a standalone
-// page — there's no separate destination worth a Tools link. /batch-result
-// (formerly /batch) is a one-shot landing page reached only via a submission
-// from Create; linking it directly would hit its "No batch found" empty state,
-// same reasoning as before, just no longer because the feature is unbuilt.
+// FLOW: plan → research → repurpose → schedule. WHY no Batch link: multi-topic mode
+// lives on Create; /batch-result only works with router state from a submission.
 const toolsItems = [
   { to: '/ideate',     icon: Lightbulb,   label: 'Ideate' },
   { to: '/competitor', icon: Search,      label: 'Competitor' },
@@ -37,7 +32,7 @@ export function ToolsDropdown({ collapsed = false, onItemClick }: ToolsDropdownP
     onItemClick?.();
   };
 
-  // SECURITY/ACCESSIBILITY: Focus trap when dropdown is open, Escape-to-close
+  // NOTE: Escape closes the menu; useFocusTrap keeps Tab inside while open.
   useEffect(() => {
     if (!open) return undefined;
     function onKeyDown(e: KeyboardEvent): void {
@@ -80,7 +75,6 @@ export function ToolsDropdown({ collapsed = false, onItemClick }: ToolsDropdownP
         />
       </button>
 
-      {/* Tools Dropdown Menu */}
       {open && !collapsed && (
         <div
           ref={dropdownRef}
@@ -143,7 +137,7 @@ export function ToolsDrawer({ isOpen, onClose, onItemClick }: ToolsDrawerProps) 
     onItemClick?.();
   };
 
-  // SECURITY/ACCESSIBILITY: Escape-to-close, cleaned up on unmount/deactivation.
+  // NOTE: Escape closes the sheet; listener removed when the drawer hides.
   useEffect(() => {
     if (!isOpen) return undefined;
     function onKeyDown(e: KeyboardEvent): void {

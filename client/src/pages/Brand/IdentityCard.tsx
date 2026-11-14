@@ -22,7 +22,7 @@ export function IdentityCard({
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>Identity</div>
       </div>
       <label style={label}>Brand name</label>
-      {/* WHY maxLength 100: matches brandVoiceSchema — overlong paste used to reach the
+      {/* WHY: maxLength 100: matches brandVoiceSchema — overlong paste used to reach the
           server and fail Save with a generic banner (QA-BRAND-003). */}
       <input
         type="text"

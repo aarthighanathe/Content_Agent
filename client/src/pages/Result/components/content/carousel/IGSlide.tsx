@@ -19,7 +19,7 @@ import { TEMPLATE_COMPONENTS } from './igslide/templates/registry';
 import { FitFrame } from './igslide/layouts/FitFrame';
 import { estimateFitScale, slidePointCopy } from './igslide/layouts/fitScale';
 
-// WHY re-export here: external consumers (ssr/renderSlideHtml.tsx, IGCarouselPreview.tsx,
+// WHY: re-export here: external consumers (ssr/renderSlideHtml.tsx, IGCarouselPreview.tsx,
 // useCarouselDesignSeed.ts, EditSlideModal.tsx, SlideVisual.tsx) all import SlideData/
 // SlidePoint from './IGSlide' — this file stays the public entry point for the whole
 // carousel-slide-rendering subsystem even though the implementation now lives in ./igslide/.
@@ -42,38 +42,29 @@ interface IGSlideProps {
   paletteId?:    string;
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
-// WHY wrapped in React.memo: IGCarouselPreview re-renders on every interaction
+// WHY: wrapped in React.memo: IGCarouselPreview re-renders on every interaction
 // (drag offset, currentSlide ticks, copy-all flash) while the slides' props
 // (slide/colors/brandName/templateId/...) are unchanged — memo lets all 8 slides
 // skip a full layout+SVG rebuild, which was the dominant result-page re-render cost.
 
 export const IGSlide = React.memo(
   React.forwardRef<HTMLDivElement, IGSlideProps>(
-  // NOTE: isLast stays in IGSlideProps (callers pass it) but is no longer consumed here —
-  // it only ever fed the now-removed SwipeArrow.
+  // NOTE: isLast stays in IGSlideProps for caller compatibility but is unused here.
   function IGSlide({ slide, index, total, colors, brandName, handle, width = 420, height = 525, designPreset = 0, templateId, paletteId }, ref) {
     const preset = DESIGN_PRESETS[Math.abs(designPreset) % DESIGN_PRESETS.length];
 
-    // Validate templateId against the real TEMPLATES catalog rather than
-    // blindly casting — a stale/hand-edited value (old localStorage, a
-    // renamed/removed template id) now falls through to the legacy layout
-    // below instead of reaching getTemplate()/getPalette() at all.
+    // WHY: validate instead of cast: a stale/hand-edited id (old localStorage, a
+    // removed template) falls through to the legacy layout rather than reaching
+    // getTemplate()/getPalette().
     const resolvedTemplateId = templateId && isTemplateId(templateId) ? templateId : undefined;
     const template = resolvedTemplateId ? getTemplate(resolvedTemplateId) : undefined;
 
     if (resolvedTemplateId && template) {
-      // WHY resolved here, not left to each template component: the template's
-      // own curated palette (templateSystem.ts's colorPalettes) previously had
-      // no path to the rendered colors at all — every template component read
-      // `colors` (the legacy 9-theme accent system) directly, so picking a
-      // palette in the gallery had zero visual effect. Resolving it once here
-      // and overriding `colors` for the template branch only is the smallest
-      // fix that makes paletteId actually do something.
-      // NOTE: computed here rather than useMemo'd on purpose — this derive is
-      // cheap (small object) and only re-runs when IGSlide itself re-renders
-      // (the outer React.memo already gates IGSlide on stable props), so caching
-      // it would add a conditional hook call for no measurable win.
+      // WHY: resolved here, not in each template: templates read `colors` directly,
+      // so overriding it once for the template branch is what makes paletteId
+      // actually change the rendered colors.
+      // NOTE: not useMemo'd — the derive is cheap, the outer React.memo already
+      // gates re-renders, and memoizing here would be a conditional hook call.
       const templatePalette = paletteId ? getPalette(resolvedTemplateId, paletteId) : undefined;
       const templateColors: ColorSystem = templatePalette
         ? deriveColorSystemFromPalette(templatePalette.colors)

@@ -6,7 +6,7 @@ function StatSkeleton(): React.JSX.Element {
       <SkeletonBlock width={40} height={40} radius={11} style={{ marginBottom: 14 }} />
       <SkeletonBlock width={90} height={8} radius={4} style={{ marginBottom: 10 }} />
       <SkeletonBlock width={72} height={34} radius={6} />
-      {/* WHY the note line: loaded stat cards include a caption under the value,
+      {/* WHY: the note line: loaded stat cards include a caption under the value,
           and the grid stretches to that height. */}
       <SkeletonBlock width={110} height={11} radius={4} style={{ marginTop: 10 }} />
     </div>

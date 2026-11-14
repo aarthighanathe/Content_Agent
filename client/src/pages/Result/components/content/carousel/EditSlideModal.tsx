@@ -5,6 +5,7 @@ import { useFocusTrap } from '../../../../../hooks/useFocusTrap';
 import { VisibleScroller } from '../../../../../components/VisibleScroller';
 import { Button } from '../../../../../components/Button';
 import { generateSlideImage } from '../../../../../api';
+import { getSubmitError } from '../../../../../lib/errorMessages';
 
 interface Props {
   slide:    SlideData;
@@ -13,13 +14,10 @@ interface Props {
   onClose:  () => void;
 }
 
-// WHY these exact numbers: must match server/src/schemas/jobs.ts's slideDataSchema
-// (headline: max 300, body: max 1000) — the PNG export route validates against that
-// schema, but the inline-edit save path (patchContentSchema) has no length cap at
-// all. Before this fix, a slide could be edited past the export limits, save
-// successfully, then fail PNG export later with a generic "Export failed" toast
-// that never explained why (FUNCTIONAL_AUDIT_2026-07.md finding #17). Enforcing
-// the same caps here means a save can never produce something export will reject.
+// WHY: these exact numbers: must match server/src/schemas/jobs.ts's slideDataSchema
+// (headline: max 300, body: max 1000). The PNG export route enforces it but the
+// inline-edit save path (patchContentSchema) has no cap, so without matching limits
+// here a save could succeed and then fail export later with a generic error.
 const HEADLINE_MAX = 300;
 const BODY_MAX = 1000;
 const PROMPT_MAX = 500;
@@ -74,8 +72,10 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
         return;
       }
       setImageDataUrl(result.image);
-    } catch {
-      setError('Image generation failed — please try again.');
+    } catch (err) {
+      // WHY: getSubmitError: IMAGE_GEN_BUSY (429) is retryable — generic catch
+      // previously hid the "busy, retry shortly" server copy.
+      setError(getSubmitError(err, 'Image generation failed — please try again.').message);
     } finally {
       setGenerating(false);
     }

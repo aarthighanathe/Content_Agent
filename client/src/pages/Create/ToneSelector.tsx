@@ -1,6 +1,6 @@
 import { Briefcase, MessageCircle, Flame, Smile, Minus, Sparkles, GraduationCap, Star, ArrowRight } from 'lucide-react';
 
-// WHY all 9, matching VALID_TONES exactly (server/src/schemas/jobs.ts): this
+// WHY: all 9, matching VALID_TONES exactly (server/src/schemas/jobs.ts): this
 // previously only exposed 5 of the 9 tones the backend/zod schema accept —
 // witty/educational/inspirational/direct were silently unreachable from the UI
 // even though the server has always validated them.
@@ -21,7 +21,7 @@ interface ToneSelectorProps {
   onChange: (tone: string) => void;
 }
 
-// WHY clicking the already-selected pill clears it: tone is explicitly labeled
+// WHY: clicking the already-selected pill clears it: tone is explicitly labeled
 // "optional" next to this control, but before this fix there was no way back to
 // the "no tone chosen" state once any pill was clicked — a genuinely optional
 // field that became sticky the instant it was touched.

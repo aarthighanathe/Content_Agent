@@ -1,22 +1,21 @@
-// WHY Zustand (not React Query or Context): this store holds real-time state
+// WHY: Zustand (not React Query or Context): this store holds real-time state
 // that changes rapidly during SSE streaming (progress %, stage name, agent logs).
 // React Query is optimized for server-round-trips, not sub-second UI updates.
 // Context re-renders the full tree on every update — Zustand is selector-based.
 import { create } from 'zustand';
 import type { SSEEvent } from './types/job';
+import { migrateLegacyKey, userScopedKey } from './lib/userScopedStorage';
 
-// WHY prediction/sourceUrl are optional, not added to isIdeatedIdea's
-// required-field checks below: existing localStorage data from before this
-// change (I3/I4) has neither field — making them required would silently
-// drop every previously-saved/ideated idea the next time the type guard
-// runs. Old ideas without a tier/sourceUrl simply render without that extra
-// UI, same "prefer optional" guidance the task itself calls for.
+// WHY: prediction/sourceUrl stay optional in the type guard: older localStorage rows lack
+// them — requiring the fields would discard every saved idea on the next read.
 export interface IdeaPrediction {
   tier: 'high' | 'medium' | 'low';
   topReason: string;
 }
 
 export interface IdeatedIdea {
+  // WHY: optional: ideas persisted before ids existed get one assigned on read
+  id?: string;
   title: string;
   platform: string;
   angle: string;
@@ -57,7 +56,25 @@ function readStoredTheme(): ThemeName {
 
 const IDEATED_IDEAS_STORAGE_KEY = 'contentagent-ideated-ideas';
 
-// WHY persisted (unlike sseConnection): the user asked for generated
+// WHY: stable ids: Ideate's regenerate/dismiss used array indices, which race when
+// two operations overlap; ids survive reordering.
+function newIdeaId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `idea-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function withIdeaIds<T extends IdeatedIdea>(ideas: T[]): T[] {
+  return ideas.map((idea) => (idea.id ? idea : { ...idea, id: newIdeaId() }));
+}
+
+// SECURITY: all persisted idea keys are per-user so a second account on the same
+// browser never sees the previous account's ideas.
+function ideasKey(userId: string | null): string {
+  return userScopedKey(IDEATED_IDEAS_STORAGE_KEY, userId);
+}
+
+// WHY: persisted (unlike sseConnection): the user asked for generated
 // ideas to survive a hard refresh, not just in-app navigation — they should only
 // change when "Suggest 10 topics" / "Regenerate ideas" is clicked again.
 function isIdeatedIdea(value: unknown): value is IdeatedIdea {
@@ -71,13 +88,13 @@ function isIdeatedIdea(value: unknown): value is IdeatedIdea {
   );
 }
 
-function readStoredIdeas(): IdeatedIdea[] {
+function readStoredIdeas(userId: string | null): IdeatedIdea[] {
   try {
-    const stored = localStorage.getItem(IDEATED_IDEAS_STORAGE_KEY);
+    const stored = localStorage.getItem(ideasKey(userId));
     if (!stored) return [];
     const parsed: unknown = JSON.parse(stored);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isIdeatedIdea);
+    return withIdeaIds(parsed.filter(isIdeatedIdea));
   } catch {
     // WHY: localStorage can throw in private-browsing/disabled-storage contexts,
     // and stored JSON could be corrupted/stale-shaped — fall back to empty either way
@@ -85,9 +102,9 @@ function readStoredIdeas(): IdeatedIdea[] {
   }
 }
 
-function writeStoredIdeas(ideas: IdeatedIdea[]): void {
+function writeStoredIdeas(userId: string | null, ideas: IdeatedIdea[]): void {
   try {
-    localStorage.setItem(IDEATED_IDEAS_STORAGE_KEY, JSON.stringify(ideas));
+    localStorage.setItem(ideasKey(userId), JSON.stringify(ideas));
   } catch {
     // WHY: same private-browsing guard as theme storage — ideas still apply for this session
   }
@@ -95,20 +112,21 @@ function writeStoredIdeas(ideas: IdeatedIdea[]): void {
 
 const IDEAS_GENERATED_AT_STORAGE_KEY = 'contentagent-ideas-generated-at';
 
-function readStoredGeneratedAt(): string | null {
+function readStoredGeneratedAt(userId: string | null): string | null {
   try {
-    return localStorage.getItem(IDEAS_GENERATED_AT_STORAGE_KEY);
+    return localStorage.getItem(userScopedKey(IDEAS_GENERATED_AT_STORAGE_KEY, userId));
   } catch {
     return null;
   }
 }
 
-function writeStoredGeneratedAt(iso: string | null): void {
+function writeStoredGeneratedAt(userId: string | null, iso: string | null): void {
   try {
+    const key = userScopedKey(IDEAS_GENERATED_AT_STORAGE_KEY, userId);
     if (iso) {
-      localStorage.setItem(IDEAS_GENERATED_AT_STORAGE_KEY, iso);
+      localStorage.setItem(key, iso);
     } else {
-      localStorage.removeItem(IDEAS_GENERATED_AT_STORAGE_KEY);
+      localStorage.removeItem(key);
     }
   } catch {
     // WHY: same private-browsing guard as theme storage
@@ -117,7 +135,7 @@ function writeStoredGeneratedAt(iso: string | null): void {
 
 const SAVED_IDEAS_STORAGE_KEY = 'contentagent-saved-ideas';
 
-// WHY a separate list from ideatedIdeas: the generated batch is always fully replaced on
+// WHY: a separate list from ideatedIdeas: the generated batch is always fully replaced on
 // regenerate, so anything worth keeping past the next click needs its own persisted list —
 // bookmarking an idea shouldn't be undone by clicking "Regenerate ideas" later.
 export interface SavedIdea extends IdeatedIdea {
@@ -129,9 +147,9 @@ function isSavedIdea(value: unknown): value is SavedIdea {
   return typeof (value as unknown as Record<string, unknown>).savedAt === 'string';
 }
 
-function readStoredSavedIdeas(): SavedIdea[] {
+function readStoredSavedIdeas(userId: string | null): SavedIdea[] {
   try {
-    const stored = localStorage.getItem(SAVED_IDEAS_STORAGE_KEY);
+    const stored = localStorage.getItem(userScopedKey(SAVED_IDEAS_STORAGE_KEY, userId));
     if (!stored) return [];
     const parsed: unknown = JSON.parse(stored);
     if (!Array.isArray(parsed)) return [];
@@ -141,22 +159,21 @@ function readStoredSavedIdeas(): SavedIdea[] {
   }
 }
 
-function writeStoredSavedIdeas(ideas: SavedIdea[]): void {
+function writeStoredSavedIdeas(userId: string | null, ideas: SavedIdea[]): void {
   try {
-    localStorage.setItem(SAVED_IDEAS_STORAGE_KEY, JSON.stringify(ideas));
+    localStorage.setItem(userScopedKey(SAVED_IDEAS_STORAGE_KEY, userId), JSON.stringify(ideas));
   } catch {
     // WHY: same private-browsing guard as theme storage
   }
 }
 
 interface AppState {
-  // WHY no currentJob (REACT-001): Result/useJobData already owns live SSE
-  // progress in React state. Writing a parallel Zustand copy doubled re-renders
-  // and was never read after M1 — keep only the EventSource handle here.
+  // WHY: no currentJob mirror: useJobData owns live progress — duplicating it here only re-rendered.
   sseConnection: EventSource | null;
   ideatedIdeas: IdeatedIdea[];
   ideasGeneratedAt: string | null;
   savedIdeas: SavedIdea[];
+  activeUserId: string | null;
   themeName: ThemeName;
 
   connectToStream: (jobId: string, token?: string, onEvent?: (data: SSEEvent) => void, onError?: () => void) => void;
@@ -165,15 +182,19 @@ interface AppState {
   saveIdea: (idea: IdeatedIdea) => void;
   unsaveIdea: (title: string) => void;
   setTheme: (theme: ThemeName) => void;
+  setActiveUser: (userId: string | null) => void;
+  resetUserScopedState: () => void;
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export const useAppStore = create<AppState>((set, get) => ({
   sseConnection: null,
-  ideatedIdeas: readStoredIdeas(),
-  ideasGeneratedAt: readStoredGeneratedAt(),
-  savedIdeas: readStoredSavedIdeas(),
+  // WHY: empty until setActiveUser(userId): userId isn't known at module load
+  ideatedIdeas: [],
+  ideasGeneratedAt: null,
+  savedIdeas: [],
+  activeUserId: null,
   themeName: readStoredTheme(),
 
   connectToStream: (jobId: string, token?: string, onEvent?: (data: SSEEvent) => void, onError?: () => void) => {
@@ -182,7 +203,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       existing.close();
     }
 
-    // WHY ?token= query param: EventSource cannot send Authorization headers.
+    // WHY: ?token= query param: EventSource cannot send Authorization headers.
     // The token is a short-lived Redis UUID from POST /stream-token (not a Clerk
     // session JWT) — verifySSEToken() looks it up server-side.
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
@@ -191,17 +212,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     eventSource.onmessage = (event) => {
       try {
-        // WHY unknown then guard: JSON.parse's return type is implicitly `any`; treat the
+        // WHY: unknown then guard: JSON.parse's return type is implicitly `any`; treat the
         // wire payload as unknown and confirm it's a non-null object before trusting it as
         // an SSEEvent, since the server payload isn't compile-time checked from here.
         const parsed: unknown = JSON.parse(event.data);
         if (typeof parsed !== 'object' || parsed === null) return;
         const data = parsed as SSEEvent;
-        // WHY onEvent only (no Zustand job mirror): useJobData merges into jobData.
+        // WHY: onEvent only (no Zustand job mirror): useJobData merges into jobData.
         onEvent?.(data);
 
-        // WHY close on terminal (CORR-013): leaving EventSource open after
-        // done/failed kept auto-retrying an expired stream-token forever.
+        // WHY: close on terminal: an open EventSource keeps retrying with an expired stream token.
         if (data.stage === 'done' || data.stage === 'failed') {
           eventSource.close();
           set({ sseConnection: null });
@@ -211,14 +231,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     };
 
-    // WHY onError callback, not just a console.warn: the browser's native EventSource
-    // auto-retries the *same* URL/token forever — once the short-lived stream-token
-    // expires (15 min), every retry 401s silently with no way to recover on its own.
-    // onError lets the caller (useJobData.ts) fetch a fresh token and reopen the
-    // connection instead of relying entirely on the separate REST-polling backstop
-    // (FUNCTIONAL_AUDIT_2026-07.md finding #27).
+    // WHY: onError + es.close(): native EventSource retries the same expired ?token= forever;
+    // useJobData fetches a fresh stream token and reconnects (polling alone is too slow).
     eventSource.onerror = () => {
       console.warn('SSE connection error, will retry...');
+      eventSource.close();
+      set({ sseConnection: null });
       onError?.();
     };
 
@@ -235,16 +253,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setIdeatedIdeas: (ideas) => {
     const generatedAt = new Date().toISOString();
-    writeStoredIdeas(ideas);
-    writeStoredGeneratedAt(generatedAt);
-    set({ ideatedIdeas: ideas, ideasGeneratedAt: generatedAt });
+    const withIds = withIdeaIds(ideas);
+    const userId = get().activeUserId;
+    writeStoredIdeas(userId, withIds);
+    writeStoredGeneratedAt(userId, generatedAt);
+    set({ ideatedIdeas: withIds, ideasGeneratedAt: generatedAt });
   },
 
   saveIdea: (idea) => {
     set((state) => {
       if (state.savedIdeas.some((s) => s.title === idea.title)) return state;
       const next = [{ ...idea, savedAt: new Date().toISOString() }, ...state.savedIdeas];
-      writeStoredSavedIdeas(next);
+      writeStoredSavedIdeas(state.activeUserId, next);
       return { savedIdeas: next };
     });
   },
@@ -252,9 +272,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   unsaveIdea: (title) => {
     set((state) => {
       const next = state.savedIdeas.filter((s) => s.title !== title);
-      writeStoredSavedIdeas(next);
+      writeStoredSavedIdeas(state.activeUserId, next);
       return { savedIdeas: next };
     });
+  },
+
+  setActiveUser: (userId) => {
+    if (get().activeUserId === userId) return;
+    if (userId) {
+      migrateLegacyKey(localStorage, IDEATED_IDEAS_STORAGE_KEY, userId);
+      migrateLegacyKey(localStorage, SAVED_IDEAS_STORAGE_KEY, userId);
+      migrateLegacyKey(localStorage, IDEAS_GENERATED_AT_STORAGE_KEY, userId);
+    }
+    set({
+      activeUserId: userId,
+      ideatedIdeas: userId ? readStoredIdeas(userId) : [],
+      ideasGeneratedAt: userId ? readStoredGeneratedAt(userId) : null,
+      savedIdeas: userId ? readStoredSavedIdeas(userId) : [],
+    });
+  },
+
+  // WHY: in-memory only: persisted data stays under the user's own scoped keys
+  // for their next login; we just stop showing it to whoever is current.
+  resetUserScopedState: () => {
+    get().disconnectStream();
+    set({ activeUserId: null, ideatedIdeas: [], ideasGeneratedAt: null, savedIdeas: [] });
   },
 
   setTheme: (theme) => {

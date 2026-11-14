@@ -9,37 +9,22 @@ interface FitEstimateInput {
   headline: string;
   body: string;
   pointCount: number;
-  /** Labels and descriptions, so a wrapped point list counts toward height. */
   pointCopy?: string;
   points?: { label?: string; desc?: string }[] | null;
-  /**
-   * Card-grid geometry. PNG export cannot measure the DOM (JavaScript is
-   * off), so templates whose points are padded cards pass this instead of
-   * the stacked-list guess.
-   */
   pointLayout?: PointFitLayout | null;
 }
 
-/** How a template's point cards actually stack, in CSS pixels. */
 export interface PointFitLayout {
   columns: number;
   cardPadding: number;
-  /** Kicker line plus its margin, above the label. */
   kicker: number;
   labelSize: number;
   descSize: number;
-  /** Header rule / page label above the headline. */
   header: number;
-  /** Footer rule under the points. */
   footer: number;
 }
 
-/**
- * Clean Corporate lays points out as a padded 2-column card grid (kicker,
- * wrapping title, wrapping description) plus a header and footer. The
- * stacked-list guess ignores that chrome, reports "it fits", and the PNG
- * clips the bottom row. Preview remeasures with JavaScript, so it looks fine.
- */
+// WHY: Clean Corporate uses a 2-col card grid — stacked-list height guess clips PNG export.
 export function pointFitLayoutForTemplate(
   templateId: string,
   pointCount: number,
@@ -75,7 +60,7 @@ export function slidePointCopy(
 function lineCount(text: string, size: number, width: number, charFactor = 0.56): number {
   const trimmed = text.trim();
   if (!trimmed || size <= 0) return 0;
-  // WHY 0.46 on card grids: Plus Jakarta Sans is narrower than the 0.56
+  // WHY: 0.46 on card grids: Plus Jakarta Sans is narrower than the 0.56
   // fallback. The wider guess wrapped every description an extra line, shrank
   // the PNG too far, and left a blank band above the header.
   const charsPerLine = Math.max(8, Math.floor(width / (size * charFactor)));
@@ -157,12 +142,12 @@ function estimateStackedSlideHeight(input: FitEstimateInput): number {
     + 28;
 }
 
-/** Shrink so the copy stays inside the frame and the template padding stays put. */
+// WHY: scale only the copy block so template padding stays outside the transform.
 function scaleToFit(height: number, padding: number, needed: number): number {
   const contentTarget = Math.max(40, height - padding * 2);
   const contentNeeded = Math.max(1, needed - padding * 2);
   if (contentNeeded <= contentTarget + 1) return 1;
-  // WHY 12px: a scale that lands on the clip edge still slices the last line.
+  // WHY: 12px: a scale that lands on the clip edge still slices the last line.
   // The live preview measures this gap; the PNG has to bake it in.
   const safeTarget = Math.max(40, contentTarget - 12);
   return Math.max(0.45, safeTarget / contentNeeded);
@@ -173,7 +158,7 @@ export function estimateFitScale(input: FitEstimateInput): number {
   if (!layout) {
     return scaleToFit(input.height, input.padding, estimateStackedSlideHeight(input));
   }
-  // WHY two widths: the PNG lays the copy out at 1/scale and then shrinks it,
+  // WHY: two widths: the PNG lays the copy out at 1/scale and then shrinks it,
   // so a guess made at the final width over-shrinks and leaves a tall empty
   // band. Re-measure at that wider width until the scale stops moving.
   const innerW = Math.max(80, input.width - input.padding * 2);

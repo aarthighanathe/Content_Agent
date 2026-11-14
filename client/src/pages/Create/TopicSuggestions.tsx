@@ -9,7 +9,7 @@ interface TopicSuggestionsProps {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-// WHY a dedicated component with roving activeIndex: the previous dropdown only
+// WHY: a dedicated component with roving activeIndex: the previous dropdown only
 // supported onMouseDown selection, so a keyboard-only user could open it (via
 // focus) but had no way to actually choose a suggestion. This adds ArrowUp/Down,
 // Enter, and Escape on the textarea, wired through the same onKeyDown handler.
@@ -17,7 +17,7 @@ export function TopicSuggestions({ suggestions, open, onClose, onPick, inputRef 
   const [activeIndex, setActiveIndex] = useState(-1);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // WHY a plain effect (accepted lint warning): this repo's lint rules forbid
+  // WHY: a plain effect (accepted lint warning): this repo's lint rules forbid
   // reading/writing refs during render (React Compiler rule), which rules out
   // the usual "adjust state during render" escape hatch for resetting on close.
   // The extra render this causes is a single cheap state reset, not worth a
@@ -57,7 +57,7 @@ export function TopicSuggestions({ suggestions, open, onClose, onPick, inputRef 
 
   if (!open) return null;
 
-  // WHY show an empty-state row instead of rendering nothing: a first-time user
+  // WHY: show an empty-state row instead of rendering nothing: a first-time user
   // with no recent topics yet previously saw no feedback at all on focus, which
   // read as broken rather than "you haven't generated anything yet."
   if (suggestions.length === 0) {

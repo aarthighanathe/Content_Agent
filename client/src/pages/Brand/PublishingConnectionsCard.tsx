@@ -22,7 +22,7 @@ interface PublishingConnectionsCardProps {
   /** Authenticated Connect — must not be a bare /api href (Vercel SPA rewrite + no Bearer). */
   onConnect: (platform: string) => void;
   connectingPlatform: string | null;
-  /** WHY added: a failed or not-yet-loaded connections fetch previously rendered
+  /** WHY: added: a failed or not-yet-loaded connections fetch previously rendered
       identically to "nothing connected" — every platform showed its disconnected
       "Connect" state either way, with no way to tell the two apart. */
   isLoading: boolean;
@@ -40,8 +40,7 @@ export function PublishingConnectionsCard({
   socialConnections, oauthConfigured, disconnectingPlatform, onDisconnect, onConnect, connectingPlatform,
   isLoading, isError, onRetry,
 }: PublishingConnectionsCardProps) {
-  // Check for expired or near-expiry LinkedIn tokens
-  // WHY a frozen `now` captured once per mount instead of Date.now() at render:
+  // WHY: a frozen `now` captured once per mount instead of Date.now() at render:
   // calling Date.now() during render is impure (React Compiler purity rule) — the
   // badge would recompute on every unrelated re-render and the value could change
   // mid-render. Capturing the clock once per mount keeps the expiry badge stable
@@ -61,7 +60,6 @@ export function PublishingConnectionsCard({
         </div>
       </div>
 
-      {/* Token expiry warning */}
       {(isLinkedinExpired || isLinkedinNearExpiry) && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: isLinkedinExpired ? 'rgba(239,68,68,0.08)' : 'rgba(250,204,21,0.08)', border: `1px solid ${isLinkedinExpired ? 'rgba(239,68,68,0.25)' : 'rgba(250,204,21,0.25)'}`, borderRadius: 8, padding: '10px 12px', marginBottom: 16 }}>
           <AlertTriangle size={14} style={{ color: isLinkedinExpired ? 'var(--color-error)' : '#eab308', flexShrink: 0, marginTop: 1 }} />
@@ -93,7 +91,7 @@ export function PublishingConnectionsCard({
         {platformMeta.map(({ platform, label: pLabel, Icon: PlatIcon, color, bg, border, desc, soon }) => {
           const conn = socialConnections.find(c => c.platform === platform);
           const isConnected = conn?.connected;
-          // WHY treat missing CLIENT_ID like Instagram's soon state: empty OAuth
+          // WHY: treat missing CLIENT_ID like Instagram's soon state: empty OAuth
           // env makes /connect return 501 — show Coming soon instead of a dead
           // Connect button or an internal "Not configured" env hint (QA-BRAND-004).
           const configuredFlag =

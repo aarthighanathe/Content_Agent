@@ -20,7 +20,7 @@ const demoPlatforms: DemoPlatform[] = [
   { id: 'video_script', label: 'Video', icon: <Video size={13} /> },
 ];
 
-// WHY this shape: mirrors server/src/routes/demo.ts's platformPrompts exactly — a
+// WHY: this shape: mirrors server/src/routes/demo.ts's platformPrompts exactly — a
 // truncated preview (3 carousel slides / 3 tweets / short caption / hook+1 segment)
 // per platform, returned as `preview: parsed` straight from the LLM with no
 // post-processing. All fields optional since only the fields for the requested
@@ -40,7 +40,7 @@ interface DemoPreview {
   segments?: { number?: number; script?: string; duration?: string }[];
 }
 
-// WHY separate from DemoPreview: the video_script demo prompt shapes `hook` as
+// WHY: separate from DemoPreview: the video_script demo prompt shapes `hook` as
 // { text, duration } (an object), not a string like every other platform's `hook`.
 interface DemoVideoPreview {
   hook?: { text?: string; duration?: string };
@@ -54,7 +54,7 @@ interface DemoResult {
   truncated: boolean;
 }
 
-// WHY a lightweight guard, not full nested validation: this only confirms the
+// WHY: a lightweight guard, not full nested validation: this only confirms the
 // top-level shape (platform/topic are strings, preview is present as an array
 // or object) — server/src/routes/demo.ts's own comment already notes the demo
 // route never validates the LLM's JSON shape server-side either, and every
@@ -80,22 +80,26 @@ export function LiveDemo() {
   const [demoError, setDemoError] = useState('');
   const [showSignUpCta, setShowSignUpCta] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // WHY: ref + demoLoading: loading alone races a second click before re-render
+  // and can burn two demo rate-limit slots.
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     return () => { abortRef.current?.abort(); };
   }, []);
 
   async function runDemo(): Promise<void> {
-    if (!demoTopic.trim() || demoLoading) return;
+    if (!demoTopic.trim() || demoLoading || submittingRef.current) return;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    submittingRef.current = true;
     setDemoLoading(true);
     setDemoError('');
     setShowSignUpCta(false);
     setDemoResult(null);
     try {
-      // WHY raw fetch() instead of the shared api.ts axios instance: the demo endpoint
+      // WHY: raw fetch() instead of the shared api.ts axios instance: the demo endpoint
       // (POST /api/demo/generate) is intentionally unauthenticated — the server mounts
       // it without requireAuth middleware so any visitor can try the demo without an
       // account. The shared `api` instance unconditionally attaches a Clerk Bearer token
@@ -109,7 +113,7 @@ export function LiveDemo() {
         body: JSON.stringify({ topic: demoTopic.trim(), platform: demoPlatform }),
         signal: controller.signal,
       });
-      // WHY unknown then guard: fetch's .json() is typed `any` by lib.dom.d.ts; treat the
+      // WHY: unknown then guard: fetch's .json() is typed `any` by lib.dom.d.ts; treat the
       // response as unknown and confirm shape before trusting it as DemoResult or an error
       // envelope, since it's server data the client doesn't compile-time verify.
       const data: unknown = await res.json().catch(() => null);
@@ -128,7 +132,7 @@ export function LiveDemo() {
           return;
         }
         setDemoError(message);
-        // WHY not every error: network/provider glitches shouldn't always push Sign up —
+        // WHY: not every error: network/provider glitches shouldn't always push Sign up —
         // that CTA is for hitting the free demo wall (rate limit / auth).
         setShowSignUpCta(res.status === 401 || res.status === 403);
         return;
@@ -138,7 +142,7 @@ export function LiveDemo() {
         return;
       }
       setDemoResult(data);
-      // WHY localStorage (F6): Clerk sign-up can leave this tab; sessionStorage
+      // WHY: localStorage (F6): Clerk sign-up can leave this tab; sessionStorage
       // draft alone may not survive. Create reads ca_demo_handoff when empty.
       try {
         localStorage.setItem(
@@ -158,6 +162,7 @@ export function LiveDemo() {
       setDemoError(isNetwork ? 'Network error — check your connection and try again.' : message);
       setShowSignUpCta(false);
     } finally {
+      submittingRef.current = false;
       if (!controller.signal.aborted) setDemoLoading(false);
     }
   }
@@ -166,7 +171,6 @@ export function LiveDemo() {
     <>
       <SectionDivider label="See it live" />
 
-      {/* ══════════ LIVE DEMO ══════════ */}
       <section id="demo" className="rv demo-section" style={{ padding: '80px 32px' }}>
         <div style={{ maxWidth: 700, margin: '0 auto', textAlign: 'center' }}>
           <div className="eyebrow" style={{ margin: '0 auto 24px' }}>
@@ -202,7 +206,7 @@ export function LiveDemo() {
                 </button>
               ))}
             </div>
-            {/* WHY single line (#43): visitors saw 5 platform pills with zero context for
+            {/* WHY: single line (#43): visitors saw 5 platform pills with zero context for
                 what each produces. A one-line summary uses muted mono styling to stay quiet
                 without cluttering the demo CTA. Tooltip was considered but added interaction
                 cost for content that's simple enough to inline. */}
@@ -251,7 +255,6 @@ export function LiveDemo() {
             </div>
           )}
 
-          {/* Loading skeleton for slow networks */}
           {demoLoading && (
             <div style={{ animation: 'demo-fadeUp .38s ease both', textAlign: 'left' }}>
               <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 22%, transparent)', borderRadius: 15, overflow: 'hidden', marginBottom: 20 }}>
@@ -271,7 +274,7 @@ export function LiveDemo() {
           {demoResult && !demoLoading && (() => {
             const preview = demoResult.preview;
             const isSlides = Array.isArray(preview);
-            // WHY 'segments' discriminant: DemoVideoPreview is the only variant with a
+            // WHY: 'segments' discriminant: DemoVideoPreview is the only variant with a
             // segments field AND an object-shaped hook — same pattern ContentColumn.tsx
             // uses to tell VideoScriptContentData apart from PlatformContent.
             const isVideo = !isSlides && 'segments' in preview && !!preview.segments;

@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Clean Corporate Template
- * Professional, business-focused design with structured layouts,
- * clear hierarchy, and conservative styling. Ideal for B2B content.
- */
 export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function CleanCorporateTemplate({
   slide,
@@ -47,7 +42,6 @@ export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselT
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Header bar */}
         <div
           style={{
             display: 'flex',
@@ -79,7 +73,6 @@ export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselT
           </div>
         </div>
 
-        {/* Headline */}
         {slide.headline && (
           <h2
             style={{
@@ -96,7 +89,6 @@ export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselT
           </h2>
         )}
 
-        {/* Body text */}
         {slide.body && (
           <p
             style={{
@@ -112,7 +104,7 @@ export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselT
           </p>
         )}
 
-        {/* Points with structured layout — flex:1/minHeight:0/overflow:hidden
+        {/* WHY: Points with structured layout — flex:1/minHeight:0/overflow:hidden
             so a long list clips within the fixed frame instead of pushing the
             footer (marginTop:'auto' below) off it. */}
         {slide.points && slide.points.length > 0 && (
@@ -172,7 +164,6 @@ export const CleanCorporateTemplate = React.forwardRef<HTMLDivElement, CarouselT
           </div>
         )}
 
-        {/* Footer */}
         <div
           style={{
             marginTop: 'auto',

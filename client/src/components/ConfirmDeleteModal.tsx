@@ -25,7 +25,7 @@ interface ConfirmDeleteModalProps {
   typedConfirmation?: TypedConfirmation;
 }
 
-// WHY this exists: Dashboard/DeleteJobModal.tsx and Library/DeleteJobModal.tsx were
+// WHY: this exists: Dashboard/DeleteJobModal.tsx and Library/DeleteJobModal.tsx were
 // near-identical copies, both missing role="dialog"/aria-modal/focus-trap/Escape that
 // Brand/DeleteAccountModal.tsx already gets right. This consolidates the correct
 // behavior into one component instead of fixing (and maintaining) it twice.

@@ -13,8 +13,6 @@ function safeSvgColor(color: string, fallback = '#888888'): string {
   return fallback;
 }
 
-// ── SVG icon set ──────────────────────────────────────────────────────────────
-
 type SP = { c: string };
 const IcoZap      = ({ c }: SP) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>;
 const IcoTarget   = ({ c }: SP) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>;
@@ -61,8 +59,6 @@ export function FeatureIcon({ icon, color, fi }: { icon: string; color: string; 
     </div>
   );
 }
-
-// ── Decorative primitives ─────────────────────────────────────────────────────
 
 export function DotGrid({ color, opacity = 0.055 }: { color: string; opacity?: number }) {
   const safe = safeSvgColor(color);

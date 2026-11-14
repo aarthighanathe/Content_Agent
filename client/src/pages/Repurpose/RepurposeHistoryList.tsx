@@ -10,7 +10,7 @@ interface RepurposeHistoryListProps {
   onRemove: (id: string) => void;
 }
 
-// WHY its own sidebar card, not folded into "How It Works": recent attempts
+// WHY: its own sidebar card, not folded into "How It Works": recent attempts
 // are actionable (retry a failure, jump back to a success), a meaningfully
 // different kind of content than the static informational cards next to it.
 // Hidden entirely when empty — a first-time user has nothing to show here.

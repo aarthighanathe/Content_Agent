@@ -1,6 +1,6 @@
-// WHY extracted from Result.tsx: template override + brand identity resolution
+// WHY: extracted from Result.tsx: template override + brand identity resolution
 // (~70 lines) kept the page over the 400-line hard cap.
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { setCarouselTemplate, getProfile } from '../../../api';
 import { deriveColorSystem, THEME_ACCENTS } from '../../../lib/colorSystem';
@@ -32,21 +32,30 @@ export function useResultTemplate(
   // was created with. localStorage is only a last-resort fallback for carousels
   // generated before this feature shipped.
   const [templateOverride, setTemplateOverride] = useState<{ templateId: string; paletteId?: string } | null>(null);
-  // WHY reset on jobId change: this page's route isn't keyed, so navigating
+  // WHY: rapid template clicks fire overlapping PATCHes — only the latest
+  // generation may clear/set saveError (stale failures must not toast over a
+  // newer successful switch).
+  const templateSwitchGen = useRef(0);
+  // WHY: reset on jobId change: this page's route isn't keyed, so navigating
   // between two jobs' results reuses this component instance.
   useEffect(() => {
     setTemplateOverride(null);
+    templateSwitchGen.current += 1;
   }, [jobId]);
 
   const templateId = templateOverride?.templateId ?? jobData?.templateId ?? undefined;
   const paletteId = templateOverride?.paletteId ?? jobData?.paletteId ?? undefined;
 
   async function onTemplateSwitch(newTemplateId: string, newPaletteId?: string): Promise<void> {
+    const myGen = ++templateSwitchGen.current;
     setTemplateOverride({ templateId: newTemplateId, paletteId: newPaletteId });
     if (!jobId) return;
     try {
       await setCarouselTemplate(jobId, newTemplateId, newPaletteId);
+      // WHY: ignore stale success — a newer switch owns the optimistic override.
+      if (myGen !== templateSwitchGen.current) return;
     } catch {
+      if (myGen !== templateSwitchGen.current) return;
       onSaveError('Couldn’t save template choice — preview updated, but it may not stick after reload.');
     }
   }
@@ -64,9 +73,9 @@ export function useResultTemplate(
     () => deriveColorSystem(THEME_ACCENTS[colorTheme] ?? THEME_ACCENTS[0]),
     [colorTheme],
   );
-  // WHY !templateId: IGSlide only reads designPreset on the legacy (no-template)
+  // WHY: !templateId: IGSlide only reads designPreset on the legacy (no-template)
   // render branch — template-system carousels skip the hash/write cycle.
-  // WHY Array.isArray: ResultContent is a union; design seed only applies to
+  // WHY: Array.isArray: ResultContent is a union; design seed only applies to
   // carousel slide arrays (legacy theme branch), never PlatformContent blobs.
   const designPreset = useCarouselDesignSeed(
     isCarousel && !templateId && Array.isArray(content) ? content : undefined,

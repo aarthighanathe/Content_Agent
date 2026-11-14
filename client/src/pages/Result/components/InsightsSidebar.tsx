@@ -1,6 +1,4 @@
-﻿// Sidebar defaults to open (see Result.tsx) so users see the AI Quality Analysis
-// exists; user can collapse it via onToggle if they prefer it out of the way.
-import type { ReactElement } from 'react';
+﻿import type { ReactElement } from 'react';
 import { Check, AlertTriangle, Sparkles, Zap } from 'lucide-react';
 import { VisibleScroller } from '../../../components/VisibleScroller';
 import type { CriticResult, CriticScores } from '../../../types/job';
@@ -26,25 +24,21 @@ const RING_R    = 32;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
 export function InsightsSidebar({ criticResult, className, onSteer, collapsed = false, onToggle }: Props): ReactElement {
-  // WHY one tree for open and closed: swapping to a separate 48px strip
+  // WHY: one tree for open and closed: swapping to a separate 48px strip
   // unmounted the card mid-toggle, so the column snapped and the scores
   // repainted. The rail is always mounted; CSS fades it in over the same card.
   const shellClass = ['rp-sidebar', collapsed ? 'rp-sidebar-collapsed' : '', className]
     .filter(Boolean)
     .join(' ');
 
-  // WHY an explanatory empty state, not `return null`: this used to render
-  // nothing at all — no header, no message — whenever a job had no critic
-  // result yet (e.g. still generating, or an older job predating the critic
-  // stage). On mobile, where Insights is its own tab, that made the tab look
-  // broken (a fully blank pane) rather than "there's genuinely nothing here
-  // yet" — violates the AGENT RULES "never leave a user staring at nothing."
+  // WHY: an empty state, not `return null`: on mobile Insights is its own tab, and a
+  // job with no critic result yet (generating, or pre-critic) would show a blank pane.
   if (!criticResult?.scores) {
     return (
       <div className={shellClass}>
         <div className="rp-sidebar-panel" inert={collapsed ? true : undefined} aria-hidden={collapsed || undefined}>
         <div className="card-glow" style={{ flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
-          {/* WHY padding on the scroller (card-glow is padding:0): keeps the
+          {/* WHY: padding on the scroller (card-glow is padding:0): keeps the
               painted track on the border while copy stays inset from the edge. */}
           <VisibleScroller style={{ padding: '20px 22px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -105,7 +99,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
       {/* card-glow fills the sidebar; padding:0 (Result.css) so the painted
           track sits on the border. Content inset is on the scroller only. */}
       <div className="card-glow" style={{ flex: 1, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', minHeight: 0 }}>
-      {/* WHY 20×22 (not compact 16): 16px left copy flush against the card
+      {/* WHY: 20×22 (not compact 16): 16px left copy flush against the card
           border — critic quote marks and score % labels read as colliding. */}
       <VisibleScroller style={{ padding: '20px 22px' }}>
 

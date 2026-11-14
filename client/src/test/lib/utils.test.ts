@@ -21,7 +21,7 @@ describe('timeAgo', () => {
   });
 
   it('returns formatted date for older dates', () => {
-    // WHY noon UTC: see formatDate's tests below — avoids the same
+    // WHY: noon UTC: see formatDate's tests below — avoids the same
     // timezone-boundary flakiness for a date this far outside timeAgo's
     // relative-time window (which always falls through to formatDate).
     const oldDate = '2023-01-15T12:00:00.000Z';
@@ -30,7 +30,7 @@ describe('timeAgo', () => {
 });
 
 describe('formatDate', () => {
-  // WHY noon UTC, not midnight/23:59: formatDate uses toLocaleDateString with
+  // WHY: noon UTC, not midnight/23:59: formatDate uses toLocaleDateString with
   // no timeZone option, so it renders in the *local* system timezone. A
   // timestamp near a UTC day boundary lands on a different calendar date
   // depending on the machine's offset (e.g. 23:59 UTC is already "tomorrow"

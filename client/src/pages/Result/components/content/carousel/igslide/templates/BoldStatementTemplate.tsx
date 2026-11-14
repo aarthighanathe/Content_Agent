@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Bold Statement Template
- * High-impact design with large typography, strong contrast, and dynamic layouts.
- * Features split-screen layouts and bold accent elements.
- */
 export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function BoldStatementTemplate({
   slide,
@@ -49,7 +44,6 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Left side - accent bar or split background */}
         {isSplit && (
           <div
             style={{
@@ -76,7 +70,6 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
           </div>
         )}
 
-        {/* Right side - content */}
         <div
           style={{
             flex: 1,
@@ -87,13 +80,7 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
             overflow: 'hidden',
           }}
         >
-          {/* Header block (accent bar + headline + body + points) centers as
-              its own group in the space above the footer, rather than the
-              whole column (including the pinned footer below) trying to
-              center together — that combination left the header content
-              stranded near the top with a large dead gap before the footer. */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden' }}>
-            {/* Top accent bar for non-split layouts */}
             {!isSplit && (
               <div
                 style={{
@@ -106,7 +93,6 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
               />
             )}
 
-          {/* Headline - large and bold */}
           {slide.headline && (
             <h2
               style={{
@@ -127,7 +113,6 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
             </h2>
           )}
 
-          {/* Body text */}
           {slide.body && (
             <p
               style={{
@@ -143,7 +128,7 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
             </p>
           )}
 
-          {/* Points with bold styling — own flex:1/minHeight:0/overflow:hidden
+          {/* WHY: Points with bold styling — own flex:1/minHeight:0/overflow:hidden
               so a long list clips gracefully within the already-bounded header
               block above, instead of only being caught by that block's outer
               clip (which would cut off mid-point rather than the whole list
@@ -187,11 +172,6 @@ export const BoldStatementTemplate = React.forwardRef<HTMLDivElement, CarouselTe
           )}
           </div>
 
-          {/* Bottom branding — stays pinned to the frame's bottom edge
-              (flexShrink: 0, outside the centered header block above) so the
-              brand/handle row reads consistently at a fixed position across
-              every slide regardless of how much headline/body/points content
-              precedes it. */}
           <div
             style={{
               flexShrink: 0,

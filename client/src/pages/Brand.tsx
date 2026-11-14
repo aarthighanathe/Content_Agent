@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { useClerk, useUser } from '@clerk/clerk-react';
+import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
 import { updateBrandVoice, getProfile, analyzeVoice, exportMyData, deleteMyAccount } from '../api';
@@ -10,24 +9,25 @@ import { IdentityCard } from './Brand/IdentityCard';
 import { VoiceCard } from './Brand/VoiceCard';
 import { VoiceDriftCard } from './Brand/VoiceDriftCard';
 import { ContentDnaCard } from './Brand/ContentDnaCard';
-// NOTE: PublishingConnectionsCard kept on disk but not mounted — social OAuth
-// connect UI is hidden until LinkedIn/Twitter credentials are ready for users.
+import { PublishingConnectionsCard } from './Brand/PublishingConnectionsCard';
+import { useBrandSocial } from './Brand/useBrandSocial';
 import { DangerZoneCard } from './Brand/DangerZoneCard';
 import { DeleteAccountModal } from './Brand/DeleteAccountModal';
+import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { BRAND_STYLES } from './Brand/brandStyles';
 import { loadDnaHistory, saveDnaHistory } from './Brand/dnaHistory';
 import type { DnaHistoryEntry } from './Brand/dnaHistory';
 import { normalizeBrandVoices } from './Brand/brandVoices';
 
-// WHY this exact key: Dashboard.tsx's profileQuery uses ['dashboard', 'profile'] for the
+// WHY: this exact key: Dashboard.tsx's profileQuery uses ['dashboard', 'profile'] for the
 // same getProfile() call. Sharing the key means both pages read/write one cache entry —
 // editing brand info here now invalidates what Dashboard shows, instead of the two pages
 // silently diverging (audit #25/2026-07).
 const PROFILE_QUERY_KEY = ['dashboard', 'profile'];
 
 export default function BrandSettings() {
-  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { signOut } = useClerk();
   const { user } = useUser();
   const clerkUserId = user?.id ?? '';
@@ -47,13 +47,7 @@ export default function BrandSettings() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteError, setDeleteError]             = useState('');
   const [resetConfirming, setResetConfirming]     = useState(false);
-  // WHY a single unified toast (#36): Brand previously maintained two separate toast
-  // mechanisms — a boolean `showToast` for the save-success banner and a string+boolean
-  // pair (`socialToast`/`socialToastIsError`) for social-connect/disconnect feedback.
-  // Both rendered `.toast` divs with identical CSS but divergent state shapes, making
-  // them impossible to reason about together (e.g. they could theoretically stack).
-  // One `{ message, isError? } | null` state drives a single toast element; `flashToast`
-  // replaces every previous call site.
+  // WHY: one toast object (#36): previously save + social used two stacked toast mechanisms.
   const [toast, setToast] = useState<{ message: string; isError?: boolean } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -62,20 +56,20 @@ export default function BrandSettings() {
     setToast({ message, isError });
     toastTimerRef.current = setTimeout(() => setToast(null), durationMs);
   }, []);
-  // Clear timer on unmount to avoid setState-after-unmount.
   useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
-  const profileQuery = useQuery({ queryKey: PROFILE_QUERY_KEY, queryFn: getProfile });
+  const brandSocial = useBrandSocial(flashToast);
+  // WHY: gate on Clerk auth (mirrors Dashboard): avoid getProfile before JWT exists.
+  const profileQuery = useQuery({
+    queryKey: PROFILE_QUERY_KEY, queryFn: getProfile, enabled: authLoaded && isSignedIn,
+  });
 
-  // WHY extracted from the hydration effect below: "Reset" (handleReset) needs the
-  // exact same "copy server profile into form state" logic on demand, not just on
-  // first load — see the WHY on handleReset for what bug this fixes.
-  // WHY useCallback: the hydration effect lists this in its deps; a fresh function
-  // identity every render would re-trigger the effect after isHydrated flips.
+  // WHY: extracted: handleReset needs the same "copy server profile → form" on demand.
+  // WHY: useCallback: hydration effect deps this; fresh identity would re-trigger.
   const applyProfileToForm = useCallback((profile: Profile): void => {
     setBrandName(profile.brandName || '');
     setIndustry(profile.industry || '');
-    // WHY normalizeBrandVoices: stored values may be lowercase onboarding ids
+    // WHY: normalizeBrandVoices: stored values may be lowercase onboarding ids
     // (`professional`) while VoiceCard pills are Title Case (QA-BRAND-001).
     setSelectedVoices(normalizeBrandVoices(profile.brandVoice));
     setPhrasesUse(profile.phrasesUse || '');
@@ -83,20 +77,20 @@ export default function BrandSettings() {
     setContentDna(profile.contentDna || null);
   }, []);
 
-  // WHY a hydrated-once guard (audit #2, original: "profile-load race clobbering
+  // WHY: a hydrated-once guard (audit #2, original: "profile-load race clobbering
   // in-progress edits"): profileQuery can refetch/refresh in the background (window
   // refocus, another tab's mutation invalidating this same shared key, React Query's
   // default staleness behavior) at any point while the user is mid-edit on this form.
   // Only copying server data into local state the FIRST time it successfully loads —
   // never on subsequent background refetches — means a user who's already typed into a
   // field can't have it silently overwritten out from under them.
-  // WHY call applyProfileToForm instead of duplicating the logic: the original
+  // WHY: call applyProfileToForm instead of duplicating the logic: the original
   // effect had truthy-only checks (if (profile.brandName)) that differed from
   // applyProfileToForm's || '' fallbacks. This meant clearing a field server-side
   // (e.g. brandName set to empty string) wouldn't be reflected on reload, while
   // clicking Reset would correctly blank it. Using the shared function ensures both
   // paths behave identically.
-  // WHY useState (not useRef): the Save button reads hydration to set disabled/
+  // WHY: useState (not useRef): the Save button reads hydration to set disabled/
   // title during render. Reading a ref during render trips react-hooks/refs and
   // only flipped the button after an unrelated re-render. State makes that read
   // reactive. Still set inside the timeout so StrictMode cleanup can't mark
@@ -105,7 +99,7 @@ export default function BrandSettings() {
   useEffect(() => {
     if (isHydrated || !profileQuery.data) return undefined;
     const profile = profileQuery.data;
-    // WHY setTimeout(..., 0): calling setState synchronously inside an effect body
+    // WHY: setTimeout(..., 0): calling setState synchronously inside an effect body
     // triggers react-hooks/set-state-in-effect. Deferring via a 0ms timeout keeps
     // the same user-visible behaviour (fires in the same microtask flush) while
     // satisfying the rule — the state update now happens in a callback, not in the
@@ -117,58 +111,20 @@ export default function BrandSettings() {
     return () => clearTimeout(t);
   }, [profileQuery.data, isHydrated, applyProfileToForm]);
 
-  useEffect(() => {
-    const connected = searchParams.get('social_connected');
-    const error     = searchParams.get('social_error');
-    if (!connected && !error) return;
-    // SECURITY: allowlist only — never toast raw query-string text (SEC-014).
-    // OAuth callback redirects use stable codes; unknown values fall back to a
-    // generic message so an attacker can't inject arbitrary toast copy via URL.
-    const SOCIAL_CONNECTED = new Set(['linkedin', 'twitter']);
-    const SOCIAL_ERROR_COPY: Record<string, string> = {
-      provider_denied: 'You denied access — connection was cancelled.',
-      missing_params: 'OAuth callback was incomplete — please try connecting again.',
-      invalid_state: 'OAuth session was invalid — please try connecting again.',
-      csrf_mismatch: 'OAuth session mismatch — please try connecting again.',
-      session_expired: 'OAuth session expired or already used — please try again.',
-      linkedin_not_configured: 'LinkedIn OAuth is not configured on this server.',
-      twitter_not_configured: 'Twitter OAuth is not configured on this server.',
-      connection_failed: 'Connection failed — please try again.',
-    };
-    // WHY setTimeout(..., 0): calling setState synchronously inside an effect body
-    // triggers react-hooks/set-state-in-effect. Deferring via a 0ms timeout keeps
-    // the same user-visible behaviour (fires in the same microtask flush) while
-    // satisfying the rule — the state update now happens in a callback, not in the
-    // effect body itself.
-    const timer = setTimeout(() => {
-      if (connected && SOCIAL_CONNECTED.has(connected)) {
-        flashToast(`${connected.charAt(0).toUpperCase() + connected.slice(1)} connected!`, false, 3500);
-      }
-      if (error) {
-        const code = decodeURIComponent(error);
-        flashToast(SOCIAL_ERROR_COPY[code] ?? SOCIAL_ERROR_COPY.connection_failed, true, 4000);
-      }
-      // WHY clear params: re-running this effect on a later Brand visit (or
-      // StrictMode remount) would re-toast the same redirect forever.
-      setSearchParams({}, { replace: true });
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [searchParams, flashToast, setSearchParams]);
-
   const updateBrandVoiceMutation = useMutation({
     mutationFn: updateBrandVoice,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
       flashToast('Brand settings saved!');
     },
-    // WHY getSubmitError: zod validation messages (e.g. max length) were already
+    // WHY: getSubmitError: zod validation messages (e.g. max length) were already
     // returned as `error` but discarded for a generic banner (QA-BRAND-003).
     onError: (err: unknown) => {
       setSaveError(getSubmitError(err, 'Failed to save brand settings — please try again.').message);
     },
   });
 
-  // WHY useEffect to load DNA history: clerkUserId is not available synchronously
+  // WHY: useEffect to load DNA history: clerkUserId is not available synchronously
   // on first render (Clerk hydrates asynchronously). Loading once when the userId
   // stabilises avoids an empty-history flash on slow-auth sessions.
   useEffect(() => {
@@ -185,7 +141,7 @@ export default function BrandSettings() {
       setContentDna(dna);
       setDnaSamples('');
       queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
-      // WHY save here: this is the point where a new DNA fingerprint is produced.
+      // WHY: save here: this is the point where a new DNA fingerprint is produced.
       // Saving before or after the invalidation both work — the DB write is async
       // and localStorage is sync, so the history entry lands immediately.
       if (clerkUserId) {
@@ -210,6 +166,15 @@ export default function BrandSettings() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      // WHY: export caps at 100 jobs + always omits agent logs — surface the
+      // server `warning` so a truncated dump is not mistaken for a full archive.
+      if (data.truncated && data.warning) {
+        flashToast(data.warning, false, 6000);
+      } else if (data.warning) {
+        flashToast(data.warning, false, 4000);
+      } else {
+        flashToast('Export downloaded.');
+      }
     },
     onError: () => {
       setExportError('Export failed — please try again.');
@@ -236,7 +201,7 @@ export default function BrandSettings() {
   }
 
   function toggleVoice(voice: string) {
-    // WHY keep ≥1 selected: deselecting every pill saved `brandVoice: ""`, which
+    // WHY: keep ≥1 selected: deselecting every pill saved `brandVoice: ""`, which
     // left the form with no tone after the next hydrate and looked broken (QA-BRAND-002).
     setSelectedVoices((prev) => {
       if (prev.includes(voice)) {
@@ -260,7 +225,7 @@ export default function BrandSettings() {
     });
   }
 
-  // WHY refetch-and-reapply, not clear-to-blank: the confirm dialog's copy says
+  // WHY: refetch-and-reapply, not clear-to-blank: the confirm dialog's copy says
   // "Discard unsaved edits?" — implying the saved profile comes back — but the old
   // implementation just blanked every field to hardcoded defaults, which is a
   // different (and destructive-looking) action if the user actually has saved brand
@@ -295,7 +260,6 @@ export default function BrandSettings() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <style>{BRAND_STYLES}</style>
 
-      {/* ── Page Header ── */}
       <div className="section-header">
         <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'var(--text-primary)' }}>
           Brand Settings
@@ -305,7 +269,6 @@ export default function BrandSettings() {
         </p>
       </div>
 
-      {/* ── 2-column card grid ── */}
       <div className="brand-card-grid">
         <IdentityCard
           brandName={brandName} onBrandNameChange={setBrandName}
@@ -335,6 +298,18 @@ export default function BrandSettings() {
           dnaHistory={dnaHistory}
         />
 
+        <PublishingConnectionsCard
+          socialConnections={brandSocial.socialConnections}
+          oauthConfigured={brandSocial.oauthConfigured}
+          disconnectingPlatform={brandSocial.disconnectingPlatform}
+          onDisconnect={(platform) => brandSocial.setDisconnectConfirm(platform)}
+          onConnect={brandSocial.onConnect}
+          connectingPlatform={brandSocial.connectingPlatform}
+          isLoading={brandSocial.isLoading}
+          isError={brandSocial.isError}
+          onRetry={brandSocial.onRetry}
+        />
+
         <DangerZoneCard
           exporting={exportMyDataMutation.isPending}
           exportError={exportError}
@@ -343,7 +318,6 @@ export default function BrandSettings() {
         />
       </div>
 
-      {/* ── Actions ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 11, flexWrap: 'wrap' }}>
         {resetConfirming ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -364,7 +338,7 @@ export default function BrandSettings() {
         <button
           className="btn-primary"
           onClick={handleSave}
-          // WHY also gate on hydration: Save used to be enabled while the
+          // WHY: also gate on hydration: Save used to be enabled while the
           // profile was still loading, so a click wrote the blank default form
           // over the real brand. Disable until the first successful hydrate.
           disabled={updateBrandVoiceMutation.isPending || !isHydrated || profileQuery.isLoading || profileQuery.isError}
@@ -391,10 +365,6 @@ export default function BrandSettings() {
         <div style={{ fontSize: 11.5, color: 'var(--color-error)', textAlign: 'right' }}>{saveError}</div>
       )}
 
-      {/* WHY single toast element (#36): previously two separate toast mechanisms
-          (showToast boolean for save + socialToast string for social actions) could
-          theoretically stack and used divergent state shapes. One `toast` object drives
-          both concerns through a single DOM node. */}
       {toast && (
         <div
           className={`toast ${toast.isError ? 'toast-error' : 'toast-success'}`}
@@ -403,6 +373,18 @@ export default function BrandSettings() {
           {toast.isError ? <AlertCircle size={12} /> : <Check size={12} />}
           {toast.message}
         </div>
+      )}
+
+      {brandSocial.disconnectConfirm && (
+        <ConfirmDeleteModal
+          title={`Disconnect ${brandSocial.disconnectConfirm}?`}
+          message="You'll need to reconnect before you can post to this account again."
+          confirmLabel="Disconnect"
+          pendingLabel="Disconnecting…"
+          onCancel={() => brandSocial.setDisconnectConfirm(null)}
+          onConfirm={brandSocial.handleConfirmDisconnect}
+          isPending={brandSocial.disconnectPending}
+        />
       )}
 
       {showDeleteModal && (

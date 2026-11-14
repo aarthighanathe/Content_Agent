@@ -9,7 +9,7 @@ interface CompactTemplatePickerProps {
   onPaletteChange: (id: string) => void;
 }
 
-// WHY a compact pill-chip row instead of a big-card gallery with mock slide
+// WHY: a compact pill-chip row instead of a big-card gallery with mock slide
 // previews: on the Create form's single-screen quick-entry flow, a large grid
 // dominated the layout with little payoff (every card showed the same generic
 // 3-lines-and-a-box shape, not the template's real design). This renders
@@ -30,7 +30,6 @@ export function CompactTemplatePicker({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Template chips */}
       <div
         role="group"
         aria-label="Carousel template"
@@ -82,7 +81,6 @@ export function CompactTemplatePicker({
         })}
       </div>
 
-      {/* Palette dots for the selected template */}
       {palettes.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>

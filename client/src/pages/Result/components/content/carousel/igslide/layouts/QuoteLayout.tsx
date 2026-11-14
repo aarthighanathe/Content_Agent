@@ -5,11 +5,8 @@ import { SlideVisual } from '../../SlideVisual';
 import { DotGrid, CornerRings, LeftStripe, GlowBlob, BottomCornerRings } from '../decorativePrimitives';
 import { PillTag } from '../contentPieces';
 
-// ── Quote layouts ─────────────────────────────────────────────────────────────
-
 type QuoteLayoutProps = { slide: SlideData; index: number; colors: ColorSystem };
 
-// Variant A: Left-stripe with large serif quote mark
 function QuoteLayoutA({ slide, index, colors }: QuoteLayoutProps) {
   const pad = H_PAD;
   return (
@@ -47,7 +44,6 @@ function QuoteLayoutA({ slide, index, colors }: QuoteLayoutProps) {
   );
 }
 
-// Variant B: Centered pull-quote — quote mark in circle badge, centered text, symmetric decoration
 function QuoteLayoutB({ slide, index, colors }: QuoteLayoutProps) {
   const pad = H_PAD;
   return (
@@ -67,7 +63,6 @@ function QuoteLayoutB({ slide, index, colors }: QuoteLayoutProps) {
         <PillTag text="QUOTE" bgMode="light" colors={colors} />
         <div style={{ height: 20 }} />
 
-        {/* Quote mark in circle */}
         <div style={{
           width: 54, height: 54, borderRadius: '50%',
           background: colors.BRAND_PRIMARY + '18',
@@ -99,7 +94,6 @@ function QuoteLayoutB({ slide, index, colors }: QuoteLayoutProps) {
   );
 }
 
-// QuoteLayout dispatcher — alternates by slide index
 export function QuoteLayout({ slide, index, colors }: QuoteLayoutProps) {
   const v = index % 2;
   if (v === 1) return <QuoteLayoutB slide={slide} index={index} colors={colors} />;

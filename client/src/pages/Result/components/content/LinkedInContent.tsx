@@ -27,7 +27,7 @@ export function LinkedInContent({ content, onSave }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm]   = useState<PlatformContent>({});
   const [promoting, setPromoting] = useState(false);
-  // WHY stable A/B texts: promoting used to swap hook↔hookAlt then clear the
+  // WHY: stable A/B texts: promoting used to swap hook↔hookAlt then clear the
   // "B selected" flag so Copy/Export saw the chosen opener — but the pills
   // snapped back to A. Keep labels fixed; selected tracks which pill is active.
   const [pair, setPair] = useState<HookPair>(() => pairFromContent(content));
@@ -63,9 +63,8 @@ export function LinkedInContent({ content, onSave }: Props) {
     setIsEditing(true);
   }
 
-  // WHY no setIsEditing(false) here: ContentEditShell now owns closing the editor —
-  // see InstagramContent.tsx's identical comment for the full rationale
-  // (FUNCTIONAL_AUDIT_2026-07.md finding #15).
+  // WHY: no setIsEditing(false) here: ContentEditShell closes the editor only after
+  // this resolves (see InstagramContent.tsx).
   async function saveEdit() {
     await onSave(editForm);
     const next: HookPair = {
@@ -77,7 +76,7 @@ export function LinkedInContent({ content, onSave }: Props) {
     setSelected('A');
   }
 
-  // WHY persist on pick: a view-only toggle left Copy / Export / Post on hook A
+  // WHY: persist on pick: a view-only toggle left Copy / Export / Post on hook A
   // while the card showed B. Saving puts the chosen opener in `hook` and the
   // other in `hookAlt` so every path uses the selected variant.
   async function pickHook(variant: HookVariant): Promise<void> {

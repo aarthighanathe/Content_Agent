@@ -5,8 +5,6 @@ import { GridLines, GlowBlob, LeftStripe } from '../decorativePrimitives';
 import { PillTag, StrikethroughPill } from '../contentPieces';
 import { stablePointKeys } from '../types';
 
-// ── Problem layout ────────────────────────────────────────────────────────────
-
 export function ProblemLayout({ slide, colors }: { slide: SlideData; colors: ColorSystem }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
   const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];

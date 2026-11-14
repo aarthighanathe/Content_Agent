@@ -163,7 +163,7 @@ export function ContentTab({
           </button>
           <div className="lib-page-nums">
             {(() => {
-              // WHY a window around the current page: always rendering 1–5 left
+              // WHY: a window around the current page: always rendering 1–5 left
               // page 6+ with no highlighted number while Next still advanced.
               const windowSize = Math.min(5, totalPages);
               const half = Math.floor(windowSize / 2);

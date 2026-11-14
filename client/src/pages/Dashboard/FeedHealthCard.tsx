@@ -26,7 +26,7 @@ export function FeedHealthCard() {
     staleTime: 60_000,
   });
 
-  // WHY hide while pending: a skeleton here used to reserve a row, then
+  // WHY: hide while pending: a skeleton here used to reserve a row, then
   // disappear for anyone with no monitors and shove the rest of the page up.
   if (query.isPending || query.isError) return null;
 

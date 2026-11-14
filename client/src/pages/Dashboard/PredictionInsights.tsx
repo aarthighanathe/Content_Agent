@@ -9,7 +9,7 @@ interface PredictionInsightsProps {
   latestPredictionTopReason: string | null | undefined;
 }
 
-// WHY fixed (non-themed) colors, same rationale as QualityTrendChart's
+// WHY: fixed (non-themed) colors, same rationale as QualityTrendChart's
 // DIMENSION_META: tier colors are meaningful signal (high/medium/low), not
 // brand decoration — CLAUDE.md §13 keeps this category of color constant
 // across all 6 UI themes.
@@ -19,7 +19,7 @@ const TIER_META = {
   low:    { label: 'Low',    color: '#F87171', Icon: TrendingDown },
 } as const;
 
-// WHY its own small card (not folded into InsightsCards.tsx): this feature's
+// WHY: its own small card (not folded into InsightsCards.tsx): this feature's
 // data is brand-new (no job created before 2026-08-04 has a 'prediction' row
 // at all), so the empty state carries different copy than the two existing
 // cards' "no data yet" — worth a component so that copy and the tier-bar
@@ -56,7 +56,6 @@ export function PredictionInsights({ loading, predictionTierCounts, latestPredic
         </div>
       ) : (
         <>
-          {/* Tier distribution bar */}
           <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
             {(['high', 'medium', 'low'] as const).map((tier) => {
               const count = predictionTierCounts?.[tier] ?? 0;

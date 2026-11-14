@@ -16,9 +16,7 @@ interface TierInfo {
   bg: string;
 }
 
-// WHY these bands: REVIEW_FINDINGS.md §4.2 specifies <70 "Needs Work", 70-84 "Solid",
-// 85-94 "Strong", 95+ "Exceptional" — replacing the old flat-color-only badge with a
-// named tier so a list of scores reads as quality language, not just a raw number.
+// WHY: named tiers: list rows need readable quality language, not only a numeric score.
 function getTier(score: number): TierInfo {
   if (score >= 95) return { label: 'Exceptional', color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' };
   if (score >= 85) return { label: 'Strong',      color: '#34D399', bg: 'rgba(16,185,129,0.12)' };
@@ -32,17 +30,8 @@ const SIZES = {
 } as const;
 
 /**
- * Reusable "quality-tier" visual — reuses the Gold Score Ring's radial-fill logic (an SVG
- * circle whose stroke-dashoffset encodes the score fraction) at a small inline size, paired
- * with the tier name instead of a flat color-only `.badge` pill. Used everywhere a job's
- * quality score appears in a list row (Dashboard, History, Library) so the "scoring visual
- * grammar" — a partial ring = partial quality — is consistent across the whole app.
- *
- * WHY not extracted from InsightsSidebar.tsx's full-size ring: that ring is tightly bound
- * to the Result page's larger layout/tooltip; duplicating just the radial-fill math here (a
- * ~10-line SVG circle calc) is far less risky than reaching into a working full-size
- * component to force a shared abstraction. Both independently implement the same formula
- * (circumference * (1 - score/100) as stroke-dashoffset).
+ * Inline quality ring + tier label for list rows (Dashboard, History, Library).
+ * WHY separate from InsightsSidebar's large ring: same dashoffset math, different layout slot.
  */
 export function QualityTierBadge({ score, size = 'sm', className }: QualityTierBadgeProps) {
   const s = SIZES[size];

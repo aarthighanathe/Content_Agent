@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Creative Abstract Template
- * Artistic, unconventional design with asymmetric layouts,
- * organic shapes, and creative typography. For creative industries.
- */
 export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function CreativeAbstractTemplate({
   slide,
@@ -50,7 +45,6 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Abstract shapes */}
         <div
           style={{
             position: 'absolute',
@@ -76,7 +70,7 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
           }}
         />
 
-        {/* WHY width 100% and a column: this block used to sit in a row with
+        {/* WHY: width 100% column — this block used to sit in a row with
             flex-basis 0, so the copy collapsed to one word per line. */}
         <div
           style={{
@@ -90,7 +84,6 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
             zIndex: 1,
           }}
         >
-          {/* Headline with creative styling */}
           {slide.headline && (
             <h2
               style={{
@@ -109,7 +102,6 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
             </h2>
           )}
 
-          {/* Body text */}
           {slide.body && (
             <p
               style={{
@@ -128,7 +120,7 @@ export const CreativeAbstractTemplate = React.forwardRef<HTMLDivElement, Carouse
             </p>
           )}
 
-          {/* Points with creative layout — flex:1/minHeight:0/overflow:hidden
+          {/* WHY: Points with creative layout — flex:1/minHeight:0/overflow:hidden
               so a long list clips gracefully within the frame instead of only
               being caught by TemplateLayout's own outer clip (which would cut
               off mid-point rather than the list shrinking to fit). */}

@@ -35,7 +35,7 @@ export function TwitterContent({ content, onSave }: Props) {
   const [editForm, setEditForm]     = useState<PlatformContent>({});
   const [promoting, setPromoting]   = useState(false);
   const [copied, setCopied]         = useState(false);
-  // WHY same A/B persist model as LinkedInContent: a view-only toggle left
+  // WHY: same A/B persist model as LinkedInContent: a view-only toggle left
   // Copy / Export / header Copy on tweet A while the card showed B (QA-D3-001).
   const [pair, setPair] = useState<HookPair>(() => pairFromContent(content));
   const [selected, setSelected] = useState<HookVariant>('A');
@@ -60,7 +60,7 @@ export function TwitterContent({ content, onSave }: Props) {
     pairRef.current = next;
     setPair(next);
     setSelected('A');
-    // WHY tweet text + alt only (not tweets[] identity): parent re-renders pass a
+    // WHY: tweet text + alt only (not tweets[] identity): parent re-renders pass a
     // fresh array reference every time; hooking that remounted A/B state.
   }, [content.tweets?.[0]?.text, content.tweetOneAlt]);
 
@@ -78,9 +78,8 @@ export function TwitterContent({ content, onSave }: Props) {
     setIsEditing(true);
   }
 
-  // WHY no setIsEditing(false) here: ContentEditShell now owns closing the editor —
-  // see InstagramContent.tsx's identical comment for the full rationale
-  // (FUNCTIONAL_AUDIT_2026-07.md finding #15).
+  // WHY: no setIsEditing(false) here: ContentEditShell closes the editor only after
+  // this resolves (see InstagramContent.tsx).
   async function saveEdit(): Promise<void> {
     await onSave(editForm);
     const next: HookPair = {
@@ -186,7 +185,10 @@ export function TwitterContent({ content, onSave }: Props) {
       ) : (
         <>
           {(content.tweets || []).map((tw, i) => (
-            <div key={tw.text || `tweet-${i}`} style={{ background: 'var(--bg-raised)', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(34,211,238,0.15)' }}>
+            <div
+              key={tw._key ?? (typeof tw.number === 'number' ? `tweet-${tw.number}` : `tweet-${i}-${(tw.text ?? '').slice(0, 32)}`)}
+              style={{ background: 'var(--bg-raised)', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(34,211,238,0.15)' }}
+            >
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'rgba(34,211,238,0.6)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 10 }}>Tweet {i + 1}</div>
               <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.65 }}>
                 {i === 0 ? displayOpening : tw.text}

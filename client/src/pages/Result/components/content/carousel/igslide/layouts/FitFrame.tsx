@@ -58,7 +58,7 @@ export function FitFrame({ watch, children, initialScale = 1, padding = 0 }: Fit
   const scale = initialScale > 0 && initialScale < 0.999 ? initialScale : 1;
   const framed = holdPad ? withoutRootPadding(children) : null;
 
-  // WHY no dependency list: each React commit writes the estimated inline
+  // WHY: no dependency list: each React commit writes the estimated inline
   // scale back onto the node. This runs after that write and replaces it
   // with the measured scale before paint.
   useLayoutEffect(() => {
@@ -66,7 +66,7 @@ export function FitFrame({ watch, children, initialScale = 1, padding = 0 }: Fit
     const inner = innerRef.current;
     if (!outer || !inner) return;
 
-    // WHY not scrollHeight: decorative circles are position:absolute and stick
+    // WHY: not scrollHeight: decorative circles are position:absolute and stick
     // out of the card, which inflated scrollHeight and scaled even short slides.
     const contentBottom = (): number => {
       const base = inner.getBoundingClientRect().top;
@@ -92,7 +92,7 @@ export function FitFrame({ watch, children, initialScale = 1, padding = 0 }: Fit
       const availableH = outer.clientHeight;
       const availableW = outer.clientWidth;
       if (availableH <= 0 || availableW <= 0) return;
-      // WHY a few pixels short of the frame: a scale that lands exactly on
+      // WHY: a few pixels short of the frame: a scale that lands exactly on
       // the clip edge still slices the last line on some slides.
       const targetH = Math.max(40, availableH - 12);
 
@@ -110,7 +110,7 @@ export function FitFrame({ watch, children, initialScale = 1, padding = 0 }: Fit
       const scaleH = overflowsH ? targetH / neededH : 1;
       const scaleW = overflowsW ? availableW / neededW : 1;
 
-      // WHY padding stays outside the scale: shrinking the whole card from
+      // WHY: padding stays outside the scale: shrinking the whole card from
       // the center made a tall slide's inset larger than a short slide's.
       // The 12px gap applies only once the copy is actually past the frame.
       if (pad > 0 && overflowsH && !overflowsW) {
@@ -174,7 +174,7 @@ export function FitFrame({ watch, children, initialScale = 1, padding = 0 }: Fit
         background: framed?.background,
       }}
     >
-      {/* WHY inline: Result.css is not part of the export document. Point lists
+      {/* WHY: inline: Result.css is not part of the export document. Point lists
           clip with overflow:hidden, which would hide copy before the scale. */}
       <style>
         {'.rp-fit-inner *{min-width:0 !important;min-height:min-content !important;'

@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Modern Minimal Template
- * Clean, spacious design with centered typography and minimal decorative elements.
- * Focus on readability and breathing room.
- */
 export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function ModernMinimalTemplate({
     slide,
@@ -49,11 +44,10 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Fixed header block: accent + headline + body never compress, so the
+        {/* WHY: fixed header — accent + headline + body never compress, so the
             points list below is what absorbs any leftover/short space instead
             of the whole slide overflowing past the frame. */}
         <div style={{ flexShrink: 0, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          {/* Decorative top accent */}
           <div
             style={{
               width: 40,
@@ -64,7 +58,6 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
             }}
           />
 
-          {/* Headline */}
           {slide.headline && (
             <h2
               style={{
@@ -82,7 +75,6 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
             </h2>
           )}
 
-          {/* Body text */}
           {slide.body && (
             <p
               style={{
@@ -99,7 +91,7 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
           )}
         </div>
 
-        {/* Points stay their full height. A flex shrink here used to clip the
+        {/* WHY: Points stay their full height. A flex shrink here used to clip the
             last row while the card still looked like it had room. */}
         {slide.points && slide.points.length > 0 && (
           <div
@@ -147,12 +139,9 @@ export const ModernMinimalTemplate = React.forwardRef<HTMLDivElement, CarouselTe
           </div>
         )}
 
-        {/* Bottom spacer: guarantees breathing room under the last point (or
-            body text, if there are no points) so content never touches the
-            frame edge or collides with the slide-number footer below. */}
+        {/* WHY: spacer keeps copy clear of the absolutely positioned slide counter. */}
         <div style={{ flexShrink: 0, height: spacing.padding }} />
 
-        {/* Slide number */}
         <div
           style={{
             position: 'absolute',

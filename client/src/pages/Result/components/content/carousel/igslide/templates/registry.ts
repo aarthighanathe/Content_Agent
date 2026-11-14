@@ -16,10 +16,8 @@ type TemplateComponent = React.ForwardRefExoticComponent<
   CarouselTemplateProps & React.RefAttributes<HTMLDivElement>
 >;
 
-// Single source of truth mapping TemplateId -> component. Module-scoped (not
-// rebuilt per render) and keyed by the same TemplateId union templateSystem.ts's
-// TEMPLATES uses, so adding/removing a template only ever needs updating here
-// and in TEMPLATES — not a third hand-copied map.
+// WHY: module-scoped TemplateId→component map — update here and templateSystem
+// TEMPLATES only, not a third hand-copied registry.
 export const TEMPLATE_COMPONENTS: Record<TemplateId, TemplateComponent> = {
   'modern-minimal': ModernMinimalTemplate,
   'bold-statement': BoldStatementTemplate,

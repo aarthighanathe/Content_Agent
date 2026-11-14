@@ -1,4 +1,4 @@
-// WHY extracted from ExportModal.tsx: download helpers (~160 lines) pushed the
+// WHY: extracted from ExportModal.tsx: download helpers (~160 lines) pushed the
 // modal past the 400-line hard cap; the UI shell stays in ExportModal.
 import { api } from '../../../api';
 import { flattenContentToText } from '../../../lib/contentFlattener.js';
@@ -58,18 +58,29 @@ async function messageFromExportBlobError(err: unknown): Promise<string | null> 
   return null;
 }
 
-export async function exportPNG(ctx: ExportDownloadContext): Promise<void> {
+export function isExportAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === 'AbortError') return true;
+  if (err && typeof err === 'object' && 'code' in err) {
+    return (err as { code: unknown }).code === 'ERR_CANCELED';
+  }
+  return false;
+}
+
+export async function exportPNG(
+  ctx: ExportDownloadContext,
+  signal?: AbortSignal,
+): Promise<void> {
   const { content, jobData, colorTheme, brandName, handle, colorSystem, designPreset, templateId, paletteId } = ctx;
   if (!Array.isArray(content)) throw new Error('No carousel content');
   const jobId = jobData?.id;
   if (!jobId) throw new Error('Missing job id');
   const themeKey = THEME_KEYS[colorTheme] ?? 'minimal';
   try {
-    // WHY generic <Blob>: api.post's response type defaults to `any`-shaped axios data;
+    // WHY: generic <Blob>: api.post's response type defaults to `any`-shaped axios data;
     // the export route always returns a ZIP blob (responseType: 'blob' below).
     const response = await api.post<Blob>(
       `/jobs/${jobId}/export/carousel-png`,
-      // WHY these extra fields: the server renders the same slide component the preview
+      // WHY: these extra fields: the server renders the same slide component the preview
       // uses, so it needs the exact palette, brand identity and design preset on screen.
       {
         theme: themeKey,
@@ -81,7 +92,7 @@ export async function exportPNG(ctx: ExportDownloadContext): Promise<void> {
         templateId,
         paletteId,
       },
-      { responseType: 'blob' },
+      { responseType: 'blob', signal },
     );
     const exportWarning = response.headers?.['x-export-warning'];
     if (typeof exportWarning === 'string' && exportWarning.length > 0) {
@@ -89,6 +100,9 @@ export async function exportPNG(ctx: ExportDownloadContext): Promise<void> {
     }
     triggerDownload(response.data, `${safeFileName(jobData)}_slides.zip`, 'application/zip');
   } catch (err: unknown) {
+    if (isExportAbortError(err) || signal?.aborted) {
+      throw err instanceof Error ? err : new DOMException('Aborted', 'AbortError');
+    }
     // WHY: responseType:'blob' turns JSON error bodies into Blobs, so the modal
     // used to show a blank "Error" with no reason after a partial render failure.
     const fromBody = await messageFromExportBlobError(err);

@@ -18,10 +18,8 @@ export function InstagramContent({ content, onSave }: Props) {
     setIsEditing(true);
   }
 
-  // WHY no setIsEditing(false) here: ContentEditShell now owns closing the editor —
-  // it calls onClose() itself only after this promise resolves, and shows an inline
-  // error (leaving the form open) if it rejects, instead of always closing regardless
-  // of outcome (FUNCTIONAL_AUDIT_2026-07.md finding #15).
+  // WHY: no setIsEditing(false) here: ContentEditShell closes the editor only after this
+  // resolves, and keeps the form open with an inline error if it rejects.
   async function saveEdit() {
     await onSave(editForm);
   }

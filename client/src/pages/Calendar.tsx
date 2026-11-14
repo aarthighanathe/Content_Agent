@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CalendarSidebar } from './Calendar/CalendarSidebar';
@@ -6,12 +6,15 @@ import { CalendarGrid } from './Calendar/CalendarGrid';
 import { DayDetailPanel } from './Calendar/DayDetailPanel';
 import { CALENDAR_STYLES } from './Calendar/calendarStyles';
 import type { CalendarJob } from './Calendar/calendarHelpers';
-import { fetchCalendarJobs, useSchedule } from './Calendar/calendarHelpers';
+import { fetchCalendarJobs, monthKey, useSchedule } from './Calendar/calendarHelpers';
 import type { PublishPlatform } from '../types/scheduledPost';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 export default function CalendarPage() {
   const navigate = useNavigate();
+  const dayDialogRef = useRef<HTMLDivElement>(null);
   const [viewDate, setViewDate] = useState(() => { const d = new Date(); d.setDate(1); return d; });
+  const viewMonthKey = monthKey(viewDate);
   const {
     schedule,
     postsByJobId,
@@ -20,19 +23,19 @@ export default function CalendarPage() {
     refetch: refetchSchedule,
     allocate: allocateRemote,
     removeFromSchedule: removeFromScheduleRemote,
-  } = useSchedule();
+  } = useSchedule(viewMonthKey);
   const [scheduleActionError, setScheduleActionError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dragJobId, setDragJobId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  // WHY separate mobileOpen state (#12): on ≤640px the CSS forces .sc-sidebar to
+  // WHY: separate mobileOpen state (#12): on ≤640px the CSS forces .sc-sidebar to
   // width:0 regardless of `sidebarOpen`. A separate `mobileOpen` flag drives the
   // bottom-sheet drawer that replaces the sidebar on touch-sized screens, so the two
   // layouts can be toggled independently without fighting each other's CSS.
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // WHY eager stale + no focus refetch: the Calendar jobs list is low-volatility
+  // WHY: eager stale + no focus refetch: the Calendar jobs list is low-volatility
   // (jobs don't change once terminal, which is all the grid shows) but is fetched
   // 4 pages at once. The default 30s staleTime + null default focus-refetch re-issued
   // 4 GETs on every window focus (each with the now-optional pill aggregate). An
@@ -42,14 +45,14 @@ export default function CalendarPage() {
   const jobsQuery = useQuery({ queryKey: ['calendar', 'jobs'], queryFn: fetchCalendarJobs, staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false });
   const jobs: CalendarJob[] = jobsQuery.data?.jobs || [];
   const hitFetchCap = jobsQuery.data?.hitFetchCap ?? false;
-  // WHY combined across both queries: the grid/sidebar render from both the
+  // WHY: combined across both queries: the grid/sidebar render from both the
   // jobs list AND the schedule map, so either one still loading/erroring
   // means the combined view isn't ready yet — same "both matter" reasoning
   // Dashboard.tsx uses for its own two independent queries.
   const loading = jobsQuery.isLoading || scheduleLoading;
   const isError = jobsQuery.isError || scheduleError;
 
-  // WHY schedule rows for jobs the current fetch doesn't know about are simply
+  // WHY: schedule rows for jobs the current fetch doesn't know about are simply
   // not rendered (jobs.find(...) returns undefined, filtered out below) rather
   // than actively pruned client-side: pruning is now the server's job — a
   // deleted job's scheduled_posts row is orphaned data sitting in Postgres,
@@ -63,9 +66,7 @@ export default function CalendarPage() {
   const totalCells = Math.ceil((firstDayOfWeek + daysInMonth) / 7) * 7;
   const today = new Date();
 
-  // Scheduled job ids (all dates)
   const allScheduledIds = new Set(Object.values(schedule).flat());
-  // Unscheduled = all jobs not in schedule
   const unscheduled = jobs.filter(j => !allScheduledIds.has(j.id));
 
   // The set of dateKeys that have at least one scheduled item — forwarded to the
@@ -76,7 +77,7 @@ export default function CalendarPage() {
       .map(([dateKey]) => dateKey)
   );
 
-  // WHY thin wrappers around the mutation, not calling allocateRemote directly
+  // WHY: thin wrappers around the mutation, not calling allocateRemote directly
   // at each JSX callsite: keeps a single place to surface a mutation failure
   // (e.g. a network blip, or the job-ownership check failing) as user-visible
   // feedback instead of a silently-reverted optimistic-looking UI — React
@@ -111,6 +112,10 @@ export default function CalendarPage() {
     return () => document.removeEventListener('keydown', onKey);
   }, [selectedDay]);
 
+  // WHY: focus trap (mirrors OnboardingModal/ActionDrawer): dialog had Escape +
+  // role=dialog but Tab could leave into the calendar behind the scrim.
+  useFocusTrap(dayDialogRef, selectedDay !== null);
+
   function prevMonth() { const d = new Date(viewDate); d.setMonth(d.getMonth()-1); setViewDate(d); setSelectedDay(null); }
   function nextMonth() { const d = new Date(viewDate); d.setMonth(d.getMonth()+1); setViewDate(d); setSelectedDay(null); }
 
@@ -128,7 +133,7 @@ export default function CalendarPage() {
     <div className="sc-page">
       <style>{CALENDAR_STYLES}</style>
 
-      {/* WHY a fixed toast, not an inline banner: a schedule/unschedule action can
+      {/* WHY: a fixed toast, not an inline banner: a schedule/unschedule action can
           happen from either the sidebar, the grid, or the day-detail panel — a
           fixed-position toast surfaces the failure regardless of which of those
           three triggered it, without needing three separate banner slots. */}
@@ -202,6 +207,7 @@ export default function CalendarPage() {
       {selectedDay && (
         <div className="sc-modal-scrim" onClick={() => setSelectedDay(null)}>
           <div
+            ref={dayDialogRef}
             className="sc-modal"
             role="dialog"
             aria-modal="true"

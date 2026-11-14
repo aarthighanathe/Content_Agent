@@ -1,4 +1,4 @@
-// WHY extracted: the outline used to be a left-rail of dark cards with only
+// WHY: extracted: the outline used to be a left-rail of dark cards with only
 // headline+body. Building a full reading document here keeps exportDownloaders
 // thin and makes the HTML export match the PDF's content completeness.
 import type { SlideData } from './content/carousel/IGSlide';
@@ -93,7 +93,7 @@ export function buildSlideOutlineHtml(
     })
     .join('\n');
 
-  // WHY standalone CSS (no Tailwind): this file opens via file:// with no app
+  // WHY: standalone CSS (no Tailwind): this file opens via file:// with no app
   // bundle. Keep one readable column, print styles, and system font stacks so
   // it works offline without a CDN.
   return `<!DOCTYPE html>

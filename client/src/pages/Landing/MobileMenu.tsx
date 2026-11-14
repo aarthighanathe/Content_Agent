@@ -9,9 +9,11 @@ export interface MobileMenuProps {
   open: boolean;
   isSignedIn: boolean | undefined;
   onClose: () => void;
+  /** Stable id for aria-controls from the hamburger button. */
+  id?: string;
 }
 
-export function MobileMenu({ open, isSignedIn, onClose }: MobileMenuProps) {
+export function MobileMenu({ open, isSignedIn, onClose, id = 'landing-mobile-menu' }: MobileMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,7 +25,7 @@ export function MobileMenu({ open, isSignedIn, onClose }: MobileMenuProps) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, onClose]);
 
-  // WHY `open` (not `true`) gates the trap: this component is always mounted —
+  // WHY: `open` (not `true`) gates the trap: this component is always mounted —
   // .mobile-menu is toggled via a CSS transform (translateX), not display:none —
   // so its links remain in the DOM (and pass useFocusTrap's offsetParent check)
   // even while closed. Without gating on `open`, the trap would try to steal
@@ -32,6 +34,7 @@ export function MobileMenu({ open, isSignedIn, onClose }: MobileMenuProps) {
 
   return (
     <div
+      id={id}
       ref={menuRef}
       className={`mobile-menu${open ? ' open' : ''}`}
       role="dialog"

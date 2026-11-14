@@ -19,14 +19,14 @@ export interface CalendarJob {
   outputs?: CalendarJobOutput[] | null;
 }
 
-// WHY dateKey → jobId[] stays the in-memory shape even though persistence
+// WHY: dateKey → jobId[] stays the in-memory shape even though persistence
 // moved server-side: every consumer (CalendarGrid, CalendarSidebar,
 // DayDetailPanel, SchedulePicker) already reads this grouped-by-day shape —
 // keeping it means only the fetch/mutate layer below needed to change, not
 // every component that renders the grid.
 export type ScheduleMap = Record<string, string[]>; // dateKey → jobId[]
 
-// WHY local getFullYear/getMonth/getDate, not toISOString().slice(0,10):
+// WHY: local getFullYear/getMonth/getDate, not toISOString().slice(0,10):
 // comparing against UTC would misclassify "today" as "already past" for any
 // user west of UTC in the evening. Shared here (promoted out of a duplicate
 // that lived only in Dashboard/NextScheduledCard.tsx) since a second page
@@ -39,13 +39,40 @@ export function todayDateKey(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+// WHY: local YYYY-MM for GET /scheduled-posts — server defaults to UTC month
+// when omitted; Calendar must pass the visible local month or other months
+// render empty after the API stopped returning all rows.
+export function monthKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// WHY: current + next month: GET /scheduled-posts is month-scoped; Dashboard's
+// "next up" card would miss a post on the 1st of next month if it only fetched
+// the current month (or relied on the UTC default).
+export async function fetchScheduledPostsCurrentAndNext(): Promise<{
+  scheduledPosts: ScheduledPost[];
+}> {
+  const now = new Date();
+  const current = monthKey(now);
+  const next = monthKey(new Date(now.getFullYear(), now.getMonth() + 1, 1));
+  const [a, b] = await Promise.all([
+    getScheduledPosts(current),
+    getScheduledPosts(next),
+  ]);
+  const byJobId = new Map<string, ScheduledPost>();
+  for (const row of [...a.scheduledPosts, ...b.scheduledPosts]) {
+    byJobId.set(row.jobId, row);
+  }
+  return { scheduledPosts: Array.from(byJobId.values()) };
+}
+
 export function formatDateKey(dateKey: string): string {
   return new Date(`${dateKey}T12:00:00`).toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric',
   });
 }
 
-// WHY 4 pages, and why that's a real (disclosed) limit: this predates server-side
+// WHY: 4 pages, and why that's a real (disclosed) limit: this predates server-side
 // "give me all done jobs" support — pulling everything would mean an unbounded number of
 // requests. 4 pages covers most accounts; `hitFetchCap` tells the caller when a 5th page
 // might exist so the UI can disclose that older content isn't in the schedulable pool
@@ -54,7 +81,7 @@ const FETCH_PAGES = 4;
 
 export interface CalendarJobsResult {
   jobs: CalendarJob[];
-  // WHY totalPages from the first fulfilled page, not re-derived from job counts:
+  // WHY: totalPages from the first fulfilled page, not re-derived from job counts:
   // JobListResponse (types/job.ts) already reports the server's real totalPages for the
   // account — comparing that to FETCH_PAGES is the actual ground truth for "is there more
   // beyond what we fetched," not a heuristic.
@@ -63,7 +90,7 @@ export interface CalendarJobsResult {
 
 export async function fetchCalendarJobs(): Promise<CalendarJobsResult> {
   const pageNumbers = Array.from({ length: FETCH_PAGES }, (_, i) => i + 1);
-  // WHY counts:false: calendar only needs jobs + totalPages (the month grid).
+  // WHY: counts:false: calendar only needs jobs + totalPages (the month grid).
   // The server's default per-platform pill aggregate is unused here — opting out
   // drops 4 grouped COUNT queries (one per fetched page) from every load (perf audit).
   const results = await Promise.allSettled(pageNumbers.map((p) => getJobs(p, { counts: false })));
@@ -72,7 +99,7 @@ export async function fetchCalendarJobs(): Promise<CalendarJobsResult> {
   );
   if (fulfilled.length === 0) throw new Error('Failed to load calendar data');
 
-  // WHY guard fulfilled[0].value: Promise.allSettled filters by status='fulfilled', but the
+  // WHY: guard fulfilled[0].value: Promise.allSettled filters by status='fulfilled', but the
   // value itself could still be malformed or null from the API. Accessing .totalPages without
   // this check would crash if the API returns an unexpected shape.
   const totalPages = fulfilled[0]?.value?.totalPages ?? 1;
@@ -91,21 +118,20 @@ export function getScore(job: CalendarJob): number | null {
   return c?.content?.totalScore ?? c?.qualityScore ?? null;
 }
 
-// ── Server-synced schedule (replaces the old localStorage SCHEDULE_KEY) ────
 export const SCHEDULE_QUERY_KEY = ['calendar', 'schedule'] as const;
 
-// WHY no `month` param: unlike fetchCalendarJobs's paginated cap, scheduled
-// posts are a much smaller row set per user (one per scheduled job) — fetching
-// all of them in one request lets Calendar.tsx's allocate() move a job across
-// month boundaries without a refetch, and lets Dashboard's NextScheduledCard
-// search across months for the nearest future date without its own endpoint.
-export function useSchedule() {
+// WHY: month required: GET /scheduled-posts scopes to one YYYY-MM (defaults to
+// current UTC month when omitted). Calendar passes the visible local month so
+// prev/next month navigation still paints dots; allocate across a month
+// boundary refetches via the month-keyed query.
+export function useSchedule(month: string) {
   const queryClient = useQueryClient();
+  const scheduleQueryKey = [...SCHEDULE_QUERY_KEY, month] as const;
 
   const query = useQuery({
-    queryKey: SCHEDULE_QUERY_KEY,
+    queryKey: scheduleQueryKey,
     queryFn: async (): Promise<{ map: ScheduleMap; postsByJobId: Record<string, ScheduledPost> }> => {
-      const { scheduledPosts } = await getScheduledPosts();
+      const { scheduledPosts } = await getScheduledPosts(month);
       const map: ScheduleMap = {};
       const postsByJobId: Record<string, ScheduledPost> = {};
       for (const row of scheduledPosts) {
@@ -125,7 +151,7 @@ export function useSchedule() {
       publishPlatform?: PublishPlatform;
       publishHour?: number;
     }) =>
-      // WHY timezoneOffsetMinutes here: dateKey is the browser's LOCAL
+      // WHY: timezoneOffsetMinutes here: dateKey is the browser's LOCAL
       // calendar day (CalendarGrid.tsx builds it from local Date methods) —
       // pairing it with Date.prototype.getTimezoneOffset() lets the server
       // compute "N:00 in this user's own timezone" instead of always UTC.
@@ -137,6 +163,8 @@ export function useSchedule() {
         publishHour: vars.publishHour,
       }),
     onSuccess: () => {
+      // WHY: invalidate all schedule months: allocate may place a job on a day
+      // outside the currently viewed month (SchedulePicker).
       queryClient.invalidateQueries({ queryKey: SCHEDULE_QUERY_KEY }).catch(() => {});
     },
   });
@@ -149,7 +177,7 @@ export function useSchedule() {
   });
 
   const schedule: ScheduleMap = useMemo(() => query.data?.map || {}, [query.data]);
-  // WHY a separate jobId-keyed map, not folded into ScheduleMap: ScheduleMap
+  // WHY: a separate jobId-keyed map, not folded into ScheduleMap: ScheduleMap
   // (dateKey → jobId[]) is read by CalendarGrid/CalendarSidebar/SchedulePicker
   // for pure date-grouping — changing its value type would force every one
   // of those to handle a richer shape they don't need. DayDetailPanel is the
@@ -163,7 +191,7 @@ export function useSchedule() {
     isLoading: query.isLoading,
     isError: query.isError,
     refetch: query.refetch,
-    // WHY publishHour optional: omit → server default 9am local (L10/F12).
+    // WHY: publishHour optional: omit → server default 9am local (L10/F12).
     allocate: (
       dateKey: string,
       jobId: string,

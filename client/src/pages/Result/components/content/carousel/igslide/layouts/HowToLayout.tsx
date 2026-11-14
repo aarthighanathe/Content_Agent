@@ -5,8 +5,6 @@ import { DotGrid, CornerRings, LeftStripe } from '../decorativePrimitives';
 import { PillTag, NumberedStep } from '../contentPieces';
 import { stablePointKeys } from '../types';
 
-// ── HowTo layout ──────────────────────────────────────────────────────────────
-
 export function HowToLayout({ slide, colors }: { slide: SlideData; colors: ColorSystem }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
   const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];
@@ -34,7 +32,7 @@ export function HowToLayout({ slide, colors }: { slide: SlideData; colors: Color
         )}
 
         {hasPoints && (
-          // WHY justifyContent: center — a short points list (e.g. 3-4 rows) in a tall
+          // WHY: justifyContent: center — a short points list (e.g. 3-4 rows) in a tall
           // box otherwise packs to the top and leaves empty space below; centering keeps
           // it looking intentional whether there are 2 rows or enough to fill the box.
           <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden', flex: 1, minHeight: 0 }}>

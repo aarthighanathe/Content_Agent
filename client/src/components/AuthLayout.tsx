@@ -12,16 +12,14 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 
-// Sidebar nav — ordered by user workflow: home → plan → create → review → schedule → settings
+// FLOW: sidebar follows create → review → schedule workflow (not alphabetical).
 const sidebarNav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/ideate',    icon: Lightbulb,       label: 'Ideate' },
   { to: '/competitor',icon: Search,          label: 'Competitor' },
   { to: '/create',    icon: Sparkles,        label: 'Create' },
   { to: '/repurpose', icon: Link2,           label: 'Repurpose' },
-  // WHY BookMarked, not Clock: Clock reads as "history" (a log of past
-  // events), not "library" (a saved collection) — a quick-win icon swap
-  // flagged by the 2026-08-10 UI/UX audit.
+  // WHY: BookMarked, not Clock: Clock reads as a chronological log, not a saved library.
   { to: '/library',   icon: BookMarked,      label: 'Library' },
   { to: '/calendar',  icon: CalendarDays,    label: 'Calendar' },
   { to: '/brand',     icon: Palette,         label: 'Brand Voice' },
@@ -41,7 +39,7 @@ const mobileTabItems = [
 const SIDEBAR_COLLAPSED_KEY = 'contentagent-sidebar-collapsed';
 
 export default function AuthLayout() {
-  // WHY lazy initializer, not a useEffect sync: matches ThemeSwitcher/store.ts's own
+  // WHY: lazy initializer, not a useEffect sync: matches ThemeSwitcher/store.ts's own
   // pattern of reading localStorage synchronously on first render — an effect-based
   // sync would render expanded for one frame before flipping collapsed, a visible flash
   // on every reload for users who chose collapsed.
@@ -134,7 +132,7 @@ export default function AuthLayout() {
                   <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user?.firstName || 'User'}
                   </p>
-                  {/* WHY var(--text-muted): was hardcoded white-alpha, which reads as too dim
+                  {/* WHY: var(--text-muted): was hardcoded white-alpha, which reads as too dim
                       (or wrong-tinted) against non-aurora themes' warmer/cooler backgrounds. */}
                   <p style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginTop: 1 }}>
                     Free plan
@@ -174,7 +172,7 @@ export default function AuthLayout() {
                 <span>{item.label}</span>
               </NavLink>
             ))}
-            {/* WHY a button, not a NavLink: More has no route of its own — it
+            {/* WHY: a button, not a NavLink: More has no route of its own — it
                 opens ToolsDrawer's bottom sheet in place, same interaction
                 pattern as the desktop sidebar's Tools dropdown trigger. */}
             <button

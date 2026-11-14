@@ -1,4 +1,4 @@
-// WHY a shared content-to-text flattener: the same platform-specific content
+// WHY: a shared content-to-text flattener: the same platform-specific content
 // flattening logic was duplicated across ExportModal.tsx (exportText/exportPDF),
 // useExport.ts (copyAllText), and PostPanel.tsx (getContentPreview). Each copy
 // had slightly different field access and fallback strings, so adding a new
@@ -44,7 +44,7 @@ function formatSlideType(type: string | undefined): string {
 
 function formatCarouselSlide(slide: CarouselSlide, index: number, total: number): string {
   const kind = formatSlideType(slide.type);
-  // WHY "Slide N — Type": plain [cover]/[content] tags were hard to scan in
+  // WHY: "Slide N — Type": plain [cover]/[content] tags were hard to scan in
   // .txt exports and Copy-all; numbered headers match the PDF/HTML outlines.
   const header = kind
     ? `Slide ${index + 1} of ${total} — ${kind}`
@@ -113,7 +113,7 @@ export function flattenContentToText(content: unknown): string {
   return text.trim();
 }
 
-// WHY a separate preview function: PostPanel needs a truncated preview (max 300 chars)
+// WHY: a separate preview function: PostPanel needs a truncated preview (max 300 chars)
 // for display, while export functions need the full text. This reuses the same
 // flattening logic but slices the result.
 export function flattenContentToPreview(content: unknown, platform: string): string {
@@ -123,7 +123,7 @@ export function flattenContentToPreview(content: unknown, platform: string): str
       // Carousel: show first slide only
       return `${content[0]?.headline ?? ''}\n${content[0]?.body ?? ''}`.slice(0, 300);
     }
-    // WHY 'segments' exclusion: VideoScriptContentData.hook is an object, not a string —
+    // WHY: 'segments' exclusion: VideoScriptContentData.hook is an object, not a string —
     // posting a video script through this flat-text preview isn't supported (Post panel
     // targets LinkedIn/Twitter/Instagram, not a video platform), so fall through to ''.
     if (isRecord(content) && 'segments' in content) return '';

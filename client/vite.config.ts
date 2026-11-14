@@ -2,6 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+// WHY fallback before defineConfig: index.html uses %VITE_APP_URL% for
+// canonical/OG tags — Vite leaves the placeholder unsubstituted when the
+// env var is missing. Production Vercel URL matches the prior hardcoded value.
+const DEFAULT_APP_URL = 'https://content-agent-six-chi.vercel.app'
+if (!process.env.VITE_APP_URL) {
+  process.env.VITE_APP_URL = DEFAULT_APP_URL
+}
+
 export default defineConfig({
   envDir: '../',
   plugins: [react(), tailwindcss()],

@@ -28,7 +28,7 @@ describe('SkeletonBlock', () => {
   });
 
   it('applies custom style', () => {
-    // WHY a raw attribute check, not toHaveStyle: SkeletonBlock also sets the
+    // WHY: a raw attribute check, not toHaveStyle: SkeletonBlock also sets the
     // `background` shorthand (a CSS custom property jsdom's CSSOM can't
     // resolve), and jsdom's shorthand/longhand interaction drops the later
     // `background-color` longhand from computed style even though it's
@@ -61,7 +61,7 @@ describe('SkeletonCard', () => {
 
   it('renders avatar, title, and badge for non-lines variants', () => {
     const { container } = render(<SkeletonCard size="md" />);
-    // WHY the outer card div is excluded: querySelectorAll('div > div') on
+    // WHY: the outer card div is excluded: querySelectorAll('div > div') on
     // `container` also matches the card's own root div (container > card),
     // not just the SkeletonBlock divs nested inside it — scope one level
     // deeper to count only the card's own children.

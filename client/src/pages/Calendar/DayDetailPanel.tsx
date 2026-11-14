@@ -5,6 +5,7 @@ import { platformMeta } from '../../lib/platformMeta';
 import { getSocialConnections } from '../../api';
 import type { CalendarJob } from './calendarHelpers';
 import { getScore } from './calendarHelpers';
+import { isSafeHttpUrl } from '../../lib/utils';
 import type { PublishPlatform, ScheduledPost } from '../../types/scheduledPost';
 
 interface DayDetailPanelProps {
@@ -41,7 +42,7 @@ function formatPublishHour(hour: number): string {
   return `${twelve}:00 ${suffix}`;
 }
 
-// WHY both directions are worth building (#12):
+// WHY: both directions are worth building (#12):
 // - Card → day (sidebar Schedule… button): works well when the user is browsing their
 //   content library and wants to place a specific piece. The sidebar is the natural
 //   starting point on desktop.
@@ -56,11 +57,11 @@ export function DayDetailPanel({
 }: DayDetailPanelProps) {
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [platformMenuJobId, setPlatformMenuJobId] = useState<string | null>(null);
-  // WHY local draft hour: chosen before/while picking a platform so the first
+  // WHY: local draft hour: chosen before/while picking a platform so the first
   // allocate() call already carries the user's preferred time (default 9).
   const [draftHour, setDraftHour] = useState(9);
 
-  // WHY fetched here, not passed as a prop from Calendar.tsx: only this panel
+  // WHY: fetched here, not passed as a prop from Calendar.tsx: only this panel
   // needs the connected-accounts list (to populate the publish-platform
   // picker) — staleTime matches ResultHeader/PostPanel's own profile-style
   // queries elsewhere in this codebase (a 5-minute-stale connections list is
@@ -197,7 +198,7 @@ export function DayDetailPanel({
                       <select
                         aria-label="Auto-publish hour"
                         value={post.publishHour ?? 9}
-                        // WHY disabled when posted (CORR-006): changing the hour
+                        // WHY: disabled when posted (CORR-006): changing the hour
                         // used to re-POST pending and queue a second publish.
                         disabled={post.publishStatus === 'posted' || post.publishStatus === 'publishing'}
                         onChange={(e) => {
@@ -228,17 +229,24 @@ export function DayDetailPanel({
                         Will auto-publish to {PUBLISH_PLATFORM_LABELS[post.publishPlatform]}
                       </span>
                     )}
-                    {post.publishStatus === 'posted' && (
-                      <a
-                        href={post.postUrl ?? undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--color-success)', textDecoration: 'none' }}
-                      >
-                        <CheckCircle2 size={10} />
-                        Posted to {PUBLISH_PLATFORM_LABELS[post.publishPlatform]}
-                      </a>
-                    )}
+                    {post.publishStatus === 'posted' && (() => {
+                      // SECURITY: postUrl is server-stored external data — only link http(s).
+                      const safePostUrl = post.postUrl && isSafeHttpUrl(post.postUrl) ? post.postUrl : null;
+                      const label = (
+                        <>
+                          <CheckCircle2 size={10} />
+                          Posted to {PUBLISH_PLATFORM_LABELS[post.publishPlatform]}
+                        </>
+                      );
+                      const linkStyle = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--color-success)', textDecoration: 'none' } as const;
+                      return safePostUrl ? (
+                        <a href={safePostUrl} target="_blank" rel="noopener noreferrer" style={linkStyle}>
+                          {label}
+                        </a>
+                      ) : (
+                        <span style={linkStyle}>{label}</span>
+                      );
+                    })()}
                     {post.publishStatus === 'failed' && (
                       <span title={post.publishError ?? undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--color-error)' }}>
                         <AlertCircle size={10} />

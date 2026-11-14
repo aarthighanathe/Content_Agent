@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Tech Modern Template
- * Clean, tech-inspired design with geometric shapes, monospace accents,
- * and a futuristic aesthetic. Features grid patterns and technical elements.
- */
 export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function TechModernTemplate({
   slide,
@@ -48,7 +43,6 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Grid pattern overlay */}
         <div
           style={{
             position: 'absolute',
@@ -66,7 +60,6 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           }}
         />
 
-        {/* Top tech bar */}
         <div
           style={{
             display: 'flex',
@@ -85,7 +78,6 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           <span>{String(index + 1).padStart(2, '0')} / {String(total).padStart(2, '0')}</span>
         </div>
 
-        {/* Corner accent */}
         <div
           style={{
             position: 'absolute',
@@ -99,7 +91,6 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           }}
         />
 
-        {/* Content area */}
         <div
           style={{
             flex: 1,
@@ -110,7 +101,6 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
             zIndex: 1,
           }}
         >
-          {/* Headline with tech styling */}
           {slide.headline && (
             <h2
               style={{
@@ -128,7 +118,6 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
             </h2>
           )}
 
-          {/* Body text */}
           {slide.body && (
             <p
               style={{
@@ -144,7 +133,7 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
             </p>
           )}
 
-          {/* Points with tech bullet style — flex:1/minHeight:0/overflow:hidden
+          {/* WHY: Points with tech bullet style — flex:1/minHeight:0/overflow:hidden
               so a long list clips within the fixed frame instead of pushing
               the bottom tech bar below off it. */}
           {slide.points && slide.points.length > 0 && (
@@ -178,7 +167,6 @@ export const TechModernTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           )}
         </div>
 
-        {/* Bottom tech bar */}
         <div
           style={{
             marginTop: spacing.sectionSpacing,

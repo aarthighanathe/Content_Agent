@@ -9,6 +9,28 @@ export function LandingStyles() {
       .rv { opacity:0; transform:translateY(32px); transition:opacity .7s ease, transform .7s ease; }
       .rv.rv-visible { opacity:1; transform:translateY(0); }
 
+      /* ── Skip to content (keyboard a11y; visually hidden until focused) ── */
+      .skip-to-content {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 1000;
+        padding: 10px 16px;
+        background: var(--bg-raised);
+        color: var(--text-primary);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .skip-to-content:focus {
+        left: 16px;
+        top: 16px;
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
       /* ── Sticky nav ── */
       /* WHY: the signed-in banner and the nav share one fixed shell. The nav used to be
          position:fixed;top:0 on its own, so the banner (also pinned to the top) painted
@@ -19,7 +41,7 @@ export function LandingStyles() {
       .has-signed-banner .hero-section { padding-top:176px !important; }
 
       /* ── Nav links ── */
-      /* WHY raised from 0.4 (#42): nav link text at rgba(255,255,255,0.4) on a near-black
+      /* WHY: raised from 0.4 (#42): nav link text at rgba(255,255,255,0.4) on a near-black
          background can fall below 4.5:1 WCAG AA. 0.55 clears the threshold while keeping
          the intentional "quiet" look against the active/hover state. */
       .lnav-link { color:var(--text-secondary); font-size:13.5px; padding:8px 14px; border-radius:8px; text-decoration:none; transition:color .2s; font-weight:400; }
@@ -93,7 +115,7 @@ export function LandingStyles() {
       @keyframes demo-fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
 
       /* ── Feature icons ── */
-      /* WHY feat-num-ghost rule removed (#44): the ghost numeral divs were removed from
+      /* WHY: feat-num-ghost rule removed (#44): the ghost numeral divs were removed from
          Features.tsx — 100px numerals at 0.032 opacity that added DOM complexity for
          near-zero visible payoff. The hover rule below is now dead. */
       .feat-icon-badge { width:42px; height:42px; display:flex; align-items:center; justify-content:center; border-radius:10px; flex-shrink:0; }
@@ -107,7 +129,7 @@ export function LandingStyles() {
       .step-item:hover .step-num-badge { transform:scale(1.08); }
 
       /* ── Hero stats strip ── */
-      /* WHY raised from 0.26 (#42): hero stat items were below WCAG AA at 0.26; 0.45 remains
+      /* WHY: raised from 0.26 (#42): hero stat items were below WCAG AA at 0.26; 0.45 remains
          visibly subdued against the hero background while clearing minimum contrast. */
       .hero-stats { display:flex; align-items:center; flex-wrap:wrap; justify-content:center; margin-top:34px; animation:fadeUp .8s .52s ease both; }
       .hero-stat-item { display:flex; align-items:center; gap:7px; font-family:var(--font-mono); font-size:11px; color:var(--text-muted); letter-spacing:0.4px; padding:0 16px; }

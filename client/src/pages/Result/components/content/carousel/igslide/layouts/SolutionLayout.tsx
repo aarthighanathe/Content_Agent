@@ -4,8 +4,6 @@ import { FONT, H_PAD, BOTTOM_PAD } from '../constants';
 import { DotGrid, CornerRings } from '../decorativePrimitives';
 import { PillTag, PromptBox, BrandLockup } from '../contentPieces';
 
-// ── Solution layout ───────────────────────────────────────────────────────────
-
 export function SolutionLayout({ slide, colors, brandName, handle }: { slide: SlideData; colors: ColorSystem; brandName: string; handle: string }) {
   const pad = H_PAD;
   const rp  = Math.max(pad, 50);
@@ -19,7 +17,7 @@ export function SolutionLayout({ slide, colors, brandName, handle }: { slide: Sl
         <PillTag text="THE SOLUTION" bgMode="accent" colors={colors} />
       </div>
 
-      {/* WHY justifyContent: center (not space-between): the brand lockup below stays
+      {/* WHY: justifyContent center (not space-between) — brand lockup below stays
           pinned to the bottom via marginTop: auto regardless, so centering this group
           in the remaining space keeps the headline/body from clumping at the top when
           the body text is short. */}

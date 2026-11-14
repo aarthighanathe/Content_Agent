@@ -15,14 +15,12 @@ export function SavedIdeasSection({ savedIdeas, onUse, onRemove }: SavedIdeasSec
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Reset active index when collapsed
   useEffect(() => {
     if (!expanded) {
       setActiveIndex(-1);
     }
   }, [expanded]);
 
-  // Keyboard navigation
   useEffect(() => {
     if (!expanded || savedIdeas.length === 0) return undefined;
 

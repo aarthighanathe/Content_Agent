@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { checkFeedMonitorNow } from '../../api';
 import { useTrackedTimeout } from '../../hooks/useTrackedTimeout';
 
-// WHY extracted: FeedMonitorPanel hit the 400-line cap after QA-FEED-001's
+// WHY: extracted: FeedMonitorPanel hit the 400-line cap after QA-FEED-001's
 // longer post-check polling; the check mutation + error + pending id are a
 // self-contained unit the panel can wire into row buttons.
 export function useFeedMonitorCheck(): {
@@ -23,7 +23,7 @@ export function useFeedMonitorCheck(): {
     mutationFn: (id: string) => checkFeedMonitorNow(id),
     onSuccess: () => {
       setCheckError(null);
-      // WHY poll ~15s (QA-FEED-001): Check now returns 202 while the worker
+      // WHY: poll ~15s (QA-FEED-001): Check now returns 202 while the worker
       // may take up to the feed fetch timeout (+ retries) before writing
       // lastCheckedAt / lastError. A single 2s invalidate often refreshed too
       // early and left the row looking unchanged / healthy.

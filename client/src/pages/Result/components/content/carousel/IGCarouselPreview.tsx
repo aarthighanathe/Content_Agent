@@ -43,9 +43,8 @@ function injectFonts() {
 const EMOJI_RE = /(\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu;
 function stripEmoji(t: string) { return t.replace(EMOJI_RE, '').replace(/\s{2,}/g, ' ').trim(); }
 
-// NOTE: the design-seed system moved to hooks/useCarouselDesignSeed.ts so the PNG
-// export can render the same preset the user is looking at. This component now
-// receives the resolved preset as a prop.
+// NOTE: designPreset arrives as a prop (resolved by hooks/useCarouselDesignSeed.ts) so
+// the PNG export renders the same preset the user is looking at.
 
 export function IGCarouselPreview({ slides, colors, brandName, handle, currentSlide, setCurrentSlide, onSave, slideRefs, designPreset, templateId, paletteId }: Props) {
   const total = slides.length;
@@ -55,11 +54,11 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
   // ExportModal.tsx, FeedMonitorPanel.tsx).
   const pendingTimers = useTrackedTimeout();
 
-  // WHY the slide fills its column: side arrows and the fake Instagram
+  // WHY: the slide fills its column: side arrows and the fake Instagram
   // chrome used to leave a wide empty band around a small card.
-  // WHY MIN_PREVIEW_W 280 (was 180): height-driven shrink under the old
-  // one-screen lock + DevTools mid-width crushed the card to a postage stamp;
-  // prefer a readable preview and let the page scroll when height is short.
+  // WHY: MIN_PREVIEW_W 280: height-driven shrink under the one-screen lock +
+  // DevTools mid-width crushed the card to a postage stamp; prefer a readable
+  // preview and let the page scroll when height is short.
   const MIN_PREVIEW_W = 280;
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [renderW, setRenderW] = useState(IG_POST_W);
@@ -74,7 +73,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
       // Floor at MIN_PREVIEW_W unless the column itself is narrower — then
       // use the full column (Template/Adapt already stacked under the slide).
       const floorW = Math.min(MIN_PREVIEW_W, maxW);
-      // WHY height too: a 470×588 card plus the header is taller than a laptop
+      // WHY: height too: a 470×588 card plus the header is taller than a laptop
       // window. The card keeps the 4:5 ratio and shrinks to the space left.
       // A stage with no assigned height reports its own content, so leave the
       // width cap in place instead of shrinking toward zero.
@@ -102,7 +101,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
     return () => clearTimeout(t);
   }, [currentSlide]);
 
-  // WHY clamp: after regenerate/edit the slide count can shrink while
+  // WHY: clamp: after regenerate/edit the slide count can shrink while
   // currentSlide still points past the last index — empty frame + broken dots.
   useEffect(() => {
     if (total <= 0) return;
@@ -117,7 +116,6 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
     setCurrentSlide(clamped);
   }
 
-  // Drag / swipe
   const dragStart  = useRef<number | null>(null);
   const [dragging, setDragging]     = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
@@ -140,7 +138,6 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
     dragStart.current = null;
   }
 
-  // Edit
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   async function handleSave(updated: SlideData) {
     const next = [...slides];
@@ -148,7 +145,6 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
     await onSave(next);
   }
 
-  // Copy all
   const [copiedAll, setCopiedAll] = useState(false);
   function copyAll() {
     const text = slides.map((s, i) => `[Slide ${i + 1}]\n${stripEmoji(s.headline || '')}\n${stripEmoji(s.body || '')}`).join('\n\n---\n\n');
@@ -160,7 +156,7 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
 
   useEffect(() => { injectFonts(); }, []);
   useEffect(() => {
-    // WHY splice instead of direct assignment: react-hooks/immutability flags
+    // WHY: splice instead of direct assignment: react-hooks/immutability flags
     // `ref.current = newValue` because it looks like a state mutation. Mutating
     // the ref's contents (splice) rather than re-assigning `.current` itself is
     // semantically equivalent and satisfies the rule.

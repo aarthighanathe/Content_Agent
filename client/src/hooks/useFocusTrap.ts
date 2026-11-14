@@ -1,7 +1,4 @@
-// WHY: Shared accessibility hook for all modal/dialog/drawer overlays — audit finding U-4
-// (no focus trap, no Escape-to-close, no role="dialog" anywhere in client/src).
-// Centralizing this logic here means every modal gets the same, correct behavior
-// instead of each component reimplementing (or forgetting) it.
+// WHY: modals each forgot focus trap/restore — one hook keeps keyboard behavior consistent.
 import { useEffect, type RefObject } from 'react';
 
 const FOCUSABLE_SELECTOR = [

@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Vibrant Pop Template
- * Playful, energetic design with bold colors, rounded shapes,
- * and fun decorative elements. Great for lifestyle and entertainment content.
- */
 export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function VibrantPopTemplate({
   slide,
@@ -48,7 +43,6 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Decorative circles */}
         <div
           style={{
             position: 'absolute',
@@ -74,7 +68,6 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           }}
         />
 
-        {/* Fun badge */}
         <div
           style={{
             alignSelf: 'flex-start',
@@ -92,7 +85,6 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           ✨ Hot Take
         </div>
 
-        {/* Headline with playful styling */}
         {slide.headline && (
           <h2
             style={{
@@ -109,7 +101,6 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           </h2>
         )}
 
-        {/* Body text */}
         {slide.body && (
           <p
             style={{
@@ -125,7 +116,7 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           </p>
         )}
 
-        {/* Points with emoji bullets — flex:1/minHeight:0/overflow:hidden so a
+        {/* WHY: Points with emoji bullets — flex:1/minHeight:0/overflow:hidden so a
             long list clips within the fixed frame instead of pushing the
             bottom fun element (marginTop:'auto' below) off it. */}
         {slide.points && slide.points.length > 0 && (
@@ -170,7 +161,6 @@ export const VibrantPopTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           </div>
         )}
 
-        {/* Bottom fun element */}
         <div
           style={{
             marginTop: 'auto',

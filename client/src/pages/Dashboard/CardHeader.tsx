@@ -7,7 +7,7 @@ interface CardHeaderProps {
   trailing?: ReactNode;
 }
 
-// WHY extracted: the "26×26 icon badge + label" card-header block was
+// WHY: extracted: the "26×26 icon badge + label" card-header block was
 // hand-copied across InsightsCards.tsx (×2), PredictionInsights.tsx, and
 // QualityTrendChart.tsx with only the icon and accent color swapped — a
 // design tweak (badge size, border-radius) needed 4 coordinated edits, and

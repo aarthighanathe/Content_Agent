@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Luxury Dark Template
- * Premium, sophisticated dark mode design with gold/metallic accents,
- * elegant typography, and refined spacing. Perfect for luxury brands.
- */
 export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function LuxuryDarkTemplate({
   slide,
@@ -44,7 +39,7 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           display: 'flex',
           flexDirection: 'column',
           padding: spacing.padding,
-          // WHY colors.DARK_BG not a literal hex: this template is always visually
+          // WHY: colors.DARK_BG not a literal hex: this template is always visually
           // dark, but the actual shade must still come from the resolved ColorSystem
           // (per-palette tinted, deriveColorSystemFromPalette) so switching the
           // curated palette in the gallery has a visible effect here too — a
@@ -53,7 +48,6 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           position: 'relative',
         }}
       >
-        {/* Gold accent border */}
         <div
           style={{
             position: 'absolute',
@@ -66,7 +60,6 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           }}
         />
 
-        {/* Corner ornaments */}
         <div
           style={{
             position: 'absolute',
@@ -112,7 +105,6 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           }}
         />
 
-        {/* Premium badge */}
         <div
           style={{
             alignSelf: 'center',
@@ -130,7 +122,6 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           Premium
         </div>
 
-        {/* Headline with luxury styling */}
         {slide.headline && (
           <h2
             style={{
@@ -148,7 +139,6 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           </h2>
         )}
 
-        {/* Decorative divider */}
         <div
           style={{
             alignSelf: 'center',
@@ -159,7 +149,6 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           }}
         />
 
-        {/* Body text */}
         {slide.body && (
           <p
             style={{
@@ -177,7 +166,7 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           </p>
         )}
 
-        {/* Points with elegant bullet style — flex:1/minHeight:0/overflow:hidden
+        {/* WHY: Points with elegant bullet style — flex:1/minHeight:0/overflow:hidden
             so a long list clips within the fixed frame instead of pushing the
             bottom branding (marginTop:'auto' below) off it. */}
         {slide.points && slide.points.length > 0 && (
@@ -218,7 +207,6 @@ export const LuxuryDarkTemplate = React.forwardRef<HTMLDivElement, CarouselTempl
           </div>
         )}
 
-        {/* Bottom branding */}
         <div
           style={{
             marginTop: 'auto',

@@ -30,14 +30,17 @@
       })();
     </script>
 
-    <link rel="canonical" href="https://content-agent-six-chi.vercel.app/" />
+    <!-- WHY %VITE_APP_URL%: public site origin from env (see client/.env.example);
+         vite.config.ts falls back to the production Vercel URL when unset so
+         these never stay unsubstituted in the built HTML. No trailing slash. -->
+    <link rel="canonical" href="%VITE_APP_URL%/" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://content-agent-six-chi.vercel.app/" />
+    <meta property="og:url" content="%VITE_APP_URL%/" />
     <meta property="og:title" content="Pensieve — AI-powered content that converts" />
     <meta property="og:description" content="Multi-agent AI system that researches trends, writes platform-optimized content, and self-improves until it meets quality standards." />
-    <meta property="og:image" content="https://content-agent-six-chi.vercel.app/og-image.png" />
+    <meta property="og:image" content="%VITE_APP_URL%/og-image.png" />
     <meta property="og:image:width" content="1918" />
     <meta property="og:image:height" content="874" />
 
@@ -45,7 +48,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Pensieve — AI-powered content that converts" />
     <meta name="twitter:description" content="Multi-agent AI system that researches trends, writes platform-optimized content, and self-improves until it meets quality standards." />
-    <meta name="twitter:image" content="https://content-agent-six-chi.vercel.app/og-image.png" />
+    <meta name="twitter:image" content="%VITE_APP_URL%/og-image.png" />
   </head>
   <body>
     <div id="root"></div>

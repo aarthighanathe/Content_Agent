@@ -8,7 +8,7 @@ interface IconProps {
   style?: CSSProperties;
 }
 
-// WHY mirrored client-side (not imported from server zod): client and server
+// WHY: mirrored client-side (not imported from server zod): client and server
 // are separate TS projects. Keep in sync with COMPETITOR_PLATFORMS in
 // server/src/schemas/content.ts.
 export const COMPETITOR_PLATFORM_OPTIONS: {

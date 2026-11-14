@@ -1,10 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, useRef, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ClerkProvider, SignIn, SignUp } from '@clerk/clerk-react';
+import { ClerkProvider, SignIn, SignUp, useAuth } from '@clerk/clerk-react';
 // Landing is kept eager — it's the entry point for all unauthenticated users
 import LandingPage from './pages/Landing';
 import AuthLayout from './components/AuthLayout';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { useAppStore } from './store';
 
 // Lazy-load everything behind auth — none of it matters for the landing page
 const Dashboard       = lazy(() => import('./pages/Dashboard'));
@@ -27,7 +29,7 @@ const RouteSpinner = () => (
   </div>
 );
 
-// SECURITY (SEC-018): never ship a production bundle aimed at a shared
+// SECURITY: (SEC-018): never ship a production bundle aimed at a shared
 // pk_test_ Clerk instance. Local DEV may use the documented fallback so
 // `npm run dev` still works without a client .env; PROD must set the env var.
 const DEV_CLERK_FALLBACK = 'pk_test_YWRhcHRlZC1wdW1hLTY3LmNsZXJrLmFjY291bnRzLmRldiQ';
@@ -54,10 +56,43 @@ const queryClient = new QueryClient({
   },
 });
 
+// SECURITY: queryClient is module-level and survives sign-out/sign-in, so the next
+// user on the same tab would see the previous user's cached API data. Clear it
+// whenever the Clerk userId changes (including to null on sign-out).
+function UserScopeSync(): null {
+  const { isLoaded, userId } = useAuth();
+  const prevUserId = useRef<string | null | undefined>(undefined);
+  const setActiveUser = useAppStore((s) => s.setActiveUser);
+  const resetUserScopedState = useAppStore((s) => s.resetUserScopedState);
+
+  useEffect(() => {
+    // WHY: wait for isLoaded: userId is undefined while Clerk boots, not signed-out
+    if (!isLoaded) return;
+    const current = userId ?? null;
+    // WHY: skip first run: nothing cached yet, and clearing would be a no-op
+    if (prevUserId.current !== undefined && prevUserId.current !== current) {
+      queryClient.clear();
+      resetUserScopedState();
+    }
+    prevUserId.current = current;
+    setActiveUser(current);
+  }, [isLoaded, userId, setActiveUser, resetUserScopedState]);
+
+  return null;
+}
+
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior }); }, [pathname]);
   return null;
+}
+
+// WHY: auth-aware catch-all: signed-in users hitting a typo URL used to land on
+// the public marketing page; send them to /dashboard instead (guests still → /).
+function RedirectUnknown() {
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) return <RouteSpinner />;
+  return <Navigate to={isSignedIn ? '/dashboard' : '/'} replace />;
 }
 
 function ClerkProviderWithRoutes() {
@@ -69,6 +104,7 @@ function ClerkProviderWithRoutes() {
       routerPush={(to) => navigate(to)}
       routerReplace={(to) => navigate(to, { replace: true })}
     >
+      <UserScopeSync />
       <ScrollToTop />
       <Routes>
         {/* Public routes */}
@@ -78,9 +114,11 @@ function ClerkProviderWithRoutes() {
 
         {/* Authenticated routes — lazy-loaded, Suspense handles the loading state */}
         <Route element={
-          <Suspense fallback={<RouteSpinner />}>
-            <AuthLayout />
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<RouteSpinner />}>
+              <AuthLayout />
+            </Suspense>
+          </ErrorBoundary>
         }>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/create" element={<CreatePage />} />
@@ -96,7 +134,7 @@ function ClerkProviderWithRoutes() {
         </Route>
 
         {/* Catch-all */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<RedirectUnknown />} />
       </Routes>
     </ClerkProvider>
   );

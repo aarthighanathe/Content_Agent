@@ -13,14 +13,13 @@ const howItWorks = [
   { title: 'Get native content', desc: 'Rewritten for your chosen platform and brand voice' },
 ];
 
-// WHY extracted from Repurpose.tsx: this static informational content (no
+// WHY: extracted from Repurpose.tsx: this static informational content (no
 // state, no props) was pushing the page component past the 400-line split
 // threshold once the recent-attempts history feature was added — same
 // rationale as Dashboard/Brand/Create's own thin-orchestrator-plus-cards split.
 export function InfoSidebar() {
   return (
     <>
-      {/* Supported sources */}
       <div style={{
         background: 'var(--bg-raised)', border: '1px solid var(--rule)',
         borderRadius: 16, padding: '18px 18px 6px',
@@ -55,7 +54,6 @@ export function InfoSidebar() {
         </div>
       </div>
 
-      {/* How it works */}
       <div style={{
         background: 'var(--bg-raised)', border: '1px solid var(--rule)',
         borderRadius: 16, padding: '18px',
@@ -89,7 +87,6 @@ export function InfoSidebar() {
         </div>
       </div>
 
-      {/* Tip box */}
       <div style={{
         position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent-2) 8%, transparent))',

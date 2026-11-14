@@ -1,6 +1,5 @@
-// Shared critique/final quality score picker (CORR-004).
-// Mirrors server/src/lib/qualityScore.ts — keep both in sync (client cannot
-// import server modules). Prefer last final.qualityScore, else last critique.
+// WHY: duplicated from server/src/lib/qualityScore.ts: client cannot import server code.
+// Prefer the latest final.qualityScore, else the latest critique totalScore.
 
 export interface ScoreableOutput {
   outputType: string;

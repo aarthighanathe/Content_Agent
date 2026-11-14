@@ -66,7 +66,7 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply }: Props) 
         </p>
       )}
 
-      {/* WHY VisibleScroller: card height is capped beside Template; tiles
+      {/* WHY: VisibleScroller: card height is capped beside Template; tiles
           must scroll instead of growing and crushing the template list. */}
       <VisibleScroller frameClassName="rp-adapt-scroll" stackClassName="rp-adapt-list">
         <div role="list" style={{ display: 'contents' }}>
@@ -96,7 +96,7 @@ export function ContentMultiplier({ jobData, multiplyJobs, onMultiply }: Props) 
             kind === 'working' ? `Working · ${progress}%`
             : kind === 'original' ? 'Original'
             : kind === 'ready' ? 'Ready to open'
-            : kind === 'failed' ? 'Failed — retry'
+            : kind === 'failed' ? (mj?.error || 'Failed — retry')
             : 'Not started yet';
 
           const action =

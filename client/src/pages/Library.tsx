@@ -105,7 +105,6 @@ export default function LibraryPage() {
         }
       />
 
-      {/* ── Delete Job Confirm Modal ── */}
       {lib.deleteJobConfirm && (
         <ConfirmDeleteModal
           title="Delete this generation?"
@@ -117,7 +116,6 @@ export default function LibraryPage() {
         />
       )}
 
-      {/* ── Bulk Delete Confirm Modal ── */}
       {lib.bulkDeleteConfirm && (
         <ConfirmDeleteModal
           title={`Delete ${lib.selectedIds.size} item${lib.selectedIds.size !== 1 ? 's' : ''}?`}
@@ -129,7 +127,6 @@ export default function LibraryPage() {
         />
       )}
 
-      {/* ── Delete Collection Confirm Modal ── */}
       {lib.deleteCollectionConfirm && (
         <ConfirmDeleteModal
           title={`Delete "${lib.deleteCollectionConfirm.name}"?`}
@@ -140,7 +137,7 @@ export default function LibraryPage() {
         />
       )}
 
-      {/* WHY single toast element (#45): one unified toast for export success/error,
+      {/* WHY: single toast element (#45): one unified toast for export success/error,
           consistent with the #36 pattern used in Brand.tsx. */}
       {lib.toast && (
         <div

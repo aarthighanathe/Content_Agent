@@ -1,4 +1,4 @@
-// WHY this file exists: the `try { localStorage.getItem/setItem(...) } catch { fallback }`
+// WHY: this file exists: the `try { localStorage.getItem/setItem(...) } catch { fallback }`
 // shape was independently duplicated across the codebase (Create.tsx, Result.tsx,
 // store.ts, Brand/dnaHistory.ts, Repurpose/useRepurposeHistory.ts,
 // Result/hooks/useCarouselDesignSeed.ts, Create/useCarouselTemplateSelection.ts) —

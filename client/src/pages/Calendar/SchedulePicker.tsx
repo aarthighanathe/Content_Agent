@@ -17,7 +17,7 @@ interface SchedulePickerProps {
   onClose: () => void;
 }
 
-// WHY a flat mini-grid instead of a full ARIA datepicker widget (#12): ARIA datepicker
+// WHY: a flat mini-grid instead of a full ARIA datepicker widget (#12): ARIA datepicker
 // (role="grid" + roving tabindex) is the gold standard but adds significant complexity
 // for modest a11y gain on a non-form context. A simple tab-through-days approach with
 // arrow-key navigation is sufficient here: every day button is naturally focusable, arrow
@@ -31,7 +31,6 @@ export function SchedulePicker({
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const totalCells = Math.ceil((firstDayOfWeek + daysInMonth) / 7) * 7;
 
-  // Focus the first available day button when the picker opens.
   const gridRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   useFocusTrap(pickerRef, true);
@@ -41,7 +40,6 @@ export function SchedulePicker({
     firstBtn?.focus();
   }, []);
 
-  // Arrow-key navigation within the grid.
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
@@ -62,7 +60,6 @@ export function SchedulePicker({
       aria-modal="true"
       aria-label={`Pick a date in ${MONTH_NAMES[viewMonth]} ${viewYear}`}
     >
-      {/* Header */}
       <div className="sc-picker-hd">
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)' }}>
           {MONTH_NAMES[viewMonth]} {viewYear}
@@ -77,7 +74,6 @@ export function SchedulePicker({
         </button>
       </div>
 
-      {/* Day-of-week labels */}
       <div className="sc-picker-grid" ref={gridRef} onKeyDown={handleKeyDown}>
         {DAY_LABELS.map(d => (
           <div key={d} className="sc-picker-lbl">{d[0]}</div>

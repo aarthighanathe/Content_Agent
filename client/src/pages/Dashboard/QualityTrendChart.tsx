@@ -10,7 +10,7 @@ interface QualityTrendChartProps {
   dimensionTrend: DimensionTrendPoint[] | undefined;
 }
 
-// WHY these 5 fixed hex values, not var(--accent)/var(--accent-2): per
+// WHY: these 5 fixed hex values, not var(--accent)/var(--accent-2): per
 // CLAUDE.md §13, dimension identity colors are meaningful signal (like
 // platform-brand colors or quality-tier colors), not brand decoration, so
 // they stay constant across all 6 UI themes rather than shifting with
@@ -32,7 +32,6 @@ function polarPoint(cx: number, cy: number, radius: number, angleRad: number): [
   return [cx + radius * Math.cos(angleRad), cy + radius * Math.sin(angleRad)];
 }
 
-// ── Radar: current profile across the 5 dimensions ────────────────────────
 function RadarChart({ averages }: { averages: DimensionAverages }) {
   const size = 220;
   const cx = size / 2;
@@ -51,7 +50,6 @@ function RadarChart({ averages }: { averages: DimensionAverages }) {
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Radar chart of average score per dimension">
-      {/* Grid rings */}
       {rings.map((r) => (
         <polygon
           key={r}
@@ -61,18 +59,14 @@ function RadarChart({ averages }: { averages: DimensionAverages }) {
           strokeWidth={1}
         />
       ))}
-      {/* Spokes */}
       {DIMENSION_ORDER.map((key, i) => {
         const [x, y] = polarPoint(cx, cy, maxRadius, startAngle + i * angleStep);
         return <line key={key} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--rule)" strokeWidth={1} />;
       })}
-      {/* Data polygon */}
       <polygon points={polygonPoints} fill="color-mix(in srgb, var(--accent) 18%, transparent)" stroke="var(--accent)" strokeWidth={2} strokeLinejoin="round" />
-      {/* Vertex dots, colored per-dimension for legend correspondence */}
       {dataPoints.map(([x, y], i) => (
         <circle key={DIMENSION_ORDER[i]} cx={x} cy={y} r={3.5} fill={DIMENSION_META[DIMENSION_ORDER[i]].color} stroke="var(--bg-card)" strokeWidth={1.5} />
       ))}
-      {/* Axis labels */}
       {DIMENSION_ORDER.map((key, i) => {
         const [x, y] = polarPoint(cx, cy, maxRadius + 22, startAngle + i * angleStep);
         return (
@@ -94,7 +88,6 @@ function RadarChart({ averages }: { averages: DimensionAverages }) {
   );
 }
 
-// ── Trend: each dimension as its own thin line across recent jobs ─────────
 function TrendChart({ points }: { points: DimensionTrendPoint[] }) {
   const width = 100; // percentage-based viewBox so the SVG scales to its container
   const height = 140;
@@ -121,7 +114,6 @@ function TrendChart({ points }: { points: DimensionTrendPoint[] }) {
         aria-label="Trend of each quality dimension over recent jobs"
         onMouseLeave={() => setHoverIdx(null)}
       >
-        {/* Gridlines at 0/50/100% */}
         {[0, 0.5, 1].map((f) => (
           <line key={f} x1={0} x2={width} y1={padTop + plotHeight * f} y2={padTop + plotHeight * f} stroke="var(--rule)" strokeWidth={0.5} vectorEffect="non-scaling-stroke" />
         ))}
@@ -142,7 +134,6 @@ function TrendChart({ points }: { points: DimensionTrendPoint[] }) {
           );
         })}
 
-        {/* Hover crosshair */}
         {hoverIdx !== null && (
           <line x1={hoverIdx * stepX} x2={hoverIdx * stepX} y1={padTop} y2={padTop + plotHeight} stroke="var(--text-muted)" strokeWidth={0.5} strokeDasharray="2,2" vectorEffect="non-scaling-stroke" />
         )}
@@ -207,7 +198,7 @@ function Legend() {
   );
 }
 
-// WHY a component of its own (not folded into InsightsCards.tsx): a chart with
+// WHY: a component of its own (not folded into InsightsCards.tsx): a chart with
 // two view modes (radar/trend), hover interaction, and its own SVG geometry is
 // a meaningfully different unit of complexity than the two simple list-based
 // cards already in that file — keeping it separate keeps both files well

@@ -25,26 +25,16 @@ interface ContentEditShellProps {
  * inputs (textarea for caption, hook+body+cta for LinkedIn, per-tweet textareas for
  * Twitter), but the chrome around those inputs is now a single, consistent component.
  *
- * Previously flagged in REVIEW_FINDINGS.md Section 3 with a "// TODO:" comment on each
- * file as "needs full UI regression testing before extracting". The extraction is safe
- * because:
- *   - The shell renders no platform-specific styles itself; colours/borders stay on the
- *     parent wrapper in each *Content.tsx file.
- *   - `children` is fully typed ReactNode, so TypeScript catches any misuse at compile time.
- *   - The save button behaviour (calls onSave which resolves before closing) was identical
- *     across all three platforms — no logic moved, only markup.
+ * NOTE: the shell renders no platform-specific styles; colours/borders stay on the
+ * parent wrapper in each *Content.tsx file.
  */
 export function ContentEditShell({ label, onClose, onSave, children }: ContentEditShellProps) {
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
 
-  // WHY the try/catch lives here, not in each of the 3 callers: InstagramContent/
-  // LinkedInContent/TwitterContent's saveEdit() all previously did `await onSave(...)`
-  // with no try/catch, and the shell's old `void onSave()` call site discarded the
-  // resulting rejection — a failed save left the edit form open with zero feedback
-  // (no loading indicator during the request, no error on failure) beyond an
-  // easy-to-miss page-level toast (FUNCTIONAL_AUDIT_2026-07.md finding #15).
-  // Fixing it once here covers all three platforms instead of three separate patches.
+  // WHY: the try/catch lives here, not in the 3 callers: a rejected save must keep the
+  // form open with an inline error and a pending state, and doing it once covers
+  // every platform.
   async function handleSave() {
     setSaving(true);
     setError('');

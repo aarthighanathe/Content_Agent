@@ -19,7 +19,7 @@ export function VoiceCard({
   selectedVoices, onToggleVoice, phrasesUse, onPhrasesUseChange, phrasesAvoid, onPhrasesAvoidChange,
 }: VoiceCardProps) {
   return (
-    // WHY --accent-2, not fixed violet: this violet was decorative color variety chosen
+    // WHY: --accent-2, not fixed violet: this violet was decorative color variety chosen
     // for the Voice card, not an actual reuse of the .badge-purple category-tag system
     // (same hex values, but no shared class/meaning) — theming it keeps the card in step
     // with the active theme's secondary accent instead of a hardcoded #8B5CF6/#A78BFA.
@@ -45,7 +45,7 @@ export function VoiceCard({
       </div>
 
       <label style={label}>Phrases to use</label>
-      {/* WHY maxLength 1000: matches brandVoiceSchema — without it the browser lets the
+      {/* WHY: maxLength 1000: matches brandVoiceSchema — without it the browser lets the
           user type past the server cap and Save fails with a generic error (QA-BRAND-003). */}
       <textarea
         className="input"

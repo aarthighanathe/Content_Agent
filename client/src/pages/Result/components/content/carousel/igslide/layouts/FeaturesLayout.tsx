@@ -5,8 +5,6 @@ import { DotGrid, LeftStripe } from '../decorativePrimitives';
 import { PillTag, FeatureRow } from '../contentPieces';
 import { stablePointKeys } from '../types';
 
-// ── Features layout ───────────────────────────────────────────────────────────
-
 export function FeaturesLayout({ slide, colors }: { slide: SlideData; colors: ColorSystem }) {
   const hasPoints = Array.isArray(slide.points) && slide.points.length > 0;
   const pointKeys = hasPoints ? stablePointKeys(slide.points!) : [];

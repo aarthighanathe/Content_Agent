@@ -18,7 +18,13 @@ interface ActionDrawerProps {
   jobData: ContentJob | null;
   content: ResultContent | undefined;
   onRegenerate: (feedback?: string) => void;
+  /** Acquire contentMutationLock before restore POST; return false if save owns it. */
+  onRestoreBegin?: () => boolean;
   onRestored: () => void;
+  /** Release lock when restore POST fails (success path releases in onRestored). */
+  onRestoreEnd?: () => void;
+  /** WHY: disable Restore while an inline content save is in flight (lost-update race). */
+  restoreDisabled?: boolean;
   /** Persist merged hashtags into the final output (F8). */
   onInsertHashtags?: (tags: string[]) => Promise<void>;
   /**
@@ -32,10 +38,8 @@ interface ActionDrawerProps {
     socialConnections: SocialConnection[];
     postingTo: string | null;
     postResult: Record<string, 'ok' | 'error'>;
-    // WHY added: useSocial() already returns this (populated from postToSocial's
-    // response), but this prop type previously omitted it, so PostPanel always
-    // received an empty default and "View post" never rendered even on a
-    // successful post (FUNCTIONAL_AUDIT_2026-07.md finding #10).
+    // WHY: required here: without it PostPanel gets an empty default and "View post"
+    // never renders after a successful post.
     postLinks: Record<string, string>;
     handlePostNow: (platform: string) => void;
   };
@@ -102,7 +106,10 @@ export function ActionDrawer({
   jobData,
   content,
   onRegenerate,
+  onRestoreBegin,
   onRestored,
+  onRestoreEnd,
+  restoreDisabled = false,
   onInsertHashtags,
   defaultTab = null,
   feedbackPrefill = '',
@@ -111,10 +118,8 @@ export function ActionDrawer({
   const [activeTab, setActiveTab] = useState<ActionTab | null>(defaultTab ?? null);
   const drawerRef = useRef<HTMLDivElement>(null);
 
-  // WHY useCallback + setTimeout(0): the react-hooks/set-state-in-effect rule flags
-  // any setState called synchronously in an effect body. Wrapping in useCallback gives
-  // a stable identity (no needless re-runs), and deferring via 0ms means the state
-  // update happens in a callback rather than the effect body itself.
+  // WHY: setTimeout(0): react-hooks/set-state-in-effect flags synchronous setState in
+  // an effect body; deferring moves the update into a callback.
   const syncTab = useCallback((tab: ActionTab | null) => {
     setActiveTab(tab);
   }, []);
@@ -134,7 +139,7 @@ export function ActionDrawer({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
 
-  // WHY lock body scroll: without this, mobile users can rubber-band the page
+  // WHY: lock body scroll: without this, mobile users can rubber-band the page
   // behind the bottom sheet and lose the dimmed backdrop context.
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -150,7 +155,7 @@ export function ActionDrawer({
   if (!isOpen) return null;
 
   const showMenu = activeTab === null;
-  // WHY back only when we came from the menu: desktop header opens a panel
+  // WHY: back only when we came from the menu: desktop header opens a panel
   // directly — Back would be a dead end. Mobile More starts on the menu.
   const canGoBack = defaultTab === null && activeTab !== null;
   const meta = activeTab ? PANEL_META[activeTab] : null;
@@ -244,7 +249,7 @@ export function ActionDrawer({
             <PostPanel
               connections={social.socialConnections}
               content={content}
-              // WHY required for Schedule: without jobId, handleSchedule early-returns
+              // WHY: required for Schedule: without jobId, handleSchedule early-returns
               // and the Schedule button appears to do nothing.
               jobId={jobData?.id}
               jobData={jobData}
@@ -267,7 +272,10 @@ export function ActionDrawer({
             <HistoryPanel
               jobId={jobData?.id}
               onClose={onClose}
+              onRestoreBegin={onRestoreBegin}
               onRestored={onRestored}
+              onRestoreEnd={onRestoreEnd}
+              restoreDisabled={restoreDisabled}
             />
           )}
         </VisibleScroller>

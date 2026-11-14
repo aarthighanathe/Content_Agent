@@ -10,13 +10,8 @@ interface ErrorStateProps {
 }
 
 /**
- * Shared error-state block — used for both React Query `isError` cases (Dashboard,
- * Library, Calendar) and Result's terminal "generation failed" view (previously a
- * separate FailedView.tsx that duplicated the same icon+heading+message+retry shape
- * with slightly different markup — audit #28).
- * WHY: audit finding U-2 — pages previously only console.error'd fetch failures,
- * leaving the user staring at a blank/loading screen forever. This gives every
- * page a consistent, on-brand (Midnight Aurora) visible error card with retry.
+ * Shared fetch/generation failure card (Dashboard, Library, Calendar, Result).
+ * WHY: without a visible error + retry, failed queries left users on a blank/loading screen.
  */
 export function ErrorState({ title, message = 'Something went wrong while loading this data.', retryLabel = 'Retry', onRetry }: ErrorStateProps) {
   return (

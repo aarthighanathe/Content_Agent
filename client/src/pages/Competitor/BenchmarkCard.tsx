@@ -14,7 +14,7 @@ interface BenchmarkCardProps {
 
 const MAX_DIM_VALUE = 20;
 
-// WHY hookStrength only, not all 5 dimensions, and no avgScore here at all:
+// WHY: hookStrength only, not all 5 dimensions, and no avgScore here at all:
 // hookStrength is the one axis both sides of this comparison actually describe —
 // the Critic scores the user's own hookStrength 0-20, and the competitor analysis
 // independently reports a qualitative contentPatterns.hookStyle
@@ -25,7 +25,7 @@ const MAX_DIM_VALUE = 20;
 // same getProfile() query — repeating it here was pure duplication with nothing new
 // for the user, not a comparison against anything competitor-side.
 export function BenchmarkCard({ isLoading, isError, totalPosts, dimensionAverages, analysis }: BenchmarkCardProps) {
-  // WHY silently omitted, not an ErrorState block: this is a supplementary "how do you
+  // WHY: silently omitted, not an ErrorState block: this is a supplementary "how do you
   // compare" panel bolted onto an otherwise-complete competitor analysis — a failed
   // fetch of the user's own stats shouldn't block or visually break the primary result
   // the user came here for. Matches Dashboard's InsightsCards/NextScheduledCard

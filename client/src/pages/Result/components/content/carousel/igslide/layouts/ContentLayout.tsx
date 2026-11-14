@@ -7,13 +7,10 @@ import { DotGrid, GridLines, CrosshatchLines, GlowBlob, LeftStripe, DiagStripes,
 import { PillTag, FeatureCard } from '../contentPieces';
 import { stablePointKeys } from '../types';
 
-// ── Content layouts ───────────────────────────────────────────────────────────
-
 type ContentLayoutProps = { slide: SlideData; index: number; colors: ColorSystem; bgMode: 'light' | 'dark' };
 
 const CONTENT_PILL_LABELS = ['KEY POINTS', 'INSIGHTS', 'BREAKDOWN', 'DEEP DIVE', 'TAKEAWAY', 'OVERVIEW'];
 
-// Variant A: Left-stripe + numbered badge — the classic divider style
 function ContentLayoutA({ slide, index, colors, bgMode }: ContentLayoutProps) {
   const isLight   = bgMode === 'light';
   const headColor = isLight ? colors.BRAND_DARK             : '#fff';
@@ -39,7 +36,7 @@ function ContentLayoutA({ slide, index, colors, bgMode }: ContentLayoutProps) {
         <PillTag text={pillLabel} bgMode={isLight ? 'light' : 'dark'} colors={colors} />
       </div>
 
-      {/* WHY flex+justifyContent here (not on the outer container): the header row above
+      {/* WHY: flex+justifyContent here (not on the outer container) — header row above
           must stay pinned to the top regardless of content length, while the headline/body/
           decoration group should center as a unit when there are no points to fill the box —
           otherwise short text leaves a large empty gap above the bottom-pinned decoration. */}
@@ -81,7 +78,6 @@ function ContentLayoutA({ slide, index, colors, bgMode }: ContentLayoutProps) {
   );
 }
 
-// Variant B: Top accent banner + ghost number watermark — no left stripe, bolder headline
 function ContentLayoutB({ slide, index, colors, bgMode }: ContentLayoutProps) {
   const isLight   = bgMode === 'light';
   const headColor = isLight ? colors.BRAND_DARK        : '#fff';
@@ -94,7 +90,6 @@ function ContentLayoutB({ slide, index, colors, bgMode }: ContentLayoutProps) {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
-      {/* Top accent banner */}
       <div style={{
         height: 46, padding: `0 ${Math.max(H_PAD, 50)}px 0 ${H_PAD}px`,
         background: accent + (isLight ? '14' : '1C'),
@@ -107,7 +102,6 @@ function ContentLayoutB({ slide, index, colors, bgMode }: ContentLayoutProps) {
         </span>
       </div>
 
-      {/* Ghost number watermark behind content */}
       <StatWatermark text={String(index + 1)} color={isLight ? colors.BRAND_PRIMARY : colors.BRAND_LIGHT} />
 
       {isLight ? <DotGrid color={colors.BRAND_PRIMARY} opacity={0.032} /> : <CrosshatchLines color={colors.BRAND_PRIMARY} />}
@@ -146,7 +140,6 @@ function ContentLayoutB({ slide, index, colors, bgMode }: ContentLayoutProps) {
   );
 }
 
-// Variant C: Inset card — no stripe, content inside a floating raised card container
 function ContentLayoutC({ slide, index, colors, bgMode }: ContentLayoutProps) {
   const isLight   = bgMode === 'light';
   const headColor = isLight ? colors.BRAND_DARK        : '#fff';
@@ -165,7 +158,6 @@ function ContentLayoutC({ slide, index, colors, bgMode }: ContentLayoutProps) {
       {!isLight && <GlowBlob color={colors.BRAND_PRIMARY} x={glowP.x} y={glowP.y} size={glowP.size} opacity={0.11} />}
       {isLight && <DotGrid color={colors.BRAND_PRIMARY} opacity={0.036} />}
 
-      {/* Top: slide number + pill */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexShrink: 0 }}>
         <span style={{ fontSize: 11, fontWeight: 800, color: accent, fontFamily: FONT, opacity: 0.62, letterSpacing: 0.5 }}>
           {String(index + 1).padStart(2, '0')}
@@ -173,7 +165,6 @@ function ContentLayoutC({ slide, index, colors, bgMode }: ContentLayoutProps) {
         <PillTag text={hasPoints ? 'DEEP DIVE' : 'TAKEAWAY'} bgMode={isLight ? 'light' : 'dark'} colors={colors} />
       </div>
 
-      {/* Raised inset card */}
       <div style={{
         flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         background: cardBg,
@@ -182,7 +173,6 @@ function ContentLayoutC({ slide, index, colors, bgMode }: ContentLayoutProps) {
         padding: '14px 14px 10px',
         justifyContent: hasPoints ? 'flex-start' : 'center',
       }}>
-        {/* Short accent rule inside card */}
         <div style={{ width: 32, height: 3, background: accent, borderRadius: 2, marginBottom: 10, flexShrink: 0 }} />
 
         <h2 style={{ margin: hasPoints ? '0 0 10px' : '0 0 12px', fontSize: hasPoints ? 20 : 23, fontWeight: 700, lineHeight: 1.15, letterSpacing: -0.3, color: headColor, fontFamily: FONT, flexShrink: 0 }}>
@@ -215,9 +205,8 @@ function ContentLayoutC({ slide, index, colors, bgMode }: ContentLayoutProps) {
   );
 }
 
-// ContentLayout dispatcher — preset controls the variant strategy per generation
 export function ContentLayout({ slide, index, colors, bgMode, preset }: { slide: SlideData; index: number; colors: ColorSystem; bgMode: 'light' | 'dark'; preset: DesignPresetConfig }) {
-  // contentForce locks ALL content slides to one variant; null = cycle from contentStart offset
+  // FLOW: contentForce pins variant; null cycles A/B/C from contentStart.
   const v: 0 | 1 | 2 = preset.contentForce !== null
     ? preset.contentForce
     : ((index + preset.contentStart) % 3) as 0 | 1 | 2;

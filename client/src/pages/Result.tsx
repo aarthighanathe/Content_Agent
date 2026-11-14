@@ -5,7 +5,6 @@ import { useJobData }    from './Result/hooks/useJobData';
 import { useExport }     from './Result/hooks/useExport';
 import { useMultiplier } from './Result/hooks/useMultiplier';
 import { useSocial }     from './Result/hooks/useSocial';
-import { updateJobContent } from '../api';
 import { ResultHeader }   from './Result/components/ResultHeader';
 import { LoadingView }    from './Result/components/LoadingView';
 import { ErrorState }     from '../components/ErrorState';
@@ -16,19 +15,20 @@ import type { ActionTab } from './Result/components/ActionDrawer';
 import { ExportModal }    from './Result/components/ExportModal';
 import { useQualityAside } from './Result/hooks/useQualityAside';
 import { useResultTemplate } from './Result/hooks/useResultTemplate';
+import { useResultContentMutations } from './Result/hooks/useResultContentMutations';
 import { Copy, RotateCcw, Download, MoreHorizontal } from 'lucide-react';
-import type { PlatformContent } from '../types/job';
-import type { SlideData } from './Result/components/content/carousel/IGSlide';
 import { deriveResultContent } from './Result/lib/resultDerived';
 
 export default function ResultPage() {
   const { jobId } = useParams<{ jobId: string }>();
 
-  const { jobData, setJobData, loadError, regenerating, handleRegenerate, loadJob } = useJobData(jobId);
+  const {
+    jobData, setJobData, loadError, actionError, regenerating, handleRegenerate, loadJob,
+  } = useJobData(jobId);
 
   // NOTE: the theme picker that called the setter lived in the removed AI-render UI.
   // The stored value still selects the palette for the preview and the PNG export.
-  // WHY clamped to 0-8: THEME_KEYS (ExportModal.tsx) defines 9 valid theme
+  // WHY: clamped to 0-8: THEME_KEYS (ExportModal.tsx) defines 9 valid theme
   // indices — an out-of-range or NaN stored value (e.g. left over from a
   // future version with more themes, or manual localStorage tampering) would
   // otherwise silently resolve to a theme the user never selected with no
@@ -42,14 +42,13 @@ export default function ResultPage() {
   const [currentSlide, setCurrentSlide]         = useState(0);
   const [mobileTab, setMobileTab]               = useState<'content' | 'insights'>('content');
   const [actionDrawerOpen, setActionDrawerOpen] = useState(false);
-  // WHY null: mobile "More" opens the action menu; desktop tools pass a concrete tab.
+  // WHY: null: mobile "More" opens the action menu; desktop tools pass a concrete tab.
   const [actionDrawerTab, setActionDrawerTab]   = useState<ActionTab | null>(null);
   // WHY: Insights “Fix with AI” passes a tip; Rewrite from the header starts blank.
   const [feedbackPrefill, setFeedbackPrefill]   = useState('');
   const [exportModalOpen, setExportModalOpen]   = useState(false);
-  // Sidebar open by default so users notice the AI Quality Analysis is available;
-  // still user-toggleable via the collapse button in InsightsSidebar.
-  // Persist collapse state to localStorage so it survives page refreshes.
+  // WHY: open by default: users should notice the AI Quality Analysis exists; the
+  // collapse choice is persisted below.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       return localStorage.getItem('ca_insights_sidebar_collapsed') === 'true';
@@ -58,12 +57,11 @@ export default function ResultPage() {
   const [saveError, setSaveError]               = useState('');
   const touchStartX = useRef<number | null>(null);
   const rpRef = useRef<HTMLDivElement | null>(null);
-  // WHY content-width (not viewport): sidebar + DevTools leave the window wide
+  // WHY: content-width (not viewport): sidebar + DevTools leave the window wide
   // while .rp is narrow — one-screen lock + Quality side column only when the
   // Result workspace itself has room (≥1100px). See Result.css @container rp.
   const { layoutWide, asideAnimating, beginAsideToggle } = useQualityAside(rpRef);
 
-  // Persist sidebar collapse state to localStorage
   useEffect(() => {
     try {
       localStorage.setItem('ca_insights_sidebar_collapsed', String(sidebarCollapsed));
@@ -100,35 +98,16 @@ export default function ResultPage() {
   const { copied, copyAllText } = useExport(content);
   const { multiplyJobs, handleMultiply } = useMultiplier(jobId);
   const social = useSocial(content, jobId);
-
-  async function handleContentSave(newContent: SlideData[] | PlatformContent): Promise<void> {
-    if (!jobId) return;
-    setSaveError('');
-    try {
-      // WHY unknown->PlatformContent[] cast: updateJobContent's declared param type
-      // (PlatformContent | PlatformContent[] | string) predates carousel slide editing —
-      // SlideData[] (carousel slides) is a real, guarded-by-the-caller value here, just a
-      // narrower field set than PlatformContent's optional fields. The server PATCH route
-      // stores whatever JSON is sent back as the final output content either way.
-      await updateJobContent(jobId, newContent as unknown as PlatformContent | PlatformContent[]);
-    } catch (err) {
-      setSaveError('Failed to save your edit — please try again.');
-      throw err;
-    }
-    setJobData((p) => {
-      if (!p) return p;
-      const i = p.outputs.findIndex((o) => o.outputType === 'final');
-      if (i > -1) {
-        const np = { ...p, outputs: [...p.outputs] };
-        np.outputs[i] = { ...np.outputs[i], content: newContent };
-        return np;
-      }
-      return p;
-    });
-  }
+  const {
+    handleContentSave,
+    handleRestoreBegin,
+    handleRestored,
+    handleRestoreEnd,
+    restoreDisabled,
+  } = useResultContentMutations(jobId, setJobData, loadJob, setSaveError);
 
   async function handleInsertHashtags(tags: string[]): Promise<void> {
-    // WHY drop video scripts too: ResultContent includes VideoScriptContentData,
+    // WHY: drop video scripts too: ResultContent includes VideoScriptContentData,
     // whose hook/cta are objects. Spreading that union is not a PlatformContent,
     // so tsc -b rejects the save (CI client build).
     if (!content || Array.isArray(content) || 'segments' in content) {
@@ -189,7 +168,7 @@ export default function ResultPage() {
         social={social}
         activePanel={actionDrawerOpen ? actionDrawerTab : null}
         onOpenPanel={(tab) => {
-          // WHY clear: header Rewrite is a blank form; Insights “Fix with AI”
+          // WHY: clear: header Rewrite is a blank form; Insights “Fix with AI”
           // sets feedbackPrefill via onSteer instead.
           if (tab === 'feedback') setFeedbackPrefill('');
           setActionDrawerTab(tab);
@@ -238,7 +217,15 @@ export default function ResultPage() {
         />
       )}
 
-      {/* WHY !loadError: the "lost"/"not_found" path already renders ErrorState
+      {/* WHY: outside content gate: regenerate 409 JOB_IN_PROGRESS must show even
+          if the loading/failed branches are active. */}
+      {actionError && !regenerating && (
+        <div className="toast toast-error" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} role="alert">
+          {actionError}
+        </div>
+      )}
+
+      {/* WHY: !loadError: the "lost"/"not_found" path already renders ErrorState
           above — pairing it with status:'failed' used to stack a second
           "Generation failed" + fake Regen (QA-C2-001). */}
       {isFailed && !loadError && (
@@ -369,7 +356,10 @@ export default function ResultPage() {
         jobData={jobData}
         content={content}
         onRegenerate={onRegenerate}
-        onRestored={() => { loadJob().catch(() => {}); }}
+        onRestoreBegin={handleRestoreBegin}
+        onRestored={() => { void handleRestored(); }}
+        onRestoreEnd={handleRestoreEnd}
+        restoreDisabled={restoreDisabled}
         onInsertHashtags={handleInsertHashtags}
         defaultTab={actionDrawerTab}
         feedbackPrefill={feedbackPrefill}

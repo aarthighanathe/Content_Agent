@@ -27,7 +27,7 @@ interface StatsOverviewProps {
   contentDna: ContentDna | null;
 }
 
-// WHY extracted from Dashboard.tsx: the stat-cards grid + Content DNA bubble
+// WHY: extracted from Dashboard.tsx: the stat-cards grid + Content DNA bubble
 // (previously ~100 inline lines) was one of the two blocks pushing the page
 // component past the 400-line split threshold — same rationale as
 // RecentGenerations/InsightsCards already living in this folder.
@@ -51,7 +51,7 @@ export function StatsOverview({ isError, isLoading, onRetry, totalPosts, avgScor
       label: 'Avg quality score',
       value: String(avgScore),
       suffix: '/100',
-      // WHY 70 explained inline: the Critic agent approves content at score >= 70
+      // WHY: 70 explained inline: the Critic agent approves content at score >= 70
       // (agents/critic.ts) — this threshold was previously shown with no context
       // for why 70 specifically means "above average."
       note: avgScore >= 70 ? 'Above average (70+ is our quality bar)' : 'Below our 70-point quality bar — keep improving',
@@ -76,20 +76,16 @@ export function StatsOverview({ isError, isLoading, onRetry, totalPosts, avgScor
       <div className="grid-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
         {statCards.map((stat) => (
           <div key={stat.label} className="dash-stat-card">
-            {/* Top accent line */}
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg,${stat.color},transparent 80%)`, borderRadius: '16px 16px 0 0' }} />
 
-            {/* Icon */}
             <div style={{ width: 40, height: 40, background: stat.bg, border: `1px solid ${stat.border}`, borderRadius: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', color: stat.color, marginBottom: 14 }}>
               <stat.Icon size={17} />
             </div>
 
-            {/* Label */}
             <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>
               {stat.label}
             </div>
 
-            {/* Value */}
             <div style={{ fontFamily: "var(--font-display)", fontSize: 'clamp(26px,5vw,38px)', fontWeight: 700, lineHeight: 1, textTransform: 'capitalize', color: stat.highlight ? stat.color : 'var(--text-primary)' }}>
               {isLoading ? <SkeletonBlock width={80} height={32} radius={6} /> : (
                 <>
@@ -112,7 +108,6 @@ export function StatsOverview({ isError, isLoading, onRetry, totalPosts, avgScor
         ))}
       </div>
 
-      {/* ── Content DNA bubble ── */}
       {!isLoading && (
         <Link
           to="/brand"
@@ -137,7 +132,7 @@ export function StatsOverview({ isError, isLoading, onRetry, totalPosts, avgScor
                 </>
               ) : (
                 <>
-                  {/* WHY accent border + Recommended badge (#41): the "not set up"
+                  {/* WHY: accent border + Recommended badge (#41): the "not set up"
                       state was near-invisible (low-contrast text, rgba(255,255,255,0.06)
                       border) despite Content DNA being one of the app's most
                       differentiating features. Strengthening the border to --accent

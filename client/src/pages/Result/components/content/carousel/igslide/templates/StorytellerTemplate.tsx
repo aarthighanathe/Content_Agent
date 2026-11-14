@@ -5,11 +5,6 @@ import { resolveTemplateFont } from '../fontStack';
 import { getContrastColor, getContrastRgba } from '../../../../../../../lib/colorSystem';
 import { usePointKeys } from '../types';
 
-/**
- * Storyteller Template
- * Narrative-focused design with quote-style layouts,
- * warm typography, and story-telling elements. Great for personal brands.
- */
 export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemplateProps>(
   function StorytellerTemplate({
   slide,
@@ -48,7 +43,6 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           background: colors.LIGHT_BG,
         }}
       >
-        {/* Large quote mark */}
         <div
           style={{
             fontSize: 120,
@@ -63,7 +57,6 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           "
         </div>
 
-        {/* Story chapter indicator */}
         <div
           style={{
             alignSelf: 'flex-end',
@@ -78,7 +71,6 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           Chapter {index + 1}
         </div>
 
-        {/* Headline as story title */}
         {slide.headline && (
           <h2
             style={{
@@ -96,7 +88,6 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </h2>
         )}
 
-        {/* Body text as story content */}
         {slide.body && (
           <p
             style={{
@@ -113,7 +104,7 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </p>
         )}
 
-        {/* Points as story beats — flex:1/minHeight:0/overflow:hidden so a long
+        {/* WHY: Points as story beats — flex:1/minHeight:0/overflow:hidden so a long
             list clips within the fixed frame instead of pushing the story
             signature (marginTop:'auto' below) off it. */}
         {slide.points && slide.points.length > 0 && (
@@ -161,7 +152,6 @@ export const StorytellerTemplate = React.forwardRef<HTMLDivElement, CarouselTemp
           </div>
         )}
 
-        {/* Story signature */}
         <div
           style={{
             marginTop: 'auto',

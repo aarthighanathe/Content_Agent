@@ -11,7 +11,7 @@ interface VoiceDriftCardProps {
   dimensionTrend: DimensionTrendPoint[] | undefined;
 }
 
-// WHY the Critic agent's brandVoiceMatch dimension, not a new metric: this is the same
+// WHY: the Critic agent's brandVoiceMatch dimension, not a new metric: this is the same
 // 0-20 score already computed per job by agents/critic.ts and returned as part of
 // stats.dimensionTrend from GET /api/users/me — Brand.tsx already fetches this via its
 // existing profileQuery, so this card needs no new server call or endpoint.
@@ -23,7 +23,7 @@ function toPercent(avg: number): number {
 }
 
 export function VoiceDriftCard({ isLoading, isError, onRetry, dimensionTrend }: VoiceDriftCardProps) {
-  // WHY comparing the last 10 against the 10 before that (not just showing one
+  // WHY: comparing the last 10 against the 10 before that (not just showing one
   // number): "drift" implies direction — a flat 80% told in isolation doesn't say
   // whether brand voice consistency is improving or degrading, which is the whole
   // point of a *drift* card versus a plain average readout.

@@ -1,9 +1,7 @@
-// WHY PostHog tracking: captures key user actions (job creation, platform selection, batch mode)
-// for analytics and conversion funnel monitoring. Events are sent to PostHog via the global
-// posthog instance initialized in main.tsx.
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
 import { AlertCircle, CalendarRange, ArrowLeft, Info } from 'lucide-react';
 import { createJob, getProfile, getAudienceDefaults } from '../api';
 import { posthog } from '../main';
@@ -14,65 +12,41 @@ import { useBatchCreate } from './Create/useBatchCreate';
 import { useCarouselTemplateSelection } from './Create/useCarouselTemplateSelection';
 import { getSubmitError } from './Create/errorMessages';
 import type { CreateHandoff } from '../lib/utils';
+import { isJobPlatform, isJobTone } from '../types/job';
+import {
+  TOPIC_PLACEHOLDERS,
+  GENERATE_LABELS,
+  AUDIENCE_DEFAULTS,
+  resolveAudience,
+  readRecentTopics,
+  writeRecentTopics,
+} from './Create/createConstants';
 
-const RECENT_TOPICS_KEY  = 'ca_recent_topics';
-// WHY still localStorage-backed: these two keys now only seed the DEFAULT
-// selection for a brand-new Create session (so returning users see their last
-// pick pre-selected) — the value actually submitted with the job lives in this
-// component's own state and is sent explicitly in handleSubmit, no longer read
-// back out of localStorage at Result-page render time. See CAROUSEL_TEMPLATE_PLAN.md §2.1.
-
-const TOPIC_PLACEHOLDERS: Record<string, string> = {
-  instagram_carousel: "e.g. '5 habits that transformed my mornings'",
-  linkedin_post:      "e.g. 'Why most product launches fail in week 2'",
-  twitter_thread:     "e.g. 'Thread: everything I learned building in public'",
-  instagram_caption:  "e.g. 'Behind-the-scenes of our new product launch'",
-  video_script:       "e.g. '3-minute guide to cold email that actually gets replies'",
-};
-
-const GENERATE_LABELS: Record<string, string> = {
-  instagram_carousel: 'Instagram Carousel',
-  linkedin_post:      'LinkedIn Post',
-  twitter_thread:     'Twitter Thread',
-  instagram_caption:  'Instagram Caption',
-  video_script:       'Video Script',
-};
-
-const AUDIENCE_DEFAULTS: Record<string, string> = {
-  instagram_carousel: 'content creators and marketers',
-  linkedin_post:      'founders and business professionals',
-  twitter_thread:     'tech enthusiasts and entrepreneurs',
-  instagram_caption:  'lifestyle and brand followers',
-  video_script:       'short-form video viewers aged 18-35',
-};
-
-// WHY a shared helper: the same fallback chain (user input → learned defaults →
-// static defaults → 'general audience') is used in both handleSubmit and
-// handleBatchSubmit. Extracting it prevents drift if the rule changes.
-function resolveAudience(input: string, platform: string, learnedDefaults: Partial<Record<string, string>>): string {
-  const trimmed = input.trim();
-  if (trimmed) return trimmed;
-  return learnedDefaults[platform] || AUDIENCE_DEFAULTS[platform] || 'general audience';
-}
+// WHY: still localStorage-backed for template defaults: keys seed the DEFAULT
+// selection for a brand-new Create session — see CAROUSEL_TEMPLATE_PLAN.md §2.1.
 
 export default function CreatePage() {
   const navigate    = useNavigate();
   const location    = useLocation();
-  // WHY the real CreateHandoff type, not an inline hand-typed cast: this used
+  // WHY: gated like Dashboard/Brand: Clerk JWT may not be ready on hard refresh —
+  // firing getProfile/audienceDefaults before authLoaded causes brief 401 noise.
+  const { isLoaded: authLoaded, isSignedIn, userId } = useAuth();
+  const topicsScopeId = userId ?? null;
+  // WHY: the real CreateHandoff type, not an inline hand-typed cast: this used
   // to informally re-type location.state's shape locally, only kept in sync
   // with lib/utils.ts's CreateHandoff by convention — see CreateHandoff's own
-  // WHY comment for the rule this now follows (widen the type and this read
+  // WHY: comment for the rule this now follows (widen the type and this read
   // together, in the same change).
   const prefill     = (location.state as CreateHandoff | null) || ({} as CreateHandoff);
 
-  // Draft persists topic/platform/tone/audience across a trip to /brand and back;
+  // NOTE: draft persists topic/platform/tone/audience across a trip to /brand and back;
   // cleared once a job is actually submitted (see handleSubmit).
   const { draft, setDraft, clearDraft, draftWriteFailed, dismissDraftWriteFailed } = useDraft();
 
-  // Content inputs — prefill (nav state) wins over a saved draft, which wins over defaults
+  // NOTE: content inputs — prefill (nav state) wins over a saved draft, which wins over defaults
   const [platform, setPlatform] = useState(prefill.platform || draft.platform || 'instagram_carousel');
   const [topic,    setTopic]    = useState(prefill.topic || draft.topic || '');
-  // WHY empty string, not a pre-picked pill: leaving no tone "selected" is honest —
+  // WHY: empty string, not a pre-picked pill: leaving no tone "selected" is honest —
   // the user hasn't made a choice yet. The backend already falls back to brand voice
   // (or 'professional') when tone is empty (writer.ts: `job.tone || 'professional'`),
   // so an unselected Tone row here doesn't change generation behavior, only the UI's
@@ -81,44 +55,53 @@ export default function CreatePage() {
   const [tone,           setTone]           = useState(draft.tone || '');
   const [targetAudience, setTargetAudience] = useState(draft.targetAudience || '');
 
-  // Platform grid is shown on first empty arrival, or whenever the user clicks
-  // "Change". Topic-only handoffs (Competitor) still collapse — the default
-  // platform is already set and the user can expand via Change (QA-A9-001).
+  // WHY: expand the platform grid on first empty arrival (or when the user
+  // clicks "Change"). Topic-only handoffs (Competitor) stay collapsed — a
+  // default platform is already set and Change can reopen the grid.
   const [showPlatformGrid, setShowPlatformGrid] = useState(
     !prefill.platform && !draft.platform && !(prefill.topic || draft.topic),
   );
 
   const [loading, setLoading] = useState(false);
-  // WHY ref in addition to state: a fast double-click sees loading===false twice
+  // WHY: ref in addition to state: a fast double-click sees loading===false twice
   // before the next paint, so both requests fire. The ref flips synchronously.
   const submittingRef = useRef(false);
   const [errorMsg,     setErrorMsg]     = useState('');
   const [retryAfterMs, setRetryAfterMs] = useState<number | null>(null);
 
-  // Recent topics autocomplete
-  const [recentTopics,    setRecentTopics]    = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem(RECENT_TOPICS_KEY) || '[]'); } catch { return []; }
-  });
+  // SECURITY: recent topics are per-user (L2) — same userScopedKey pattern as drafts.
+  const [recentTopics, setRecentTopics] = useState<string[]>(() => readRecentTopics(topicsScopeId));
+  const topicsLoadedFor = useRef<string | null>(topicsScopeId);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestRef = useRef<HTMLDivElement>(null);
   const topicRef   = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (topicsLoadedFor.current === topicsScopeId) return;
+    topicsLoadedFor.current = topicsScopeId;
+    setRecentTopics(readRecentTopics(topicsScopeId));
+  }, [topicsScopeId]);
 
   const filteredSuggestions = recentTopics.filter(
     (t) => t !== topic && (topic.trim() === '' || t.toLowerCase().includes(topic.toLowerCase()))
   );
 
-  // WHY this exact query key (['dashboard', 'profile']): shared with
+  // WHY: this exact query key (['dashboard', 'profile']): shared with
   // Dashboard.tsx/Brand.tsx's own getProfile() query — React Query dedupes/
   // caches by key, so this reads the already-fetched profile instead of
   // firing a second /users/me request. Read directly off the query rather
   // than through a Zustand copy (removed 2026-08-10 — that second copy could
   // go stale and briefly show an out-of-date "brand voice configured" state
   // after a save elsewhere; see CHANGELOG's dated entry).
-  const profileQuery = useQuery({ queryKey: ['dashboard', 'profile'], queryFn: getProfile });
+  const profileQuery = useQuery({
+    queryKey: ['dashboard', 'profile'],
+    queryFn: getProfile,
+    enabled: authLoaded && isSignedIn,
+  });
   const hasBrandVoice = !!(profileQuery.data?.brandName || profileQuery.data?.brandVoice);
   const hasContentDna = !!profileQuery.data?.contentDna;
 
-  // WHY its own query, not folded into profileQuery: audience defaults are
+  // WHY: its own query, not folded into profileQuery: audience defaults are
   // computed from job history (GET /jobs/audience-defaults), a different
   // read than the user's brand-voice profile — keeping them separate means a
   // brand-voice edit doesn't need to also invalidate/refetch this. Falls back
@@ -129,6 +112,7 @@ export default function CreatePage() {
     queryKey: ['create', 'audienceDefaults'],
     queryFn: getAudienceDefaults,
     retry: false,
+    enabled: authLoaded && isSignedIn,
   });
   const learnedAudienceDefaults = audienceDefaultsQuery.data?.audienceDefaults || {};
 
@@ -149,7 +133,6 @@ export default function CreatePage() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // Countdown timer for rate-limit retry
   useEffect(() => {
     if (retryAfterMs === null) return;
     const interval = setInterval(() => {
@@ -162,7 +145,6 @@ export default function CreatePage() {
     return () => clearInterval(interval);
   }, [retryAfterMs]);
 
-  // Format countdown for display
   const countdownText = retryAfterMs !== null ? formatCountdown(retryAfterMs) : null;
 
   function formatCountdown(ms: number): string {
@@ -172,7 +154,7 @@ export default function CreatePage() {
     return `${minutes}m`;
   }
 
-  // WHY auto-dismiss on a timer, matching Brand.tsx's flashToast duration: this
+  // WHY: auto-dismiss on a timer, matching Brand.tsx's flashToast duration: this
   // draft-write failure is a low-stakes notice ("your topic won't survive a trip
   // to /brand and back"), not something requiring the user to manually clear it.
   useEffect(() => {
@@ -181,31 +163,29 @@ export default function CreatePage() {
     return () => clearTimeout(t);
   }, [draftWriteFailed, dismissDraftWriteFailed]);
 
-  // WHY cross-tab warning: sessionStorage is tab-specific by design — opening Create
-  // in a new tab won't show drafts from other tabs. This disclosure informs users
-  // of that limitation so they don't lose work by assuming drafts sync across tabs.
-  // Rendered once, near the bottom of the page (see the .toast block below) —
-  // matching Brand.tsx/Library.tsx's shared toast convention.
+  // WHY: toast when a draft exists: sessionStorage is tab-local, so a new Create
+  // tab won't show drafts from another tab — surface that so users don't assume
+  // cross-tab sync. Toast UI lives near the bottom (same pattern as Brand/Library).
   const hasDraft = !!(draft.platform || draft.topic || draft.tone || draft.targetAudience);
 
-  // WHY learned default before the static map: a user's own recent history
+  // WHY: learned default before the static map: a user's own recent history
   // (most-frequent targetAudience they've actually typed for this platform,
   // see GET /jobs/audience-defaults) is a more accurate default than the
   // same hardcoded string every user sees — the static AUDIENCE_DEFAULTS map
   // still backs new users and platforms with no history yet.
   const learnedOrStaticAudience = learnedAudienceDefaults[platform] || AUDIENCE_DEFAULTS[platform];
-  // WHY a shared helper: the same fallback chain (user input → learned defaults →
+  // WHY: a shared helper: the same fallback chain (user input → learned defaults →
   // static defaults → 'general audience') is used in both handleSubmit and
   // handleBatchSubmit. Extracting it prevents drift if the rule changes.
   const effectiveAudience = resolveAudience(targetAudience, platform, learnedAudienceDefaults);
-  // WHY fallback here (not in state): the server's tone field is a strict zod enum
+  // WHY: fallback here (not in state): the server's tone field is a strict zod enum
   // (server/src/schemas/jobs.ts) with no empty/optional case, so an unselected Tone
   // row can't be submitted as-is. 'professional' matches the writer agent's own
   // `job.tone || 'professional'` fallback, so leaving no pill selected doesn't change
   // generation behavior — it only stops the UI from claiming a choice was made.
   const effectiveTone = tone || 'professional';
 
-  // WHY seed the draft from Ideate/Competitor handoff: prefill was only applied
+  // WHY: seed the draft from Ideate/Competitor handoff: prefill was only applied
   // in useState initializers, so an untouched topic was never written to
   // sessionStorage. Opening Brand and coming back cleared it. Competitor gap
   // text lived only on location.state and was lost even after editing the topic.
@@ -227,7 +207,7 @@ export default function CreatePage() {
   async function handleSubmit() {
     if (!topic.trim() || loading || submittingRef.current) return;
     const trimmed = topic.trim();
-    // WHY client min-3 before POST: matches createJobSchema / BatchTopicList and
+    // WHY: client min-3 before POST: matches createJobSchema / BatchTopicList and
     // avoids a round-trip that used to surface only "Invalid request body" (QA-A3-003).
     if (trimmed.length < 3) {
       setErrorMsg('Topic must be at least 3 characters');
@@ -237,7 +217,7 @@ export default function CreatePage() {
     setLoading(true);
     setErrorMsg('');
     try {
-      // WHY industry folded into competitorContext, not a new field: Create
+      // WHY: industry folded into competitorContext, not a new field: Create
       // has no visible industry input, and createJobSchema only accepts
       // competitorContext/competitorAnalysisId — this is the "simplest option
       // that doesn't require new UI" the task calls for, matching how
@@ -248,16 +228,23 @@ export default function CreatePage() {
       const competitorContext = [industry ? `Industry: ${industry}` : '', gapContext]
         .filter(Boolean)
         .join(' — ') || undefined;
+      // WHY: guards (not bare casts): Create state is still string-typed from
+      // draft/prefill; createJob expects JobPlatform/JobTone unions.
+      const platformForApi = isJobPlatform(platform) ? platform : 'instagram_carousel';
+      const toneForApi = isJobTone(effectiveTone) ? effectiveTone : 'professional';
       const { jobId } = await createJob({
-        topic: trimmed, platform, tone: effectiveTone, targetAudience: effectiveAudience,
+        topic: trimmed,
+        platform: platformForApi,
+        tone: toneForApi,
+        targetAudience: effectiveAudience,
         competitorContext,
         competitorAnalysisId: analysisId,
-        ...(platform === 'instagram_carousel' ? { templateId, paletteId } : {}),
+        ...(platformForApi === 'instagram_carousel' ? { templateId, paletteId } : {}),
       });
-      // WHY after success only: a failed/rate-limited submit used to pollute
+      // WHY: after success only: a failed/rate-limited submit used to pollute
       // recent topics before the job existed (QA-A3-002).
       const updated = [trimmed, ...recentTopics.filter((r) => r !== trimmed)].slice(0, 10);
-      localStorage.setItem(RECENT_TOPICS_KEY, JSON.stringify(updated));
+      writeRecentTopics(topicsScopeId, updated);
       setRecentTopics(updated);
       posthog.capture('content_generated', { platform, tone: effectiveTone });
       clearDraft();
@@ -274,7 +261,6 @@ export default function CreatePage() {
 
   return (
     <div>
-      {/* Page Header */}
       <div className="section-header" style={{ marginBottom: 32, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'var(--text-primary)' }}>
@@ -360,7 +346,7 @@ export default function CreatePage() {
         }
       `}</style>
 
-      {/* WHY surfaced instead of swallowed: sessionStorage.setItem can throw (private
+      {/* WHY: surfaced instead of swallowed: sessionStorage.setItem can throw (private
           mode, quota) — useDraft.ts used to catch and drop that silently, so a user
           could lose their in-progress topic/tone/audience on a trip to /brand with no
           warning. Reuses the same .toast/.toast-error classes Brand.tsx/Library.tsx

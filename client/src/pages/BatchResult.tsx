@@ -25,6 +25,7 @@ interface PersistedBatch {
 
 const BATCH_STORAGE_KEY = 'ca_batch_result_v1';
 const BATCH_TTL_MS = 24 * 60 * 60 * 1000;
+const BATCH_MAX_POLL_MS = 20 * 60 * 1000;
 
 function isBatchJobRef(value: unknown): value is BatchJobRef {
   if (!value || typeof value !== 'object') return false;
@@ -57,7 +58,7 @@ function readPersistedBatch(): PersistedBatch | null {
   }
 }
 
-// WHY router state + sessionStorage (L12): Create/Repurpose navigate with
+// WHY: router state + sessionStorage (L12): Create/Repurpose navigate with
 // location.state for the job list. Hard refresh used to wipe that and show
 // "No batch found" — sessionStorage recovers within the same tab for 24h.
 export default function BatchResultPage() {
@@ -69,7 +70,7 @@ export default function BatchResultPage() {
   const initialJobs = (navState?.jobs && navState.jobs.length > 0)
     ? navState.jobs
     : (persisted?.jobs ?? []);
-  // WHY a distinct name from the `failedCount` computed below: that one means
+  // WHY: a distinct name from the `failedCount` computed below: that one means
   // "jobs that were created but whose generation pipeline later failed" —
   // this is a different concept (items the server rejected before a job was
   // ever created, e.g. an empty-after-trim topic or a queueing error) and
@@ -79,7 +80,7 @@ export default function BatchResultPage() {
     initialJobs.map((j) => ({ ...j, status: 'pending', progress: 0 })),
   );
 
-  // WHY a ref, not `items` in the dependency array: the interval callback needs
+  // WHY: a ref, not `items` in the dependency array: the interval callback needs
   // the latest items to poll, but calling setItems() every tick changes the
   // `items` reference, which would re-run this effect and tear down/recreate
   // setInterval on every single tick instead of running on one stable interval.
@@ -91,7 +92,7 @@ export default function BatchResultPage() {
   }, [items]);
   const allDone = items.length > 0 && items.every((i) => i.status === 'done' || i.status === 'failed');
 
-  // WHY invalidate when the batch settles (QA-LIB-001): Library may already
+  // WHY: invalidate when the batch settles (QA-LIB-001): Library may already
   // have cached Pending rows from an earlier visit during generation; without
   // this, "View in Library" shows stale Pending until a manual refetch.
   useEffect(() => {
@@ -106,24 +107,47 @@ export default function BatchResultPage() {
   useEffect(() => {
     if (items.length === 0 || allDone) return undefined;
 
+    let cancelled = false;
+    // WHY: inFlight: 7 parallel status calls can outlast the 2.5s tick; overlapping
+    // ticks would apply results out of order.
+    let inFlight = false;
+    const startedAt = Date.now();
+
     const interval = setInterval(() => {
-      // WHY Promise.allSettled instead of Promise.all: if one job's API call fails, we still want
+      if (inFlight) return;
+      // WHY: max duration: a job that never reaches a terminal state would keep
+      // this page polling forever — mark stragglers failed after 20 min.
+      if (Date.now() - startedAt > BATCH_MAX_POLL_MS) {
+        clearInterval(interval);
+        if (!cancelled) {
+          setItems((prev) => prev.map((i) => (
+            i.status === 'done' || i.status === 'failed' ? i : { ...i, status: 'failed' }
+          )));
+        }
+        return;
+      }
+      inFlight = true;
+      // WHY: Promise.allSettled instead of Promise.all: if one job's API call fails, we still want
       // to update state for the jobs that succeeded. Promise.all would reject the entire batch,
       // blocking all updates until the next interval.
       Promise.allSettled(
         itemsRef.current.map(async (item) => {
           if (item.status === 'done' || item.status === 'failed') return item;
           try {
-            // WHY the slim /status endpoint rather than getJob: the batch polls up to 7 jobs
+            // WHY: the slim /status endpoint rather than getJob: the batch polls up to 7 jobs
             // every 2.5s and only ever consumes status/progress/score — the full payload
             // re-downloads every output's `content` jsonb (research report, whole carousel)
             // per tick for zero gain (perf audit). score comes from /status directly.
             const s = await getJobStatus(item.jobId);
+            // WHY: done && hasFinal (mirrors useJobData): status can flip to
+            // 'done' before the final output row is readable — treating that as
+            // terminal showed "View →" while Result was still empty.
+            const isSuccess = s.status === 'done' && s.hasFinal;
             return {
               ...item,
               topic: s.topic || item.topic,
-              status: s.status === 'done' ? 'done' : s.status === 'failed' ? 'failed' : 'processing',
-              progress: s.status === 'done' ? 100 : s.progress ?? (item.progress < 80 ? item.progress + 8 : item.progress),
+              status: isSuccess ? 'done' : s.status === 'failed' ? 'failed' : 'processing',
+              progress: isSuccess ? 100 : s.progress ?? (item.progress < 80 ? item.progress + 8 : item.progress),
               score: s.score,
             } as BatchItem;
           } catch {
@@ -131,13 +155,18 @@ export default function BatchResultPage() {
           }
         }),
       ).then((results) => {
-        // Filter out rejected promises and only update with fulfilled results
         const fulfilled = results.filter((r): r is PromiseFulfilledResult<BatchItem> => r.status === 'fulfilled');
+        if (cancelled) return;
         setItems(fulfilled.map((r) => r.value));
-      }).catch(() => {});
+      }).catch(() => {}).finally(() => {
+        inFlight = false;
+      });
     }, 2500);
 
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [items.length, allDone]);
 
   const doneCount = items.filter((i) => i.status === 'done').length;
@@ -171,7 +200,6 @@ export default function BatchResultPage() {
         @keyframes br-fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
-      {/* Header */}
       <div style={{ paddingBottom: 18, borderBottom: '1px solid var(--rule)' }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: 3, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ width: 18, height: 1, background: 'linear-gradient(90deg, var(--accent), transparent)', display: 'inline-block' }} />
@@ -198,7 +226,6 @@ export default function BatchResultPage() {
         )}
       </div>
 
-      {/* Overall progress bar */}
       {!allComplete && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -211,7 +238,6 @@ export default function BatchResultPage() {
         </div>
       )}
 
-      {/* Job cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {items.map((item, i) => {
           const meta = platformMeta[item.platform] || platformMeta.linkedin_post;

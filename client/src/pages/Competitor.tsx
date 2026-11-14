@@ -1,33 +1,24 @@
-﻿import { useState } from 'react';
+﻿import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { analyzeCompetitor, getCompetitorHistory, getProfile } from '../api';
-import { navigateToCreate } from '../lib/utils';
 import type {
   AnalyzeCompetitorResponse,
   CompetitorAnalysisHistoryItem,
   CompetitorPlatform,
 } from '../types/social';
-import { Search, TrendingUp, Target, Lightbulb, AlertCircle, Sparkles } from 'lucide-react';
-import { BenchmarkCard } from './Competitor/BenchmarkCard';
+import { Search, AlertCircle } from 'lucide-react';
 import { CompetitorSkeleton } from './Competitor/CompetitorSkeleton';
+import { CompetitorResults } from './Competitor/CompetitorResults';
 import { HistoryDropdown } from './Competitor/HistoryDropdown';
 import { PlatformSelector } from './Competitor/PlatformSelector';
-import { competitorPlatformLabel } from './Competitor/platforms';
-import { CardHeader } from './Dashboard/CardHeader';
 
-// WHY no postingFrequency/avgEngagementTier: the prompt (server/src/routes/content/competitor.ts)
+// WHY: no postingFrequency/avgEngagementTier: the prompt (server/src/routes/content/competitor.ts)
 // explicitly refuses to fabricate exact posting-frequency or engagement-rate numbers, since
 // they can't be reliably determined without live platform API access — the UI previously
 // rendered stat boxes for these anyway, which were always blank (FUNCTIONAL_AUDIT_2026-07.md
 // finding #6). Response shape comes from AnalyzeCompetitorResponse in types/social.ts.
-
-const engagementColor = {
-  high:   'var(--color-success)',
-  medium: 'var(--accent)',
-  low:    'var(--color-error)',
-};
 
 export default function CompetitorPage() {
   const navigate = useNavigate();
@@ -39,14 +30,14 @@ export default function CompetitorPage() {
   const [error, setError]         = useState('');
   const [result, setResult]       = useState<AnalyzeCompetitorResponse | null>(null);
 
-  // WHY the same ['dashboard', 'profile'] key Dashboard.tsx/Brand.tsx use: this page
+  // WHY: the same ['dashboard', 'profile'] key Dashboard.tsx/Brand.tsx use: this page
   // only needs a read-only slice of the same getProfile() response (avgScore,
   // dimensionAverages) to power the "How You Compare" card below — sharing the query
   // key means visiting Dashboard or Brand first (the common path) makes this page's
   // fetch a cache hit instead of a redundant network call.
   const profileQuery = useQuery({ queryKey: ['dashboard', 'profile'], queryFn: getProfile });
 
-  // WHY React Query for history: per task guidance for client-side server-state fetches.
+  // WHY: React Query for history: per task guidance for client-side server-state fetches.
   // Selecting a past entry reloads it client-side (setResult directly) without
   // re-calling the analyze endpoint.
   const historyQuery = useQuery({ queryKey: ['competitor', 'history'], queryFn: getCompetitorHistory });
@@ -70,10 +61,15 @@ export default function CompetitorPage() {
     });
   }
 
+  // WHY: ref + loading: loading alone races a second click before re-render
+  // (same pattern as Create/Ideate/Repurpose).
+  const submittingRef = useRef(false);
+
   async function handleAnalyze() {
-    if (loading) return;
+    if (loading || submittingRef.current) return;
     const trimmed = handle.trim().replace(/^@/, '');
     if (!trimmed || !platform) return;
+    submittingRef.current = true;
     setLoading(true);
     setError('');
     setResult(null);
@@ -84,26 +80,27 @@ export default function CompetitorPage() {
         industry: industry.trim() || undefined,
       });
       setResult(res);
-      // WHY invalidate (not a manual cache write): the persisted row's exact
+      // WHY: invalidate (not a manual cache write): the persisted row's exact
       // createdAt/id come from the server's best-effort insert, which this
       // response only partially mirrors (analysisId, no createdAt) — a
       // refetch is simpler and cheap (capped-at-20, indexed query) versus
       // reconstructing a matching history row shape by hand.
       queryClient.invalidateQueries({ queryKey: ['competitor', 'history'] });
     } catch (e: unknown) {
-      // WHY axios.isAxiosError: narrows `unknown` to AxiosError before reading the
+      // WHY: axios.isAxiosError: narrows `unknown` to AxiosError before reading the
       // server's { error: string } response body, instead of trusting an `any` catch.
       const message = axios.isAxiosError<{ error?: string }>(e) ? e.response?.data?.error : undefined;
       setError(message || 'Analysis failed. Please try again.');
+    } finally {
+      submittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const analysis = result?.analysis;
 
   return (
     <div>
-      {/* Header */}
       <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h1 style={{ fontFamily: "var(--font-heading)", fontSize: 'clamp(20px,5vw,28px)', fontWeight: 700, lineHeight: 1.1, color: 'var(--text-primary)' }}>
@@ -120,7 +117,6 @@ export default function CompetitorPage() {
         />
       </div>
 
-      {/* Input card */}
       <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent) 18%, transparent)', borderRadius: 14, padding: 24, marginBottom: 28 }}>
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: 2, textTransform: 'uppercase', color: 'var(--accent)', display: 'block', marginBottom: 8 }}>
@@ -174,7 +170,7 @@ export default function CompetitorPage() {
               disabled={loading}
               style={{ width: '100%' }}
             />
-            {/* WHY hidden spacer: mirrors the handle field's hint-text height so both
+            {/* WHY: hidden spacer: mirrors the handle field's hint-text height so both
                 inputs' bottom edges line up in this 2-col grid — without it, the
                 industry column's input sits visually taller/misaligned since it has
                 no hint paragraph of its own. */}
@@ -212,178 +208,19 @@ export default function CompetitorPage() {
         {loading ? `Analyzing @${handle.replace(/^@/, '')}…` : analysis ? 'Analysis ready.' : ''}
       </div>
 
-      {/* Loading state */}
       {loading && <CompetitorSkeleton />}
 
-      {/* Results */}
-      {analysis && !loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, animation: 'comp-fadeUp .3s ease both' }}>
-          {/* Brand header */}
-          <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)', borderRadius: 14, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: 'var(--accent)', letterSpacing: 1.5, textTransform: 'uppercase' }}>@{result?.handle}</div>
-                  {(result?.platform || platform) && (
-                    <span style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: 0.8, textTransform: 'uppercase',
-                      color: 'var(--text-muted)', border: '1px solid var(--rule)', borderRadius: 20,
-                      padding: '2px 8px',
-                    }}>
-                      {competitorPlatformLabel(result?.platform || platform)}
-                    </span>
-                  )}
-                </div>
-                <h2 style={{ fontFamily: "var(--font-heading)", fontSize: 21, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{analysis.brandName}</h2>
-                <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 0' }}>{analysis.estimatedNiche}</p>
-              </div>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65, margin: 0, paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
-              {analysis.keyTakeaway}
-            </p>
-            {analysis.dataQualityNote && (
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
-                {analysis.dataQualityNote}
-              </p>
-            )}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="comp-grid">
-            {/* Top Themes */}
-            <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 14, padding: 20 }}>
-              <CardHeader icon={<TrendingUp size={14} style={{ color: 'var(--accent)' }} />} title="Top Content Themes" />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {(analysis.topThemes || []).map((t, i) => {
-                  const engagementLevel = t.engagementLevel || 'medium';
-                  const color = engagementColor[engagementLevel] || 'var(--accent)';
-                  return (
-                    <div key={`${i}-${t.theme}`} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.theme}</div>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginTop: 1 }}>{t.frequency}</div>
-                      </div>
-                      <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color, background: `${color}15`, border: `1px solid ${color}30`, borderRadius: 20, padding: '2px 8px', flexShrink: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        {engagementLevel}
-                      </span>
-                    </div>
-                  );
-                })}
-                {(!analysis.topThemes || analysis.topThemes.length === 0) && (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No theme data available</div>
-                )}
-              </div>
-            </div>
-
-            {/* Content Patterns */}
-            {/* WHY var(--accent-2): decorative card-icon color for visual distinction between
-                the Top Themes / Content Patterns cards — not a platform brand, status color,
-                or the badge-purple category-tag system, so it follows the active theme. */}
-            <div style={{ background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 14, padding: 20 }}>
-              <CardHeader icon={<Target size={14} style={{ color: 'var(--accent-2)' }} />} accentVar="--accent-2" title="Content Patterns" />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {analysis.contentPatterns ? [
-                  { label: 'Format', val: analysis.contentPatterns.formatPreference },
-                  { label: 'Hook style', val: analysis.contentPatterns.hookStyle },
-                  { label: 'CTA pattern', val: analysis.contentPatterns.ctaPattern },
-                ].map(({ label, val }) => (
-                  <div key={label} style={{ display: 'flex', gap: 10, fontSize: 12 }}>
-                    <span style={{ color: 'var(--text-muted)', fontFamily: "var(--font-mono)", fontSize: 10, minWidth: 80, flexShrink: 0, paddingTop: 1 }}>{label}</span>
-                    <span style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>{val}</span>
-                  </div>
-                )) : (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No pattern data available</div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* How You Compare — benchmarks the user's own hook strength (from
-              GET /api/users/me, same aggregation Dashboard/Brand use) against
-              this competitor's analysis. avgScore is deliberately not passed:
-              Dashboard's StatsOverview already shows it, and there's no
-              competitor-side equivalent to compare it against here (see
-              BenchmarkCard's own WHY comment). Full-width: it's a single card
-              in an otherwise 2-up grid, so spanning avoids leaving it stranded
-              alone in a half-empty row. */}
-          <BenchmarkCard
-            isLoading={profileQuery.isLoading}
-            isError={profileQuery.isError}
-            totalPosts={profileQuery.data?.stats?.totalPosts}
-            dimensionAverages={profileQuery.data?.stats?.dimensionAverages}
-            analysis={analysis}
-          />
-
-          {/* Content Gaps */}
-          <div style={{ background: 'var(--bg-raised)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 14, padding: 20 }}>
-            <CardHeader icon={<AlertCircle size={14} style={{ color: 'var(--color-success)' }} />} title="Content Gaps — Your Opportunity" />
-            <div style={{ display: 'grid', gridTemplateColumns: (analysis.contentGaps || []).length > 1 ? '1fr 1fr' : '1fr', gap: 12 }} className="comp-angles-grid">
-              {(analysis.contentGaps || []).map((g, i) => (
-                <div
-                  key={`${i}-${g.gap}`}
-                  style={{ background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.12)', borderRadius: 10, padding: '14px' }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-success)', marginBottom: 5, lineHeight: 1.3 }}>{g.gap}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>{g.opportunity}</div>
-                  <button
-                    onClick={() => navigateToCreate(navigate, {
-                      topic: g.opportunity || g.gap || '',
-                      industry: industry.trim() || undefined,
-                      competitorContext: [g.gap, g.opportunity].filter(Boolean).join(': '),
-                      competitorAnalysisId: result?.analysisId,
-                    })}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 7, padding: '5px 11px', color: 'var(--color-success)', fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all .15s' }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(16,185,129,0.18)'; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(16,185,129,0.1)'; }}
-                  >
-                    <Sparkles size={11} /> Create content →
-                  </button>
-                </div>
-              ))}
-              {(!analysis.contentGaps || analysis.contentGaps.length === 0) && (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No gap data available</div>
-              )}
-            </div>
-          </div>
-
-          {/* Suggested Angles */}
-          {/* WHY var(--accent-2): same decorative-card-accent reasoning as "Content Patterns"
-              above — violet here was chosen for visual variety between cards, not because
-              this represents the badge-purple hashtag/category system or a platform brand. */}
-          <div style={{ background: 'var(--bg-raised)', border: '1px solid color-mix(in srgb, var(--accent-2) 18%, transparent)', borderRadius: 14, padding: 20 }}>
-            <CardHeader icon={<Lightbulb size={14} style={{ color: 'var(--accent-2)' }} />} accentVar="--accent-2" title="Content Angles to Beat Them" />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }} className="comp-angles-grid">
-              {(analysis.suggestedAngles || []).map((a, i) => (
-                <div
-                  key={`${i}-${a.angle}`}
-                  style={{ background: 'color-mix(in srgb, var(--accent-2) 5%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 15%, transparent)', borderRadius: 10, padding: '14px' }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3 }}>{a.angle}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.55 }}>{a.rationale}</div>
-                  <button
-                    onClick={() => navigateToCreate(navigate, {
-                      topic: a.angle || '',
-                      industry: industry.trim() || undefined,
-                      competitorContext: [a.angle, a.rationale].filter(Boolean).join(': '),
-                      competitorAnalysisId: result?.analysisId,
-                    })}
-                    style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 5, background: 'color-mix(in srgb, var(--accent-2) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 25%, transparent)', borderRadius: 7, padding: '5px 11px', color: 'var(--accent-2)', fontSize: 11, fontWeight: 600, cursor: 'pointer', transition: 'all .15s' }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--accent-2) 20%, transparent)'; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--accent-2) 12%, transparent)'; }}
-                  >
-                    <Sparkles size={11} /> Create content →
-                  </button>
-                </div>
-              ))}
-              {(!analysis.suggestedAngles || analysis.suggestedAngles.length === 0) && (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>No angle suggestions available</div>
-              )}
-            </div>
-          </div>
-        </div>
+      {analysis && !loading && result && (
+        <CompetitorResults
+          analysis={analysis}
+          result={result}
+          platform={platform}
+          industry={industry}
+          navigate={navigate}
+          profileQuery={profileQuery}
+        />
       )}
 
-      {/* Empty state */}
       {!result && !loading && !error && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '48px 24px', gap: 12, color: 'var(--text-muted)' }}>
           <div style={{ marginBottom: 4, opacity: 0.6 }}><Search size={40} /></div>

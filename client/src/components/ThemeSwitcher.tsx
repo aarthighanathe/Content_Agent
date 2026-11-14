@@ -9,7 +9,7 @@ interface ThemeOption {
   swatch: string;
 }
 
-// WHY swatch hex duplicated here (not read from CSS vars): the picker must show
+// WHY: swatch hex duplicated here (not read from CSS vars): the picker must show
 // all 6 options at once, but only one [data-theme] block is active in the DOM at
 // a time — there is no live var(--accent) to read for the other 5 themes.
 const THEME_OPTIONS: ThemeOption[] = [
@@ -60,11 +60,11 @@ export function ThemeSwitcher({ collapsed = false, align = 'down' }: ThemeSwitch
     };
   }, [open]);
 
-  // WHY fixed-position portal: the sidebar container has overflow:hidden (for the
+  // WHY: fixed-position portal: the sidebar container has overflow:hidden (for the
   // collapse/expand width transition), which clipped this menu when it was a plain
   // absolutely-positioned child. Rendering to document.body with coordinates computed
   // from the trigger's rect escapes that clipping context.
-  // NOTE: Boundary checks already implemented - menu flips up/down and stays within viewport
+  // NOTE: menu flips above/below the trigger so it stays inside the viewport.
   useLayoutEffect(() => {
     if (!open || !containerRef.current) return undefined;
 
