@@ -142,14 +142,17 @@
 
 ### Comments
 - ALWAYS add comments explaining WHY, not what: `// WHY: returning 404 instead of 403 prevents job ID enumeration`
-- Use these comment tags:
+- Use these comment tags (**colon immediately after the tag** — also in JSX `{/* WHY: … */}`):
   - `// WHY:` reason this approach was chosen
   - `// FLOW:` what happens next in the pipeline
   - `// SECURITY:` security decision being enforced
   - `// NOTE:` non-obvious behavior to be aware of
   - `// TODO:` known improvement, not urgent
 - NEVER add obvious comments: `// increment counter — i++;`
+- NEVER add section banners: `// ── Helpers ──`, `// === FOO ===`
+- Prefer fewer clearer comments — do not comment every function when names already convey intent
 - ALWAYS comment security-critical code blocks
+- Enforced for agents via `.cursor/rules/commenting.mdc` (alwaysApply) — keep that file in sync with this section
 
 ### File Organization
 - One component per file
@@ -273,7 +276,7 @@ roadmap document is tracked; see `CHANGELOG.md` for shipped work.
 | Language | TypeScript |
 | Styling | Tailwind CSS 4.3 (CSS-var-based, no `tailwind.config.js`); 6-theme UI system via `[data-theme]` custom properties — see §13 |
 | State | Zustand 5 (real-time SSE state), React Query 5 (server data) |
-| Routing | React Router DOM 6 |
+| Routing | React Router DOM 7 |
 | Auth | Clerk (`@clerk/clerk-react`) |
 | HTTP | Axios with Clerk JWT interceptor (`api.ts`) |
 | Export | jsPDF 4 + JSZip |
@@ -288,7 +291,7 @@ roadmap document is tracked; see `CHANGELOG.md` for shipped work.
 | Database | Neon Serverless PostgreSQL |
 | Queue | BullMQ 5 + Upstash Redis (ioredis) |
 | Auth | Clerk (`@clerk/express`) JWT middleware |
-| Rendering | Puppeteer 25 (carousel PNG generation, browser pool: min 2 / max 8) |
+| Rendering | Puppeteer 25 (carousel PNG generation, browser pool: default min 2 / max 8; Render min 1 / max 2) |
 
 ### AI / LLM
 | Provider | Used For |
@@ -382,7 +385,7 @@ All slides render in parallel (Promise.allSettled) → zipped with jszip → dow
 - `client/src/ssr/renderSlideHtml.tsx` — the React slide component, source of truth for both the on-screen preview and the exported PNG
 - `client/scripts/build-ssr.mjs` — esbuild bundles the above into `server/src/generated/slideRenderer.js` (run via `npm run build:ssr`, part of `server`'s `npm run build`)
 - `server/src/lib/carousel.ts` — `renderSlideWithCache()` + `stripScriptsAndEventHandlers()`; delegates pool/cache to the modules below
-- `server/src/lib/browserPool.ts` — Puppeteer browser pool (min 2 / max 8)
+- `server/src/lib/browserPool.ts` — Puppeteer browser pool (default min 2 / max 8; Render min 1 / max 2)
 - `server/src/lib/pngCache.ts` — bounded PNG cache (~40MB / 100 entries, 24h TTL, active sweep)
 - `server/src/lib/carouselSsr.ts` — bridges the SSR bundle to the Puppeteer renderer above
 - `server/src/routes/jobs/render.ts` — the single remaining route: `POST /:jobId/export/carousel-png`
@@ -410,7 +413,7 @@ PNG export always renders at the fixed 1080×1350 design size regardless of prev
 ## 4. Folder Structure (Current)
 
 ```
-e:/AGContentAgent/
+Content_Agent/
 ├── README.md
 ├── CLAUDE.md               ← this file
 ├── CHANGELOG.md            ← history of all fixes and features
@@ -601,17 +604,20 @@ e:/AGContentAgent/
         │   │   ├── regenerate.ts       ← POST /:id/regenerate (snapshots a version first), POST /:id/multiply
         │   │   │                          — extracted from manage.ts 2026-08-10, same sub-router pattern as
         │   │   │                          list.ts/versions.ts's earlier extractions from the same file
-        │   │   └── ownership.ts        ← requireJobOwnership(); jobsMemory Map; requireDbUser() (shared
-        │   │                              db+UUID-userId guard for non-:jobId user-scoped routes — used
-        │   │                              by scheduledPosts.ts/collections.ts/feedMonitors.ts, added
-        │   │                              2026-08-10 to stop the three files' near-identical guards from
-        │   │                              diverging, which had caused feedMonitors.ts to hang with zero
-        │   │                              response on a DB outage instead of a real 503)
+        │   │   ├── pipelineDirect.ts   ← gated runPipelineDirect (shared by create/regenerate/multiply)
+        │   │   ├── exportSlides.ts     ← SEC-003: resolve export slides from stored final (+ image overlays);
+        │   │   │                          tests: tests/unit/exportSlides.test.ts,
+        │   │   │                          tests/security/export-carousel-sec003.test.ts
+        │   │   └── ownership.ts        ← requireJobOwnership(); re-exports jobsMemory/getJobFromStore
+        │   │                              from lib/jobStore.ts; requireDbUser() (shared db+UUID guard
+        │   │                              for non-:jobId user-scoped routes — used by
+        │   │                              scheduledPosts/collections/feedMonitors; added 2026-08-10)
         │   ├── content.ts              ← thin router mounting content/* below
         │   ├── content/                ← Modular content-tool routes (split from a single content.ts file)
         │   │   ├── ideate.ts           ← POST /ideate
         │   │   ├── hashtags.ts         ← POST /hashtags
-        │   │   ├── repurpose.ts        ← POST /repurpose (+ shared fetchAndExtractArticle/createJobsForPlatforms, reused by feedMonitorWorker.ts)
+        │   │   ├── articleExtract.ts   ← fetchAndExtractArticle + buildSourceMaterial (extracted under 400-line cap)
+        │   │   ├── repurpose.ts        ← POST /repurpose (+ re-exports fetchAndExtractArticle/createJobsForPlatforms for feedMonitorWorker)
         │   │   ├── competitor.ts       ← POST /competitor
         │   │   └── shared.ts           ← readOutputs/sanitizeContentDeep/parseAIJson — canonical copies imported by jobs/manage.ts and jobs/regenerate.ts too
         │   ├── users.ts                ← thin router mounting users/* below
@@ -621,7 +627,7 @@ e:/AGContentAgent/
         │   │   ├── onboarding.ts       ← GET/POST /onboarding
         │   │   ├── account.ts          ← DELETE /me (account deletion)
         │   │   └── profileStore.ts     ← getUserProfile/saveUserProfile cache-aside helpers
-        │   ├── social.ts               ← OAuth + post (LinkedIn, Twitter)
+        │   ├── social/                 ← OAuth + post (index.ts connections/post; oauth.ts connect/callback)
         │   ├── scheduledPosts.ts       ← GET/POST /api/scheduled-posts, DELETE /:jobId (Calendar server-sync)
         │   ├── collections.ts          ← GET/POST /api/collections, DELETE /:id, GET/POST/DELETE /:id/jobs[/:jobId] (Library folders)
         │   ├── feedMonitors.ts         ← GET/POST /api/feed-monitors, PATCH/DELETE /:id, POST /:id/check (RSS auto-repurpose subscriptions — see §5)
@@ -639,20 +645,28 @@ e:/AGContentAgent/
         ├── lib/
         │   ├── ai.ts                   ← Gemini wrapper + Groq fallback + retry logic
         │   ├── carousel.ts             ← renderSlideWithCache + stripScriptsAndEventHandlers (pool/cache extracted)
-        │   ├── browserPool.ts          ← Puppeteer browser pool (min 2 / max 8)
+        │   ├── browserPool.ts          ← Puppeteer browser pool (default min 2 / max 8; Render min 1 / max 2)
         │   ├── pngCache.ts             ← Bounded PNG cache (~40MB / 100 entries, 24h TTL, active sweep)
         │   ├── carouselSsr.ts          ← Bridges the prebuilt React SSR bundle (server/src/generated/slideRenderer.js) to the Puppeteer renderer in carousel.ts
         │   ├── logger.ts               ← Structured JSON logger (info/warn/error) — use instead of console.log per code style rules
+        │   ├── jobStore.ts             ← jobsMemory + getJobFromStore/setJobInStore (extracted so lib/
+        │   │                              pipeline* does not import from routes/jobs/ownership)
+        │   ├── injectionPatterns.ts    ← Shared prompt-injection regex list (rateLimit + sanitizeSearchText)
         │   ├── persistJob.ts           ← Insert pending + terminal agent outputs to contentJobs/contentOutputs
+        │   ├── persistJobSweeps.ts     ← Stale in-flight + publishing sweeps (extracted under 400-line cap)
+        │   ├── pipelineRun.ts          ← runContentPipeline Orchestrator→Critic loop (extracted under 400-line cap)
+        │   ├── pipelineTypes.ts        ← PipelineJob / SkipResearchOpts / output types
         │   ├── jobEviction.ts          ← Generation-safe 10-min memory eviction after terminal persist
         │   ├── queue.ts                ← BullMQ Queue + createRedisConnection()
         │   ├── publishQueue.ts         ← BullMQ 'scheduled-publish' delayed queue (Calendar auto-publish)
         │   ├── socialPublish.ts        ← Shared LinkedIn/Twitter posting logic — used by both routes/social.ts's POST /post and workers/publishWorker.ts
         │   ├── redisClient.ts          ← Shared Redis client
-        │   ├── sse.ts                  ← SSEManager: broadcast events to connected clients
+        │   ├── sse.ts                  ← SSEManager: local clients + Redis publish (see sseRedis)
+        │   ├── sseRedis.ts             ← Redis pub/sub fan-out for multi-instance SSE (dedicated sub)
         │   ├── ssrfGuard.ts            ← assertUrlIsPublic()/isPrivateOrReservedIp() — DNS-rebinding-resistant private-IP guard shared by repurpose.ts's article fetch and feedMonitorWorker.ts's RSS fetch
         │   ├── sanitizeSearchText.ts   ← Prompt-injection neutralization for untrusted Tavily results — shared by researcher.ts, competitor.ts, ideate.ts
-        │   └── tokenEncryption.ts      ← AES-256-GCM for social OAuth tokens
+        │   ├── tokenEncryption.ts      ← AES-256-GCM for social OAuth tokens
+        │   └── pipeline.ts             ← runAndPersistPipeline + re-exports; run loop lives in pipelineRun.ts
         │
         ├── middleware/
         │   ├── auth.ts                 ← Clerk JWT verify; caches Clerk→dbUserId mapping (5 min TTL)
@@ -660,11 +674,11 @@ e:/AGContentAgent/
         │
         ├── db/
         │   ├── index.ts
-        │   └── schema.ts               ← 12 tables: users, contentJobs, contentOutputs, agentLogs, socialTokens, userOnboarding, scheduledPosts, competitorAnalyses, collections, collectionJobs, jobOutputVersions, feedMonitors
+        │   ├── schema.ts               ← Relations + barrel re-exports (drizzle.config entry; 12 tables)
+        │   ├── schemaEnums.ts          ← pgEnum defs (extracted under 400-line cap)
+        │   ├── schemaTables.ts         ← pgTable defs (extracted under 400-line cap)
+        │   └── schemaTypes.ts          ← Inferred row types (extracted under 400-line cap)
         │       (migrations tracked in server/drizzle/ via drizzle-kit — see `npm run db:generate` / `db:migrate`)
-        │
-        ├── lib/
-        │   └── pipeline.ts             ← shared 5-stage pipeline (runContentPipeline/runAndPersistPipeline) — the single implementation both create.ts and contentWorker.ts call
         │
         ├── workers/
         │   ├── contentWorker.ts        ← BullMQ Worker; calls lib/pipeline.ts (same pipeline as the direct-mode fallback in create.ts)
@@ -695,8 +709,8 @@ e:/AGContentAgent/
 | Real-time SSE | `lib/sse.ts`, `LoadingView.tsx`, `hooks/useJobData.ts` | Fallback to polling on reconnect |
 | Critic loop | `agents/critic.ts` | Score ≥ 70 to approve; max 2 retries |
 | Content multiplication | `routes/jobs/regenerate.ts` | Reuses existing research report |
-| Social OAuth | `routes/social.ts`, `lib/tokenEncryption.ts` | Tokens AES-256-GCM encrypted at rest |
-| Public demo | `routes/demo.ts` | No auth; 3/hour per IP; truncated output |
+| Social OAuth | `routes/social/` (`index.ts` + `oauth.ts`), `lib/socialTokens.ts`, `lib/tokenEncryption.ts` | Tokens AES-256-GCM encrypted at rest |
+| Public demo | `routes/demo.ts` | No auth; 5/hour per IP; truncated output |
 | Feed monitors (RSS auto-repurpose) | `routes/feedMonitors.ts`, `workers/feedMonitorWorker.ts`, `client/src/pages/Repurpose/FeedMonitorPanel.tsx` | Subscribe an RSS/Atom feed URL; a node-cron worker polls it every 30 min (or on-demand via "Check now") and auto-creates a Repurpose job for the newest unseen item, reusing `repurpose.ts`'s article-extraction + SSRF-guarded fetch. Gated by `contentRateLimit` on the `/check` route since it triggers the same 5-agent pipeline as Repurpose. |
 
 ---
@@ -781,7 +795,7 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 | Rate limiters use Redis store | In-process `MemoryStore` resets on restart and isn't shared across instances. |
 | 404 on ownership mismatch (not 403) | 403 confirms the resource exists — IDOR information leakage. |
 | 5-min auth cache | Avoids a Neon DB round-trip on every request while keeping user data reasonably fresh. |
-| Browser pool (min 2, max 8) | Chromium launch costs ~800ms + ~150MB. Pre-warm 2; cap at 8 to prevent OOM. |
+| Browser pool (default min 2 / max 8; Render min 1 / max 2) | Chromium launch costs ~800ms + ~150MB. Free-tier Render caps at 2 to avoid OOM. |
 | PNG cache (24h TTL, ~40MB/100) | Export screenshots are content-hash keyed; Gemini no longer invents slide HTML (SSR bundle is the source of truth). |
 | BullMQ concurrency 2 | Cost control — each job burns Gemini + Tavily quota. Two concurrent is the deliberate cap. |
 | Social tokens AES-256-GCM | OAuth tokens grant write access to social accounts — plaintext storage is unacceptable. |
@@ -791,8 +805,25 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
 
 ## 9. Known Limitations
 
-- Puppeteer pool max 8 — renders beyond this queue, timeout at 60s
+- Puppeteer pool: default min 2 / max 8; on Render (`RENDER=true`) min 1 / max 2 for free-tier RAM
 - BullMQ concurrency 2 — at most 2 jobs run simultaneously
+- **Content job single-flight (2026-11-14):** `contentWorker` takes Redis lock
+  `content:run:{jobId}` (SET NX + Lua release/renew in `lib/contentJobLock.ts`,
+  same pattern as feed-monitor checks) before running the pipeline; contention
+  delays via BullMQ `moveToDelayed` + `DelayedError` instead of completing as a
+  successful skip. Process-local `inFlightJobIds` remains defense-in-depth for
+  co-hosted slots. Multiply Adapt serializes on `multiply:{rootId}:{platform}`.
+  Direct-mode waiter queue is capped at 20 (`pipelineDirect.ts`).
+- **Supported deploy: co-host the content worker inside the API process** (`index.ts`
+  calls `startWorker()`). **SSE fan-out (2026-11-14):** when Redis is configured,
+  `sseManager.sendEvent` publishes to `sse:job:{jobId}` and every API process
+  pattern-subscribes (`lib/sseRedis.ts`, dedicated ioredis connection) so clients
+  on any instance receive progress. The publishing process delivers locally and
+  skips its own Redis echo via a per-process `originId` (no double delivery).
+  Without Redis, SSE stays process-local (degraded). **`jobsMemory` live snapshots
+  remain process-local** — a standalone `npm run worker` still cannot seed the
+  API process's in-memory job map; Result falls back to DB polling via
+  `GET /api/jobs/:id` when SSE reconnects or the stream is unavailable.
 - **Worker-crash recovery is configured but not yet live-verified (as of 2026-08-10; pending-row
   durability CORR-001 + REL-001 2026-11-08).** `lib/queue.ts`'s `content-generation` queue sets
   `attempts: 3` with exponential backoff (1s base delay); `workers/contentWorker.ts`'s `Worker`
@@ -800,7 +831,8 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   stalled recovery requeues the job — `attempts` counts failed *executions*, not stall
   detections alone. Create inserts a durable `pending` DB row up front. The worker `failed`
   handler plus a **periodic 15-min-age stale sweep from the web process** (`startStaleJobSweep`
-  in `persistJob.ts`, also covers no-Redis / direct mode) mark abandoned in-flight rows
+  in `persistJob.ts`, also covers no-Redis / direct mode; also sweeps stuck
+  `scheduled_posts.publishStatus='publishing'`) mark abandoned in-flight rows
   `failed` and emit terminal SSE. Result also times out a silent non-terminal job after
   20 min by `createdAt` (durable pending never 404s). **Pipeline business failures are
   intentionally NOT retried** — `contentWorker` swallows errors after `runAndPersistPipeline`
@@ -809,11 +841,11 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   `CHANGELOG.md`.
 
   **Staging checklist (L9):**
-  1. Ensure Redis + at least one content worker process are running on staging
-     (`npm run worker` now actually calls `startWorker()`).
+  1. Ensure Redis + the API process (which co-hosts the content worker) are running on staging.
   2. Submit a Create job and note the jobId while status is still `processing`
      (confirm a `pending`/`processing` row exists in `content_jobs`).
-  3. `kill -9 <worker-pid>` mid-pipeline (before terminal SSE).
+  3. `kill -9 <api-pid>` mid-pipeline (before terminal SSE) — or kill only if you
+     intentionally test a split worker (unsupported for SSE today).
   4. Within ~30–60s, confirm BullMQ requeues (worker log / Redis), or within ~15–20 min
      confirm the row ends `failed` with a visible Result error — never stuck forever as
      `pending` with a spinning UI.
@@ -834,6 +866,8 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   On an SSE connection error, the client now re-fetches a fresh stream-token and reopens the
   connection itself (`useJobData.ts`'s `connectToStream(..., onError)`) rather than relying solely
   on the browser's native retry, which kept reusing an eventually-expired token forever.
+  Multi-instance progress works via Redis pub/sub when configured (see bullet above); missed
+  events and cross-instance `jobsMemory` gaps still rely on that REST poll fallback.
 - **Calendar auto-publish** lives in `scheduled_posts` (`publishPlatform` / `publishStatus` /
   `publishHour` / etc.) behind `routes/scheduledPosts.ts` + BullMQ `scheduled-publish`
   (`publishWorker.ts` → `socialPublish.ts`). Day-only `scheduledDate` + optional local
@@ -1037,24 +1071,22 @@ scripts, not from a Dockerfile).
 
 **Render Blueprint notes (`render.yaml`):**
 - `rootDir: server` — Render builds only the `server/` subfolder
-- `buildCommand: npm install && npm run build` — `server`'s `build` script also runs
-  `client`'s `build:ssr` step (see §3), so the carousel SSR bundle stays in sync automatically
-- `preDeployCommand: npm run db:migrate` (added 2026-08-10) — runs `drizzle-kit migrate` after a
-  successful build but before the new deploy is cut over to live traffic. Render treats a
-  non-zero exit here as a failed deploy (the old version keeps serving traffic), so a broken
-  migration blocks the rollout rather than shipping code that expects a schema that was never
-  applied — this was previously a manual step with no automated gate at all.
-  **If a migration fails mid-deploy:** Render's dashboard shows the failed `preDeployCommand`
-  step's output — read it first; drizzle-kit's migrate output names the specific failing SQL
-  file. The previous deploy keeps serving traffic throughout (Render never promotes a deploy
-  whose `preDeployCommand` failed), so there's no user-facing outage window to react to
-  urgently. Fix forward, don't try to hand-roll a rollback: `server/drizzle/` is the append-only
-  migration history — write a new migration that corrects the issue (or is a no-op fixup) rather
-  than editing or deleting an already-applied migration file, and redeploy. If the failure was a
-  partial apply (some but not all statements in one migration file committed — Postgres DDL is
-  transactional per Neon's defaults, so this should be rare), check Neon's dashboard for the
-  actual current schema state before writing the fixup migration, don't assume the file's
-  starting point.
+- `buildCommand` installs deps, runs `npm run build` (includes client `build:ssr` — see §3),
+  runs `npm run db:migrate`, then installs Chrome for Puppeteer. **Migrations live in
+  `buildCommand` on the free plan** (2026-11-14): Render's `preDeployCommand` is paid-only, so
+  a free Blueprint that only set `preDeployCommand: npm run db:migrate` silently skipped
+  migrations. A failed migrate still fails the build (non-zero exit). On a paid plan, prefer
+  moving migrate back to `preDeployCommand` so a bad migration blocks traffic cutover without
+  re-running the full client/SSR/Chrome build.
+  **If a migration fails mid-deploy:** Render's dashboard shows the failed build (or
+  `preDeployCommand` on paid) output — read it first; drizzle-kit's migrate output names the
+  specific failing SQL file. Fix forward, don't try to hand-roll a rollback: `server/drizzle/`
+  is the append-only migration history — write a new migration that corrects the issue (or is
+  a no-op fixup) rather than editing or deleting an already-applied migration file, and
+  redeploy. If the failure was a partial apply (some but not all statements in one migration
+  file committed — Postgres DDL is transactional per Neon's defaults, so this should be rare),
+  check Neon's dashboard for the actual current schema state before writing the fixup
+  migration, don't assume the file's starting point.
 - `healthCheckPath: /api/ready` (changed 2026-08-10, was `/api/health`) — `/api/health` is an
   unconditional 200 (liveness only: "the process is up"), so Render's restart/rollback logic
   never observed a real DB or Redis outage through it. `/api/ready` (also in `index.ts`) pings

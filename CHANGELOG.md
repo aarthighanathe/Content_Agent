@@ -15,6 +15,438 @@
 
 ---
 
+## 2026-11-14 — Pre-commit review polish
+
+- Library slim poll treats all mid-pipeline statuses as in-flight (not only
+  `pending`/`processing`) so cards keep updating through researching→critiquing.
+- Regenerate catch restores `jobsMemory` after claim rollback; `no-db` claim → 503.
+- `/api/ready`: production fails when Redis client is null (matches required Redis).
+
+## 2026-11-14 — Audit backlog fixes (post Phase 5)
+
+Follow-up to the multi-agent audit — closed the ranked engineering items:
+
+- **Loading UX:** Result `LoadingView` shows elapsed time + “provider busy / retrying” hints
+  after 45s / 90s (Gemini 503s no longer look like a stuck spinner).
+- **PATCH content race:** terminal-status `UPDATE…RETURNING` before writing `content_outputs`;
+  `parseContentForPlatform()` enforces per-platform shapes (`schemas/jobs.ts`).
+- **Regenerate catch rollback:** claim release also runs if enqueue throws after claim.
+- **Circular imports:** `me.ts` / `account.ts` / `persistJob.ts` no longer cycle through
+  `jobs/index` or `pipeline.ts` — `madge --circular` clean (`npm run check:circular`).
+- **Redis required in production:** `config.ts` refuses boot without `UPSTASH_REDIS_URL` or
+  `REDIS_URL` when `NODE_ENV=production`; rate-limit store always Redis (lazy sendCommand).
+- **Stale sweep:** in-memory “active” skip has a 45-minute hard ceiling.
+- **Feed cron:** in-process overlap guard + Redis `feed:tick` lock across instances.
+- **Render:** `numInstances: 1` documented in `render.yaml`.
+- **Playwright smoke:** `client/e2e/smoke.spec.ts` + `npm run test:e2e` (run
+  `npm run test:e2e:install` once for Chromium). Auth suite needs `E2E_EMAIL`/`E2E_PASSWORD`.
+
+## 2026-11-14 — Audit Phases 1–4 P0-equivalents
+
+Static multi-agent audit (local run artifacts discarded after fixes): no confirmed P0s;
+uniqueness ~5/10 parity; prod gate **READY WITH CAVEATS**. Shipped the highest-confidence blockers:
+
+- **Regenerate rollback:** if BullMQ still reports `active` after atomic claim + memory wipe,
+  `releaseRegenerateClaim()` restores prior `done`/`failed` and memory (`regenerateClaim.ts`,
+  `regenerate.ts`) — avoids stuck `pending` until stale sweep.
+- **Profile seed:** boot no longer `SELECT *` all users into an unbounded Map; cache-aside
+  `getUserProfile()` loads on demand (`profileStore.ts`).
+- **Render free migrations:** `db:migrate` moved into `buildCommand`; `preDeployCommand`
+  removed (paid-only on Render). CLAUDE.md §12 updated.
+- **Clerk CSP:** `vercel.json` allows `*.clerk.accounts.com` + `js.clerk.com` for production
+  Clerk hosts (add a custom Frontend API domain to CSP if you use one).
+
+## 2026-11-14 — M11: Export semaphore (browser-pool contention)
+
+- **M11** Process-wide max-2 semaphore on `POST /:jobId/export/carousel-png`
+  (`lib/exportSemaphore.ts`) — separate from per-ZIP `EXPORT_RENDER_CONCURRENCY`.
+  When full: 429 `{ code: 'EXPORT_BUSY', retryable: true }`; slot released in
+  `finally` even on failure so concurrent ZIP exports no longer exhaust Puppeteer.
+
+## 2026-11-14 — Client callers aligned to API pagination / error codes
+
+- **Collections:** `getCollectionJobs` passes through server `{ jobs, total, page, totalPages }`; Library uses `fetchAllCollectionJobPages` (limit 100) so folder view still filters the full membership.
+- **Scheduled posts:** Calendar `useSchedule(month)` passes visible `YYYY-MM`; Dashboard next-up fetches current + next month (`fetchScheduledPostsCurrentAndNext`) after month-default API change.
+- **Export:** `ExportDataResponse` tolerates `truncated`/`warning`/`partial`/`jobTotal`; Brand toasts the warning after download.
+- **Errors:** `getSubmitError` maps `IMAGE_GEN_BUSY` + `JOB_IN_PROGRESS`; EditSlideModal / regenerate / Adapt surface those messages (no silent catch).
+
+## 2026-11-14 — Result client race fixes (regenerate, poll, template, restore)
+
+- **C1** `useJobData`: `regeneratingRef` flipped synchronously before
+  `regenerateJob` (Create `submittingRef` pattern) so double-taps cannot start
+  two pipelines; cleared via `clearRegenerating` on error + terminal.
+- **C2** Status poll: `pollInFlightRef` skips overlapping 2s ticks (BatchResult
+  pattern); silence gate + generation counters unchanged. Poll extracted to
+  `useJobStatusPoll.ts`.
+- **C3** `useResultTemplate`: `templateSwitchGen` — only the latest PATCH may
+  surface `onSaveError` (ignore stale failures).
+- **C4** Save ↔ restore cross-lock (`useContentMutationLock` /
+  `useResultContentMutations`): disable restore while save pending and vice
+  versa; generation-gated `setJobData` so a late save cannot overwrite a
+  newer restore. HistoryPanel gets `restoreDisabled` / begin+end hooks.
+- Mount `loadJob` + SSE connect share one bootstrap `getJob` promise; SSE
+  reconnect still fetches fresh.
+
+## 2026-11-14 — Race/scalability: token lock, export cap, concurrency gates
+
+- **R4** `socialTokens.ts` + new `lib/socialTokenLock.ts`: Twitter refresh serialized
+  per user+platform via Redis SET NX (local Map fallback); lock holders re-read DB;
+  waiters briefly retry then use a still-valid token.
+- **X1** `account.ts` GET `/me/export`: caps at 100 most recent jobs with outputs,
+  omits agent logs, returns `truncated`/`warning`/`jobTotal` when over the cap.
+- **M3** `account.ts` DELETE `/me`: soft-deletes all content jobs (`deleted=1`) and
+  marks in-memory jobs before cancel + hard delete so pipelines abort via
+  `isSoftDeleted`.
+- **M7** `imageGen.ts`: in-process max-2 concurrency; 429 `IMAGE_GEN_BUSY`
+  retryable when full (slot released in `finally`).
+- **M4** `feedMonitors.ts`: create uses a transaction that locks the user row
+  `FOR UPDATE`, counts monitors, then inserts — 409 `FEED_MONITOR_LIMIT` at max 5.
+- **M5** `brandVoice.ts`: updates only request-body columns (and `contentDna` on
+  analyze-voice) without stale full-profile RMW; cache invalidated then reloaded.
+- **M8** `collections.ts` GET `/:id/jobs`: page/limit pagination (default 50, max 100)
+  with `total`/`totalPages`.
+- **M12** `list.ts`: skips `jobsMemory` merge when durable in-flight DB rows exist;
+  otherwise single-pass user filter (no `Array.from` of all jobs).
+- **db/index.ts**: left pool `max: 10` with a WHY — not raised for Neon free-tier
+  connection caps.
+
+## 2026-11-14 — Race/correctness: in-flight guards, soft-delete, stale sweep, versions
+
+- **R2:** `PATCH /:jobId/content` and version restore block all in-flight statuses
+  (`pending|processing|researching|writing|formatting|critiquing`) via shared
+  `lib/jobInFlight.ts` `isJobInFlightStatus` — mid-pipeline DB rows from
+  `updateJobStageInDb` were previously editable (409 `JOB_IN_PROGRESS`).
+- **M2:** `pipelineRun.ts` checks soft-delete against DB `deleted` (memory-first)
+  at stage boundaries so a delete on another path stops Gemini sooner; persist
+  soft-delete refuse remains defense-in-depth.
+- **R6:** Stale sweep skips rows with recent DB `updatedAt` (heartbeat grace) as
+  well as live in-process memory; `updateJobStageInDb` heartbeats `updatedAt`
+  every ~5 min during a long same-status stage; mark-time rechecks `updatedAt`.
+- **M8:** `GET /:jobId/versions` capped at last 20; restore insert prunes older
+  snapshots. Soft-delete clears stage-throttle/heartbeat maps.
+
+## 2026-11-14 — Content job locks, regenerate claim, multiply race, direct queue cap
+
+- **S2 / M1:** `contentWorker` acquires Redis lock `content:run:{jobId}` (SET NX +
+  Lua release/renew via `lib/contentJobLock.ts`) before the pipeline; process-local
+  `inFlightJobIds` kept as defense-in-depth. Lock contention uses
+  `moveToDelayed` + BullMQ `DelayedError` (does not complete as success / burn
+  attempts). `ContentJobLockHeldError` is ignored in the worker `failed` handler
+  so a deferred job cannot flip the durable row to failed while another run wins.
+- **R3:** Regenerate atomically claims with
+  `UPDATE … SET status='pending' WHERE status IN ('done','failed') AND deleted=0
+  RETURNING` (`lib/regenerateClaim.ts`) before snapshot / memory wipe / enqueue;
+  0 rows → 409 `JOB_IN_PROGRESS`.
+- **R5:** Multiply Adapt takes Redis lock `multiply:{rootId}:{platform}` (local
+  Set fallback without Redis); `collectRelatedVariants` + insert run under the
+  lock (`routes/jobs/multiplyAdapt.ts`). Duplicate in-progress/done sibling →
+  409 or reuse existing.
+- **X2 / M13:** Direct-mode `_pipelineQueue` capped at 20 waiters with a 120s
+  waiter timeout (`pipelineDirect.ts`); overload rejects with retryable
+  `DirectPipelineOverloadedError` and marks the pending job failed + SSE so it
+  does not spin forever. `MAX_DIRECT_PIPELINES` remains 3.
+
+## 2026-11-14 — Schedule upsert race + list bounds
+
+- `POST /api/scheduled-posts`: `onConflictDoUpdate` now has
+  `WHERE publish_status <> 'publishing'` so a mid-publish worker claim cannot
+  be reset to `pending` and re-queued (double LinkedIn/Twitter post). Empty
+  returning → 409 `PUBLISH_IN_PROGRESS` (keeps the early select guard too).
+  Intentional reschedule of `posted`/`failed` still re-arms to `pending`.
+- `GET /api/scheduled-posts`: omitting `month` no longer returns all rows —
+  defaults to the current UTC month and caps at 200 rows.
+
+## 2026-11-14 — Client scale + Redis SSE fan-out (M9/M6/L1/L2/S1)
+
+- **Library (M9):** while jobs are in-flight, stop re-pulling up to 20 list pages
+  every 4s. Page-1 slim poll merges status into the React Query cache; full
+  multi-page fetch runs on settle / manual refresh (`libraryFetch.ts`,
+  `useLibraryData.ts`).
+- **Export (M6/L3):** PNG export takes an `AbortSignal`; `ExportModal` aborts on
+  close/unmount and guards `setState` with `isMountedRef`.
+- **SSE merge (L1):** `mergeSSEIntoJobData` caps `agentLogs` at the last 50 entries.
+- **Recent topics (L2):** Create scopes `ca_recent_topics` with `userScopedKey` +
+  legacy migrate (same pattern as drafts / repurpose history).
+- **SSE scale (S1 Critical):** `sseManager.sendEvent` publishes to Redis
+  `sse:job:{jobId}` and delivers locally; each API process pattern-subscribes on a
+  dedicated connection (`sseRedis.ts`) and skips its own `originId` echo. No Redis
+  → prior local-only behavior. Documented in `CLAUDE.md` §9 (`jobsMemory` still
+  process-local; DB poll remains the reconnect fallback).
+
+## 2026-11-14 — Comment style consistency (pages + shared client + agents)
+
+- Normalized comments across `client/src/pages/**` (all product pages and
+  Result/carousel/igslide), shared `client/src/components` / `hooks` / `lib` /
+  `api.ts` / `store.ts`, and `server/src/agents` + middleware/workers touchpoints.
+- Standard tags only: `WHY:` / `FLOW:` / `SECURITY:` / `NOTE:` / `TODO:` —
+  explain non-obvious intent, not what the next line does.
+- Removed section banners (`// ──`), obvious restatements, and stale audit-doc
+  cites that added no runtime meaning. Logic unchanged (comments only).
+- Follow-up: tagged `// WHY topic:` → `// WHY: topic:` across `client/src` +
+  `server/src` (~146 files); cleared remaining schema banners; added
+  `.cursor/rules/commenting.mdc` (alwaysApply) and aligned `CLAUDE.md` §Comments.
+
+## 2026-11-14 — Low leftovers: OAuth timeouts, 409s, indexes, safe postUrl
+
+- Calendar `DayDetailPanel` / Result `PostPanel`: `postUrl`/`postLink` linked only when `isSafeHttpUrl`; otherwise a non-link span (or nothing).
+- `social/oauth.ts`: 10s `AbortSignal.timeout` on LinkedIn/Twitter token + profile fetches; `consumeOAuthNonce` fails open only for NODE_ENV!=production AND localhost `APP_URL` (matches config.ts).
+- `POST /social/post` not-connected now 409 `NOT_CONNECTED` (was 401, which clients read as session expiry).
+- `create.ts` (single + batch), `repurpose.ts`, `regenerate.ts` (multiply): insert pending DB row before `setJobInStore` so a failed insert leaves no phantom in-memory job.
+- `PATCH /:id/content` and version restore return 409 `JOB_IN_PROGRESS` while pending/processing.
+- `DELETE /api/content/competitor/:id` skips `contentRateLimit`.
+- Migration `0020_low_leftover_indexes`: unique `feed_monitors(user_id, feed_url)` (dedupes first; POST returns 409 `DUPLICATE_FEED`), `content_jobs(status, updated_at)`, `scheduled_posts(publish_status, published_at)`.
+
+## 2026-11-14 — Fix SSRF BlockList false positive + test updates
+
+- Removed `::ffff:0:0/96` from `ssrfGuard` `BlockList` — Node matched that mapped
+  range against every IPv4 address, so public hosts (e.g. Cloudflare/`example.com`)
+  were rejected as private. IPv4-mapped forms still unwrap and re-check.
+- Updated tests for NOT_CONNECTED 409, generic imageGen errors, carousel
+  data:/about: allowlist, batch `requireAuthUserId` mock, stream-token rate-limit
+  mock, and repurpose `pinnedRequest`→fetch bridge.
+
+## 2026-11-14 — Security: SSRF pin, SPA headers, demo budget, Puppeteer allowlist
+
+- `ssrfGuard.ts`: CIDR `BlockList` (0.0.0.0/8, multicast/reserved, doc/benchmark nets, IPv6
+  ULA/link-local/6to4/NAT64) on top of the prefix regex; new `lookupAndAssertPublic()` and
+  `fetchPublicUrl()` (alias of `fetchWithSsrfGuard`) now connect to the validated IP via the new
+  `lib/pinnedRequest.ts`, closing the DNS-rebinding TOCTOU. Existing callers (articleExtract,
+  feedFetch) pick this up unchanged.
+- `carousel.ts`: Puppeteer request interception aborts anything not `data:`/`about:`.
+- `browserPool.ts`: dropped `--allow-running-insecure-content`.
+- `client/vercel.json`: CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy.
+- `demo.ts`: global 200/hour Redis budget (fails open with a warning when Redis is down); preview
+  passed through `sanitizeContentDeep`.
+- `imageGen.ts`: `redirect: 'error'` on downloads, Gemini mimeType defaulted/allowlisted, generic
+  500 message (no env key names).
+- OAuth Twitter PKCE: code verifier stored in Redis by nonce (`lib/oauthPkce.ts`) instead of in
+  the signed `state` URL param.
+- Skipped: `tokenEncryption.ts` AAD (would invalidate existing stored tokens without a migration).
+
+## 2026-11-14 — Fix server limits, regenerate snapshot, ready/export hygiene
+
+- **S1/M1** `rateLimit.ts`: `sanitizeGenerationInput` LIMITS now match zod maxes (handle 300, samples 10000, phrases/feedback 1000, targetAudience 300, industry 200).
+- **S2/M3** `index.ts`: global `express.json` lowered 10mb → 256kb; `PATCH /api/jobs/:jobId/content` gets a route-specific 1mb parser mounted first.
+- **S3/M2** `index.ts`: error handler returns 400 (`entity.parse.failed`) / 413 (`entity.too.large`) with `retryable:false` instead of 500.
+- **S4/M4** `regenerate.ts`: version snapshot now happens after the in-progress/queue 409 checks, so rejected regenerates no longer create phantom versions.
+- **M7** `index.ts`: `/api/ready` treats unconfigured Redis as ready and caches results for 3s (coalescing concurrent probes).
+- **L6** `versions.ts`: non-UUID `versionId` returns 404 before any DB query.
+- **L7** `account.ts`: DELETE /me cancels queued content and publish BullMQ jobs before deleting data (best-effort).
+- **L8** `collections.ts`: collection delete wraps membership + collection deletes in a transaction.
+- **L12** `schemas/content.ts`: `url` fields capped at 2000; hashtags `content` string capped at 20000 and array at 30 items.
+- **M8** `me.ts`: stats query limited to the newest 200 completed jobs (stats reflect recent history).
+
+## 2026-11-14 — Fix pipeline draft retention, worker claim, feed lock
+
+- `pipelineRun.ts`: formatter/critic throws no longer discard an earlier good draft (delivered as `partial`); provider outages ("All AI providers failed") rethrow instead of being fed back as validation errors; `bestScore` starts at -1 so a score of 0 still sets `bestDraft`.
+- `contentWorker.ts`: in-process in-flight jobId set prevents a double pipeline run.
+- `persistJobSweeps.ts`: stale sweep skips rows whose in-memory job is `done` (persist failed, memory is the only copy).
+- `feedMonitorWorker.ts`: random lock token, Lua compare-and-delete release, 300s TTL with heartbeat renewal.
+- `ai.ts`: circuit breaker counts one failure per logical call (matches the ~5 call comment); abort timers cleared on completion.
+- `browserPool.ts`: concurrent `initPool` callers await a shared init promise.
+
+## 2026-11-14 — Fix Calendar publish races and worker reliability
+
+- **S5** `publishQueue.ts`: `queuePublishJob` returns false (and logs) if removing the existing job fails, and verifies the new job is `delayed` after add.
+- **S6** `scheduledPosts.ts`: upsert on a `publishing` row returns 409 `PUBLISH_IN_PROGRESS` instead of re-arming.
+- **S10/M4** `publishWorker.ts`: initial select moved inside try; queue `attempts` 1→3 with exponential backoff. Only pre-claim errors rethrow (retry); post-claim failures are recorded and never retried, so nothing is double-posted.
+- **M5** `publishWorker.ts`: after a successful post, the `posted` DB write retries 3 times; if all fail it logs the postUrl and leaves `publishing` (never marks failed).
+- Follow-up (not done): overdue-pending sweep and Twitter thread resume via postId; stale sweep may still mark a posted-but-unrecorded row failed after 15 min.
+
+## 2026-11-14 — Fix Result polling, cache invalidation, Create/Library
+
+- **H2** `useJobData.ts`: poll effect now depends on `regenerating`, so Regenerate re-arms REST polling after a terminal job cleared the interval; stale-"lost" check skipped while regenerating.
+- **C1** `useJobData.ts`: SSE terminal refresh now invalidates `library`/`dashboard`/`calendar` job lists like the poll path.
+- **C5/C6** `useJobData.ts`: `loadJob` keeps existing `jobData` on non-404 errors and ignores stale/unmounted responses via a generation counter.
+- **C2** `Create.tsx`: recent-topics `localStorage` write has its own try/catch so storage failure can't show a failure after the job was created.
+- **C3** `useLibraryMutations.ts`: bulk delete invalidates library + dashboard + calendar.
+- **C4** `Result.tsx` content save and `HistoryPanel.tsx` version restore invalidate library + dashboard jobs.
+- **C7** `useMultiplier.ts` / `BatchResult.tsx`: 20-min max poll, in-flight tick guard, and unmount/jobId guards.
+
+## 2026-11-14 — Fix client cache clear and user-scoped storage
+
+- **H3:** `App.tsx`'s new `UserScopeSync` watches Clerk `userId` and calls `queryClient.clear()`
+  plus the store's new `resetUserScopedState()` on any user change (including sign-out).
+- **C8:** ideas/saved-ideas/generated-at (`store.ts`), the Create draft (`useDraft.ts`) and
+  Repurpose history now use per-user keys via new `lib/userScopedStorage.ts`; legacy unscoped
+  keys migrate once to the first signed-in user, then are removed.
+- **Ideate:** ideas carry stable `id`s; regenerate/dismiss act by id on the live store, not index.
+- **useDraft:** `setDraftWriteFailed` moved out of the setState updater; stored JSON is
+  type-guarded field by field.
+- **Low:** new `components/ErrorBoundary.tsx` wraps the authenticated layout in `App.tsx`.
+
+## 2026-11-14 — Fix social token expiresAt bigint
+
+- **H1:** `social_tokens.expires_at` was `integer`, but OAuth stores
+  `Date.now() + expires_in * 1000` (~1.7e12), overflowing Postgres integer (~2.1e9).
+  Now `bigint('expires_at', { mode: 'number' })` in `schemaTables.ts`; migration
+  `0019_social_expires_at_bigint.sql` alters the column (journal entry idx 19).
+- **L3:** `socialTokens.ts` memory fallback no longer holds plaintext tokens. The
+  `!db` and DB-failure paths store the encrypted payload and `fbRead()` decrypts on
+  read. In production a failed DB upsert now rethrows instead of falling back to memory.
+
+## 2026-11-14 — Medium leftovers: split-worker guard, thin research, stale sweep
+
+- **H7:** Standalone `npm run worker` / direct-run `contentWorker` logs a loud
+  ERROR that SSE/`jobsMemory` are process-local — recommend co-hosting via
+  `index.ts` `startWorker()`. `ALLOW_STANDALONE_WORKER=true` silences
+  (`config.ts` + `.env.example`). Co-hosted `startWorker()` unchanged.
+- **M4:** Empty Tavily research (no keyFacts/angles) emits SSE
+  "Research returned no sources — continuing with topic only"; research
+  `PipelineOutput` gets `partial: true`. Job still continues.
+- **M2:** `sweepStaleInFlightJobs` skips fail/SSE when `jobsMemory` /
+  `jobStore` still shows active processing (long LLM stage can lag DB
+  `updatedAt`); abandoned jobs with no live memory still get swept.
+
+## 2026-11-14 — Hygiene: export SEC-003 tests, CreateJobInput, Landing a11y/SEO
+
+- **Export/SEC-003 tests:** `tests/unit/exportSlides.test.ts` (stored slides +
+  imageDataUrl overlay only) and `tests/security/export-carousel-sec003.test.ts`
+  (ownership 404, stored-not-client deck, theme/templateId enum validation).
+- **CreateJobInput:** `client/src/types/job.ts` now includes `templateId` /
+  `paletteId` / competitor fields and `JobPlatform`/`JobTone` unions;
+  `api.ts` `createJob` takes `CreateJobInput`.
+- **Landing a11y/SEO:** skip-to-content link; hamburger `aria-expanded` /
+  `aria-controls`; decorative orbs/grid/dots `aria-hidden`; canonical/OG/Twitter
+  URLs from `VITE_APP_URL` (`.env.example` + vite fallback).
+- **CLAUDE.md:** React Router DOM 7; root path `Content_Agent/`; note new export
+  tests beside `exportSlides.ts`.
+
+## 2026-11-14 — Pipeline & worker hardening (H1/H2/M1/M3/M5–M8)
+
+- **H1 + M8:** `contentWorker.processContentJob` no-ops when the durable DB row
+  is already `done`/`failed`/soft-deleted (warn log); rejects non-object payloads
+  and missing/non-UUID `jobId` or empty `userId`/`topic`/`platform` before any
+  pipeline work.
+- **H2:** Mid-run soft-delete in `runAndPersistPipeline` emits a terminal SSE
+  (`stage: failed`, clear cancelled/deleted message) **before** memory eviction
+  so Result stops spinning.
+- **M1:** `socialPublish` LinkedIn/Twitter `fetch` calls use `AbortSignal.timeout`
+  (~25s); timeouts map to `SocialPublishError`.
+- **M3:** `persistJobToDB` re-checks `deleted=1` before write, uses
+  `onConflictDoUpdate` `where: deleted=0`, never sets `deleted` back to `0`, and
+  refuses output wipe if the row is soft-deleted (`JobSoftDeletedError`).
+- **M5:** Shared `lib/injectionPatterns.ts` used by both `rateLimit` and
+  `sanitizeSearchText` (lists no longer drift).
+- **M6:** Critic / initial feedback sanitized via `sanitizeSearchText` and capped
+  (600 chars) before the writer prompt in `pipelineRun.ts`.
+- **M7:** Writer schema/JSON parse failures throw into the critic retry loop
+  instead of shipping `buildFallbackResponse` stubs for all platforms.
+- **Architecture:** `jobsMemory` / `getJobFromStore` / `setJobInStore` extracted to
+  `lib/jobStore.ts`; `lib/pipeline*` no longer imports from `routes/`.
+
+## 2026-11-14 — Client medium/high fixes (batch result, SSE, a11y, auth)
+
+- **BatchResult:** treat success as `status === 'done' && hasFinal` (mirrors `useJobData`) so cards don't show View before final output exists.
+- **FeedMonitorPanel:** `ConfirmDeleteModal` before deleting a monitor (no more one-click trash).
+- **Calendar:** `useFocusTrap` on the day dialog (had Escape + `role=dialog` only).
+- **Brand / Create / Library:** gate profile, audience-defaults, jobs, and collections React Query with Clerk `useAuth()` (`enabled: authLoaded && isSignedIn`).
+- **App:** auth-aware catch-all — signed-in → `/dashboard`, else `/`.
+- **PostPanel:** `/brand` uses React Router `Link` instead of raw `<a href>`.
+- **store + useJobData:** close EventSource on SSE `onerror` before scheduling fresh-token reconnect (stops native retry with expired token).
+
+## 2026-11-14 — Server API medium hardening + dep bumps
+
+- **Rate-limit feed monitor create:** `POST /api/feed-monitors` now uses
+  `contentRateLimit` (probes external feed URLs via `probeFeedUrl`). SSRF
+  guards unchanged. List/get/update/check use explicit column selects.
+- **Rate-limit stream-token:** added Redis-backed `streamTokenRateLimit`
+  (60/min per user) on `POST /:jobId/stream-token`; still exempt from
+  `jobMutationRateLimit` so reconnects don't burn the mutation budget.
+- **Size-cap PATCH content / social post:** `patchContentSchema` and
+  `postSocialSchema` reject payloads whose `JSON.stringify(content)` exceeds
+  200_000 bytes; social `jobId` uses shared loose UUID `jobIdSchema`.
+- **List page query:** zod-validate `page` (int 1–10000); score-sort second
+  `findMany` re-asserts `userId` + `deleted=0`.
+- **OAuth JSON Zod:** LinkedIn/Twitter token + profile responses parsed with
+  zod (`safeParse`); fail closed on malformed provider JSON.
+- **Deps:** `zod` → ^4.6.7, `puppeteer` → ^25.17.0.
+
+## 2026-11-14 — Full-codebase review fixes (batch 7 / MAINT-001)
+
+Finish the leftover >400-line splits from the full-codebase review:
+
+- `libraryStyles` → PartA/PartB + barrel; `schema` → enums/tables/types barrel
+- `CompetitorResults.tsx`; `useLibraryMutations.ts`; `createConstants.ts`
+- `mergeSSEIntoJobData.ts` extracted from `useJobData`
+- All previously oversized app files now ≤400 lines (`tsc` clean)
+
+## 2026-11-11 — Full-codebase review fixes (batch 6)
+
+- **CORR-008:** `persistJobToDB` throws when `db` is null / userId invalid
+  (no more silent success → SSE complete → 10-min eviction with no row).
+- **SEC-003:** Carousel PNG export renders the job's stored final slides
+  (`exportSlides.ts`); client `imageDataUrl` overlays only; theme/brand still
+  from the request.
+- **DOC-001:** CLAUDE.md pool sizes (Render min1/max2), new split files, and
+  repurpose/export helpers refreshed.
+
+## 2026-11-11 — Full-codebase review fixes (batch 5)
+
+- **Multiply → BullMQ:** `POST /:jobId/multiply` serializes `skipResearch`
+  (cached research + task plan + platform rules) onto the queue payload;
+  `contentWorker` parses it and passes through to `runAndPersistPipeline`.
+  Falls back to gated `runPipelineDirect` when Redis is unavailable.
+- **Oversized file splits (≤400 lines):** `pipelineRun.ts`, `pipelineDirect.ts`,
+  `persistJobSweeps.ts`, `articleExtract.ts`, client `api/client.ts` +
+  `api/tools.ts`, `useRepurposeSubmit.ts`, `postPanelIcons.tsx`.
+
+## 2026-11-11 — Full-codebase review fixes (batch 4)
+
+- **SEC-006:** Replaced `req.dbUserId || req.userId || 'demo'` with
+  `requireAuthUserId()` across jobs/content/users/social routes (401 if missing).
+- **Feed lock:** `checkFeedMonitor` fails closed when Redis is down or lock
+  acquire fails (no unlocked duplicate generations).
+- **Mid-pipeline DB status:** `updateJobStageInDb` maps SSE stages onto the
+  real `job_status` enum on stage change (Library/sweep no longer stuck on
+  `pending` for the whole run).
+
+## 2026-11-11 — Full-codebase review fixes (batch 3)
+
+- **FE-003:** `HashtagPanel` uses React Query (`['hashtags', jobId, …]`) instead of
+  mount `useEffect` + `useState`; copy timeout uses `useTrackedTimeout`.
+- **FE-006:** Stable React keys on Competitor themes/gaps/angles, Insights tips,
+  Twitter view-mode tweets, LoadingView log rows.
+- **FE-007:** Feed monitor Check/Pause/Delete buttons get `aria-label` + `type="button"`.
+- **SEC-004:** SSRF `unwrapHostnameIp` so `[::1]` is recognized as private (not
+  only fail-closed via DNS).
+- **SEC-005:** `verifySSEToken` rejects non-UUID / >64-char tokens before Redis.
+
+## 2026-11-11 — Full-codebase review fixes (batch 2 / SEC-002)
+
+Stop returning raw `Error.message` / undici cause chains to clients:
+
+- Added `toClientFetchFailureMessage` (`ssrfGuard.ts`) + `clientErrors.ts`
+  stable copy helpers.
+- Repurpose article fetch + batch URL failures return classified messages;
+  details stay in server logs.
+- Feed monitor probe HTTP body and `lastError` UI use client-safe strings.
+- Pipeline failed jobs persist `CLIENT_PIPELINE_FAILURE` (Result no longer
+  shows provider/DB internals via `job.error`).
+- Batch create `failedItems[].error` is a stable string.
+- Publish worker `publishError` mapped via `toClientPublishError`.
+
+## 2026-11-11 — Full-codebase review fixes (batch 1)
+
+From the 2026-11-11 full-repo review (security / frontend / pipeline):
+
+- **FE-001:** Remounted Brand `PublishingConnectionsCard` via `useBrandSocial`
+  (Connect uses authenticated `startSocialConnect`; unconfigured OAuth shows
+  Coming soon). PostPanel → Brand is a real path again.
+- **CORR-004:** PNG cache subtracts prior entry bytes on same-key overwrite.
+- **CORR-001:** Soft-delete cancels waiting BullMQ content jobs; pipeline skips
+  the predictor after a mid-run delete; cleans `collection_jobs` memberships.
+- **CORR-002:** Regenerate flips DB `content_jobs.status` to `pending` (not only
+  in-memory) before enqueue.
+- **CORR-003:** Publish worker stamps `publishedAt` on claim; stale sweep fails
+  stuck `publishing` rows after 20 min.
+- **ARCH-001:** CLAUDE.md documents co-hosted worker as the supported deploy
+  (process-local SSE/memory).
+- **SEC-001:** `escapeXml` on ideate / hashtags / demo / brandVoice / competitor
+  XML-wrapped prompt fields.
+- **FE-002 / FE-004 / FE-005:** FeedMonitor error≠empty; regenerate SSE reconnect
+  timer cleaned on unmount; Competitor + LiveDemo `submittingRef` guards.
+
 ## 2026-11-11 — Render: resilient Redis reconnect (rate-limit / worker noise)
 
 - Redis `retryStrategy` no longer gives up after 2 attempts (~1s). Render
