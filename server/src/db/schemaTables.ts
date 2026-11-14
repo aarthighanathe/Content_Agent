@@ -1,0 +1,332 @@
+import { pgTable, text, timestamp, integer, bigint, jsonb, uuid, index, uniqueIndex, boolean } from 'drizzle-orm/pg-core';
+import {
+  platformEnum,
+  toneEnum,
+  jobStatusEnum,
+  outputTypeEnum,
+  publishStatusEnum,
+} from './schemaEnums.js';
+
+// WHY: extracted from schema.ts: table defs are the bulk of the file; schema.ts
+// keeps relations + barrel re-exports for drizzle.config and app imports.
+
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clerkId: text('clerk_id').notNull().unique(),
+  email: text('email').notNull(),
+  brandName: text('brand_name').default(''),
+  brandVoice: text('brand_voice').default('professional'),
+  phrasesUse: text('phrases_use').default(''),
+  phrasesAvoid: text('phrases_avoid').default(''),
+  industry: text('industry').default(''),
+  // WHY: jsonb, nullable: Content DNA (writing-style fingerprint from POST
+  // /users/analyze-voice) was previously held only in the server's in-memory
+  // userProfiles Map — a restart or a different instance handling the request
+  // silently reverted a user's analyzed DNA to "not set up" with no warning
+  // (FUNCTIONAL_AUDIT_2026-07.md finding #9). Persisting it here fixes that.
+  contentDna: jsonb('content_dna'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const contentJobs = pgTable('content_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  topic: text('topic').notNull(),
+  platform: platformEnum('platform').notNull(),
+  tone: toneEnum('tone').notNull(),
+  targetAudience: text('target_audience').notNull(),
+  tag: text('tag'),
+  // WHY: nullable, no FK: set by POST /:jobId/multiply when a job is created via
+  // Content Multiplication; previously only held on the in-memory job object, so
+  // it silently vanished once the source job aged out of memory and had to be
+  // reassembled from the DB via assembleJobFromDB (FUNCTIONAL_AUDIT_2026-07.md
+  // finding #11 — ContentMultiplier.tsx's "View Original" badge went blank for
+  // any multiplied job old enough to hit that path). No FK reference: the source
+  // job may itself be deleted later, and this is display metadata, not a join key.
+  sourceJobId: uuid('source_job_id'),
+  sourcePlatform: platformEnum('source_platform'),
+  // WHY: nullable, no FK (same pattern as sourceJobId above): set when a job is
+  // created via a "Create content →" CTA on the Competitor page (a content gap
+  // or suggested angle). Purely display/lineage metadata — the analysis row
+  // may itself be soft-deleted later, and this is not a join key. The actual
+  // prompt-time effect (competitor gap/angle text injected into the writer's
+  // context) happens once, at job-creation time, in routes/jobs/create.ts —
+  // this column only lets the UI show "based on competitor analysis of @x"
+  // after the fact, mirroring sourceJobId's own WHY above.
+  sourceCompetitorAnalysisId: uuid('source_competitor_analysis_id'),
+  // WHY: nullable text, no FK (same display/lineage pattern as the two source*
+  // columns above): set when a job is created via Repurpose's "paste a URL"
+  // flow (routes/content/repurpose.ts). Previously only held on the in-memory
+  // job object and dropped before the DB write — the original article URL was
+  // lost once the job hit the DB or aged out of memory, same class of bug as
+  // FUNCTIONAL_AUDIT_2026-07.md finding #11 already fixed for sourceJobId.
+  sourceUrl: text('source_url'),
+  // WHY: nullable text, no enum: carousel template/palette choice from the new
+  // template system (client/src/lib/templateSystem.ts's TEMPLATES/ColorPalette).
+  // Only meaningful for platform='instagram_carousel'; null for every other
+  // platform and for carousels created before this feature shipped (those fall
+  // back to the legacy 9-theme/designPreset system on the client — see
+  // CLAUDE.md §11). Not an FK/enum because the template catalog lives in
+  // client code, not the DB — same reasoning as this table's tag column.
+  templateId: text('template_id'),
+  paletteId: text('palette_id'),
+  status: jobStatusEnum('status').default('pending').notNull(),
+  retryCount: integer('retry_count').default(0).notNull(),
+  deleted: integer('deleted').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userActiveIdx: index('idx_content_jobs_user_active').on(table.userId, table.deleted, table.createdAt),
+  // WHY: this index: backs the new GET /jobs `search`/`platform`/`sort` query
+  // params (FUNCTIONAL_AUDIT_2026-07.md finding #4) — topic search and platform
+  // filtering both now run in the DB instead of only on the current page's
+  // 10 already-fetched rows.
+  userPlatformIdx: index('idx_content_jobs_user_platform').on(table.userId, table.platform, table.deleted),
+  // WHY: backs the periodic stale in-flight sweep (status + updatedAt cutoff).
+  statusUpdatedIdx: index('idx_content_jobs_status_updated').on(table.status, table.updatedAt),
+}));
+
+export const contentOutputs = pgTable('content_outputs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  jobId: uuid('job_id').notNull().references(() => contentJobs.id),
+  agentName: text('agent_name').notNull(),
+  outputType: outputTypeEnum('output_type').notNull(),
+  content: jsonb('content').notNull(),
+  qualityScore: integer('quality_score'),
+  partial: integer('partial').default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  jobIdIdx:   index('idx_content_outputs_job_id').on(table.jobId),
+  jobTypeIdx: index('idx_content_outputs_job_type').on(table.jobId, table.outputType),
+  // WHY: leading-outputType (mirror of jobTypeIdx, reversed): the GET /jobs
+  // sort=score subquery filters content_outputs by outputType='critique' then
+  // groups by jobId (perf audit) — jobTypeIdx's leading jobId cannot serve that
+  // WHERE, so without this index the subquery scans every critique row in the
+  // table before the user-narrowing join to contentJobs can apply. Applied to
+  // live DBs via `npm run db:generate && npm run db:migrate`.
+  typeJobIdx: index('idx_content_outputs_type_job').on(table.outputType, table.jobId),
+}));
+
+export const agentLogs = pgTable('agent_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  jobId: uuid('job_id').notNull().references(() => contentJobs.id),
+  agentName: text('agent_name').notNull(),
+  action: text('action').notNull(),
+  inputSummary: text('input_summary'),
+  outputSummary: text('output_summary'),
+  tokensUsed: integer('tokens_used').default(0),
+  durationMs: integer('duration_ms').default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  jobIdIdx: index('idx_agent_logs_job_id').on(table.jobId),
+}));
+
+// AUDIT FIX #1 — persistent social OAuth tokens (replaces in-memory socialTokens map)
+export const socialTokens = pgTable('social_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  platform: text('platform').notNull(),
+  accessToken: text('access_token').notNull(),
+  refreshToken: text('refresh_token'),
+  // WHY: OAuth stores Date.now() + expires_in * 1000 (ms epoch, ~1.7e12), which overflows
+  // Postgres integer (max ~2.1e9); bigint in number mode is safe below 2^53.
+  expiresAt: bigint('expires_at', { mode: 'number' }),
+  displayName: text('display_name'),
+  platformUserId: text('platform_user_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  // WHY: unique (was a plain index): dbUpsertToken in routes/social.ts does a
+  // select-then-insert/update on (userId, platform); without a unique
+  // constraint backing that pair, two concurrent upserts (e.g. a double-click
+  // on "Connect LinkedIn", or an OAuth callback retry) can both miss the
+  // existing row and both INSERT, silently creating duplicate token rows with
+  // no error. The unique index lets dbUpsertToken use a real onConflict
+  // upsert instead, making the operation atomic.
+  userPlatformIdx: uniqueIndex('idx_social_tokens_user_platform').on(table.userId, table.platform),
+}));
+
+// AUDIT FIX #10 — track onboarding completion per user
+export const userOnboarding = pgTable('user_onboarding', {
+  userId: text('user_id').primaryKey(),
+  completed: integer('completed').default(0).notNull(),
+  brandName: text('brand_name').default(''),
+  preferredTone: text('preferred_tone').default('professional'),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+});
+
+// WHY: added 2026-08-04 (Calendar server-sync): replaces the previous 100%
+// client-side `localStorage` schedule (calendarHelpers.ts's SCHEDULE_KEY) —
+// scheduled placements now survive a cleared browser and sync across
+// devices.
+// WHY: scheduledDate is `text` (not a real `date` column): the client's
+// dateKey format is a plain `YYYY-MM-DD` string (calendarHelpers.ts) used
+// directly as a Map/object key for grouping — storing the identical string
+// avoids a timezone-conversion mismatch between Postgres `date` (which drops
+// time/zone) and the client's local-calendar-day semantics.
+// WHY: unique on jobId (not a composite jobId+date key): Calendar.tsx's
+// existing `allocate()` enforces one-job-one-date by removing the job from
+// every other date before adding it to the new one — a unique constraint on
+// jobId alone is the DB-level mirror of that same invariant, and lets the
+// route implement "move" as a single upsert keyed on jobId.
+//
+// WHY: publishPlatform/publishStatus/publishedAt/postUrl/publishError added
+// 2026-08-05 (real auto-publish): this table previously only tracked "the
+// user intends to post this job on this date" (a planning aid, same
+// disclosed scope as social.ts's reminder-only POST /api/social/schedule —
+// see CLAUDE.md §9). publishPlatform is nullable — scheduling without a
+// platform stays exactly the old reminder-only behavior; a job only enters
+// the real auto-publish path (see lib/publishQueue.ts,
+// workers/publishWorker.ts) once a platform is chosen. WHY not unify with
+// social.ts's separate in-memory schedule Map here: that Map tracks a
+// platform+exact-datetime+arbitrary-content publish intent with no jobId
+// requirement (e.g. posting ad-hoc text), a genuinely different shape from
+// this table's job+date model — scoped deliberately to wiring only the
+// Calendar's existing table, not merging both concepts (a larger,
+// separately-tracked change).
+// WHY: 'publishing' (CORR-006): worker claims a row with pending→publishing
+// before calling LinkedIn/Twitter so overlapping delayed jobs cannot double-post.
+
+export const scheduledPosts = pgTable('scheduled_posts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  jobId: uuid('job_id').notNull().references(() => contentJobs.id).unique(),
+  scheduledDate: text('scheduled_date').notNull(),
+  publishPlatform: text('publish_platform'),
+  // WHY: integer 0–23 (L10/F12): auto-publish used to hardcode 9am user-TZ;
+  // storing the chosen hour lets reschedule/badge survive a reload.
+  publishHour: integer('publish_hour').default(9).notNull(),
+  publishStatus: publishStatusEnum('publish_status').default('pending').notNull(),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  postUrl: text('post_url'),
+  publishError: text('publish_error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  // Backs GET /api/scheduled-posts?month=YYYY-MM (list this user's postings,
+  // optionally scoped to a visible month range).
+  userDateIdx: index('idx_scheduled_posts_user_date').on(table.userId, table.scheduledDate),
+  // WHY: backs the stuck-'publishing' sweep (publishStatus + publishedAt cutoff).
+  publishSweepIdx: index('idx_scheduled_posts_publish_sweep').on(table.publishStatus, table.publishedAt),
+}));
+
+// WHY: added 2026-08-04 (Competitor Content Lens persistence): POST
+// /api/content/competitor previously returned an analysis with zero
+// persistence — a refresh of Competitor.tsx lost it entirely, and there was
+// no way to reuse a past analysis's contentGaps/suggestedAngles as ideation
+// or job-creation context (see contentJobs.sourceCompetitorAnalysisId and
+// content/ideate.ts's competitorAnalysisId above). `analysis` stores the full
+// competitorResponseSchema-shaped object as jsonb rather than normalizing
+// topThemes/contentGaps/suggestedAngles into their own tables — this is a
+// read-mostly, whole-object-at-a-time feature (load one past analysis, show
+// it, or splice two fields into a prompt) with no query need to filter WITHIN
+// an analysis's sub-arrays, so jsonb avoids a many-table join for no benefit.
+export const competitorAnalyses = pgTable('competitor_analyses', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  handle: text('handle').notNull(),
+  // WHY: nullable: rows created before platform selection shipped have no value;
+  // new analyses always persist linkedin|twitter|instagram from competitorSchema.
+  platform: text('platform'),
+  industry: text('industry'),
+  analysis: jsonb('analysis').notNull(),
+  deleted: integer('deleted').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  // Backs GET /api/content/competitor/history (most-recent-first, capped list
+  // for the requesting user) — same (userId, deleted, createdAt) shape as
+  // contentJobs' own userActiveIdx above.
+  userActiveIdx: index('idx_competitor_analyses_user_active').on(table.userId, table.deleted, table.createdAt),
+}));
+
+// WHY: added 2026-08-05 (Library collections/folders): jobs could already be
+// tagged (a single free-text label, shipped 2026-08-04) but not grouped into
+// named, persistent groupings a user creates and reuses — a tag is a
+// one-to-one label per job, while a collection is many-to-many (one job can
+// belong to several collections, e.g. both "Q3 Launch" and "Best of"). Two
+// tables rather than a jobId array column on contentJobs: an array column
+// can't be indexed for "find all collections containing job X" or enforce
+// the no-duplicate-membership constraint the unique index below provides.
+export const collections = pgTable('collections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  // Backs GET /api/collections (list this user's collections, newest first).
+  userCreatedIdx: index('idx_collections_user_created').on(table.userId, table.createdAt),
+}));
+
+export const collectionJobs = pgTable('collection_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  collectionId: uuid('collection_id').notNull().references(() => collections.id),
+  jobId: uuid('job_id').notNull().references(() => contentJobs.id),
+  addedAt: timestamp('added_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  // WHY: unique on (collectionId, jobId): the DB-level mirror of "adding an
+  // already-present job to a collection is a no-op," same pattern as
+  // scheduledPosts' unique-on-jobId invariant — lets the route implement
+  // "add" as a single onConflictDoNothing insert instead of a check-then-insert.
+  collectionJobUnique: uniqueIndex('idx_collection_jobs_unique').on(table.collectionId, table.jobId),
+  jobIdx: index('idx_collection_jobs_job').on(table.jobId),
+}));
+
+// WHY: added 2026-08-05 (RSS/feed monitoring — FUTURE_FEATURES.md §Repurpose item 2):
+// Lets users subscribe a public RSS/Atom feed URL so the feedMonitorWorker
+// (workers/feedMonitorWorker.ts) periodically checks it and auto-creates a
+// Repurpose job for each new item it hasn't seen yet. One row per user×feed.
+// lastItemGuid prevents re-processing an already-seen item across restarts;
+// lastCheckedAt backs the worker's per-feed throttle so a high-frequency feed
+// doesn't hammer the AI pipeline faster than once per interval.
+// WHY: no FK on userId (text, not uuid): the worker runs outside a request
+// context and always re-fetches the matching users row by clerkId, same
+// pattern as social_tokens — userId here is the DB uuid of the users table,
+// stored as text to avoid a migration type change to this new table later.
+export const feedMonitors = pgTable('feed_monitors', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // WHY: text not uuid FK: the same "display/lineage" stance already used by
+  // socialTokens.userId — avoids coupling this new table to the users table's
+  // specific uuid PK type during what is already a multi-table migration.
+  userId: text('user_id').notNull(),
+  feedUrl: text('feed_url').notNull(),
+  platform: platformEnum('platform').notNull(),
+  tone: toneEnum('tone').notNull(),
+  targetAudience: text('target_audience').notNull(),
+  active: boolean('active').default(true).notNull(),
+  // WHY: nullable: null means "never checked" (the monitor was just created).
+  lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+  // WHY: nullable: tracks the guid/link of the most-recently-processed item.
+  // null = "no item processed yet" (first run will process the latest item
+  // without back-filling the entire feed history).
+  lastItemGuid: text('last_item_guid'),
+  // WHY: checkFeedMonitor previously only logged a warning and bumped
+  // lastCheckedAt on an SSRF-check failure or a fetch/parse failure — the
+  // `active` flag stayed true and the UI kept showing the monitor as healthy
+  // even when it had been silently failing on every tick (e.g. the feed's DNS
+  // started resolving to a private address). This surfaces the last failure
+  // reason so FeedMonitorPanel.tsx can show it; cleared on the next successful check.
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userActiveIdx: index('idx_feed_monitors_user_active').on(table.userId, table.active),
+  // WHY: prevents duplicate subscriptions to the same feed (double auto-repurpose jobs).
+  userFeedUnique: uniqueIndex('idx_feed_monitors_user_feed_unique').on(table.userId, table.feedUrl),
+}));
+
+// WHY: added 2026-08-05 (Library per-job version history): persistJobToDB
+// unconditionally DELETEs contentOutputs before re-inserting on regenerate —
+// this table snapshots the about-to-be-overwritten final. No FK cascade
+// (same lineage stance as contentJobs.sourceJobId).
+export const jobOutputVersions = pgTable('job_output_versions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  jobId: uuid('job_id').notNull().references(() => contentJobs.id),
+  content: jsonb('content').notNull(),
+  qualityScore: integer('quality_score'),
+  // WHY: free-text label: "before regenerate #3" / feedback snippets — only
+  // writer today is regenerate, but the shape stays open.
+  label: text('label').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  jobCreatedIdx: index('idx_job_output_versions_job_created').on(table.jobId, table.createdAt),
+}));
+
