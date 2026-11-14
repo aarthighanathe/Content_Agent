@@ -1,0 +1,44 @@
+---
+description: Comment style for all TypeScript/TSX — WHY not WHAT, tagged comments only
+globs: **/*.{ts,tsx}
+alwaysApply: true
+---
+
+# Commenting rules
+
+Comments explain **why**, never **what**. Prefer fewer, clearer comments.
+
+## Required tags
+
+Use exactly these prefixes (colon immediately after the tag):
+
+- `// WHY:` — why this approach / type / fallback was chosen
+- `// FLOW:` — what happens next in a pipeline or handoff
+- `// SECURITY:` — security decision being enforced
+- `// NOTE:` — non-obvious behavior a reader must know
+- `// TODO:` — known improvement, not urgent
+
+JSX: `{/* WHY: … */}`, `{/* NOTE: … */}`, etc.
+
+## Do
+
+```ts
+// WHY: return 404 (not 403) so job IDs cannot be enumerated.
+// SECURITY: strip scripts before Puppeteer setContent.
+// NOTE: sessionStorage is tab-local — drafts do not sync across tabs.
+```
+
+## Don't
+
+- Section banners: `// ── Helpers ──`, `// === FOO ===`
+- Restating the next line: `// increment counter`, `// render button`, `// handle submit`
+- Untagged essays or stale audit-doc cites (`REVIEW_FINDINGS.md`, finding IDs) unless the ID is still the only pointer to an open issue
+- Commenting every function/prop when names already make intent clear
+- Changing logic when only cleaning comments
+
+## When adding new code
+
+1. Comment only non-obvious intent, races, security, or deliberate tradeoffs.
+2. Always tag with `WHY:` / `FLOW:` / `SECURITY:` / `NOTE:` / `TODO:`.
+3. Keep comments short; put long rationale in `CHANGELOG.md` / `CLAUDE.md` if needed.
+4. Match nearby files — do not invent a new comment dialect.

@@ -54,3 +54,7 @@ server/.cache/
 
 # Local audit/review prompt library (not part of the shipped product)
 /prompts/
+
+# Local audit run outputs (may contain URLs/screenshots)
+AUDIT_RUN_*/
+audit-e2e/
