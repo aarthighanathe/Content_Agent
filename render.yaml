@@ -3,18 +3,19 @@ services:
     name: contentagent-api
     runtime: node
     plan: free
+    # WHY: single instance — jobsMemory / in-process SSE maps are not shared across
+    # replicas; multi-instance would show inconsistent live job progress (CLAUDE.md §9).
+    numInstances: 1
     rootDir: server
     # WHY puppeteer browsers install after build: npm install often skips Chrome
     # download (blocked install scripts / cache miss). Without an explicit install
     # into PUPPETEER_CACHE_DIR (project-local so the slug upload includes it),
     # carousel PNG export fails with "Could not find Chrome" on Render.
-    buildCommand: npm install --include=dev && npm --prefix ../client install --include=dev && npm run build && npx puppeteer browsers install chrome
-    # WHY preDeployCommand, not folded into buildCommand: Render runs this after a successful
-    # build but before traffic is cut over to the new deploy, and (unlike buildCommand) it fails
-    # the deploy outright if the command exits non-zero — a broken migration blocks the rollout
-    # instead of shipping a server whose code expects a schema that was never applied. See
-    # CLAUDE.md §12 for what to do if this step fails mid-deploy.
-    preDeployCommand: npm run db:migrate
+    # WHY migrate in buildCommand on free: Render's preDeployCommand is paid-only.
+    # A failed migrate still fails the build (non-zero exit). On a paid plan, prefer
+    # moving migrate back to preDeployCommand so a bad migration blocks cutover
+    # without re-running the full client/SSR/Chrome build — see CLAUDE.md §12.
+    buildCommand: npm install --include=dev && npm --prefix ../client install --include=dev && npm run build && npm run db:migrate && npx puppeteer browsers install chrome
     startCommand: npm start
     healthCheckPath: /api/ready
     envVars:
