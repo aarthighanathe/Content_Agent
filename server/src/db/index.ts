@@ -4,7 +4,7 @@ import * as schema from './schema.js';
 import { env } from '../config.js';
 import { logger } from '../lib/logger.js';
 
-// WHY neon-serverless (WebSocket Pool) instead of neon-http: the HTTP driver
+// WHY: neon-serverless (WebSocket Pool) instead of neon-http: the HTTP driver
 // executes each statement as its own request and has no transaction support
 // (db.transaction() throws "No transactions support in neon-http driver").
 // persistJobToDB() relies on a real transaction across contentJobs/contentOutputs/
@@ -17,13 +17,16 @@ let _pool: Pool | null = null;
 function initDb(): DbInstance | null {
   if (_db !== undefined) return _db;
   try {
-    // WHY try/catch: a malformed DATABASE_URL (or Pool constructor failure) must
+    // WHY: try/catch: a malformed DATABASE_URL (or Pool constructor failure) must
     // leave `db` as null so `if (db)` / `if (!db)` branches work — the old Proxy
     // wrapper was always truthy, so every "DB unavailable" path was dead code.
     //
-    // WHY idleTimeoutMillis 20s: Neon closes idle WebSockets aggressively (esp.
+    // WHY: idleTimeoutMillis 20s: Neon closes idle WebSockets aggressively (esp.
     // free-tier scale-to-zero). Keeping the pool's idle timeout short means we
     // retire clients before the proxy does, which cuts idleListener noise.
+    // WHY: max stays 10 (not raised): Neon free-tier connection caps are tight;
+    // a config-driven bump without a verified higher allowance risks exhausting
+    // the project quota and failing unrelated queries. Leave alone until measured.
     _pool = new Pool({
       connectionString: env.DATABASE_URL,
       max: 10,
@@ -53,7 +56,7 @@ function initDb(): DbInstance | null {
   return _db;
 }
 
-// WHY eager init (not Proxy): callers across the codebase gate on `if (db)`.
+// WHY: eager init (not Proxy): callers across the codebase gate on `if (db)`.
 // A Proxy object is always truthy even when the backing instance is null.
 export const db: DbInstance | null = initDb();
 

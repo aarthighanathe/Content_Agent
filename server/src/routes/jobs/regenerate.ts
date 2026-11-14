@@ -1,4 +1,4 @@
-// WHY a separate sub-router, not inline in manage.ts: extracted 2026-08-10 to
+// WHY: a separate sub-router, not inline in manage.ts: extracted 2026-08-10 to
 // keep manage.ts under the 400-line split threshold — same "split when it
 // grows, mirror the routes/jobs/ sub-router pattern" convention as
 // render.ts/stream.ts/insights.ts/versions.ts. manage.ts already went through
@@ -6,14 +6,13 @@
 // regrew past the cap; these two handlers were the heaviest remaining ones.
 import * as Sentry from '@sentry/node';
 import { Router, Response, NextFunction } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../../middleware/auth.js';
 import { sseManager } from '../../lib/sse.js';
 import { addJobToQueueDetailed } from '../../lib/queue.js';
 import { getUserProfile } from '../users.js';
 import { db } from '../../db/index.js';
 import { jobOutputVersions } from '../../db/schema.js';
-import { requireJobOwnership, lookupOwnedJob, setJobInStore, getJobFromStore, jobsMemory } from './ownership.js';
+import { requireJobOwnership, lookupOwnedJob, setJobInStore, getJobFromStore, jobsMemory, requireAuthUserId } from './ownership.js';
 import type { AssembledJob, MemoryJob } from './ownership.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
 import { runPipelineDirect } from './create.js';
@@ -22,11 +21,12 @@ import type { OrchestratorResult } from '../../agents/orchestrator.js';
 import { z } from 'zod';
 import { parseBody, regenerateJobSchema, multiplyJobSchema } from '../../schemas/index.js';
 import { authJobRateLimit } from '../../middleware/rateLimit.js';
-import { insertPendingJobRow, isValidTone } from '../../lib/persistJob.js';
+import { isValidTone } from '../../lib/persistJob.js';
 import { cancelJobEviction } from '../../lib/jobEviction.js';
 import { logger } from '../../lib/logger.js';
 import { readOutputs } from '../content/shared.js';
-import { collectRelatedVariants, pickVariantForPlatform } from './related.js';
+import { claimJobForRegenerate, releaseRegenerateClaim } from '../../lib/regenerateClaim.js';
+import { createMultiplyAdaptJob } from './multiplyAdapt.js';
 
 function isMemoryInProgress(jobId: string): boolean {
   const mem = getJobFromStore(jobId) || jobsMemory.get(jobId);
@@ -47,7 +47,7 @@ function applyGenerationRateLimit(req: AuthRequest, res: Response, next: NextFun
   });
 }
 
-// WHY shared by both /regenerate and /multiply: both carry a source job's
+// WHY: shared by both /regenerate and /multiply: both carry a source job's
 // tone/targetAudience straight into a fresh pipeline run with no schema
 // re-check (the request-body schemas only validate their own new fields). A
 // legacy row whose tone predates a VALID_TONES vocabulary change, or a null
@@ -108,7 +108,7 @@ function jobSourceId(job: MemoryJob | AssembledJob): string | null {
   return typeof job.sourceJobId === 'string' ? job.sourceJobId : null;
 }
 
-// WHY walk sourceJobId: Adapt (multiply) jobs skip orchestrator+researcher and
+// WHY: walk sourceJobId: Adapt (multiply) jobs skip orchestrator+researcher and
 // used to persist no research row — multiplying from an adapted LinkedIn/Twitter
 // job then failed with "No cached research". Follow the lineage back to the
 // original Create/Repurpose job that still has the researcher output (cap the
@@ -141,12 +141,21 @@ async function loadCachedResearchBundle(
 
 // POST /:jobId/regenerate
 router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequest, res: Response) => {
+  // WHY: claim may succeed then enqueue throw — catch must release pending claim
+  // and restore jobsMemory (active-queue branch already does both).
+  let claimedForRollback: {
+    jobId: string;
+    userId: string;
+    priorStatus: 'done' | 'failed';
+    priorMemory: MemoryJob;
+  } | null = null;
   try {
     const jobId = req.params.jobId as string;
     const body = parseBody(regenerateJobSchema, req.body, res);
     if (!body) return;
     const { feedback } = body;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
 
     const existingJob = await requireJobOwnership(jobId, userId, res);
     if (!existingJob) return;
@@ -159,14 +168,96 @@ router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequ
       });
     }
 
-    // WHY snapshot here, not in persistJobToDB: persistJobToDB unconditionally
+    const regenProfile = await getUserProfile(userId);
+    // WHY: no outputs/logs/criticResult here: those only exist on the terminal
+    // PersistedJobResult shape (status 'done'|'failed'); a fresh regenerate is
+    // PipelineJob-shaped with status 'pending' — nothing reads those fields
+    // until runAndPersistPipeline replaces this Map entry with the real result.
+    // WHY: copy template/palette/source lineage: omitting them made Result fall
+    // back to the legacy theme for 10 minutes (memory preferred over DB) and
+    // a thin first insert permanently stored nulls on conflict.
+    const job: PipelineJob = {
+      id: jobId, userId, topic: existingJob.topic, platform: existingJob.platform,
+      tone: existingJob.tone ?? undefined, targetAudience: existingJob.targetAudience ?? undefined,
+      brandVoice: regenProfile.brandVoice || existingJob.brandVoice || 'professional',
+      phrasesUse: regenProfile.phrasesUse || existingJob.phrasesUse || '',
+      phrasesAvoid: regenProfile.phrasesAvoid || existingJob.phrasesAvoid || '',
+      contentDna: regenProfile.contentDna || existingJob.contentDna || null,
+      templateId: existingJob.templateId ?? null,
+      paletteId: existingJob.paletteId ?? null,
+      tag: existingJob.tag ?? null,
+      sourceJobId: existingJob.sourceJobId ?? null,
+      sourcePlatform: existingJob.sourcePlatform ?? undefined,
+      sourceUrl: existingJob.sourceUrl ?? null,
+      sourceCompetitorAnalysisId: existingJob.sourceCompetitorAnalysisId ?? null,
+      status: 'pending', retryCount: 0,
+      createdAt: typeof existingJob.createdAt === 'string' ? existingJob.createdAt : existingJob.createdAt?.toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // WHY: memory check too (CORR-005): BullMQ 'active' only covers Redis mode —
+    // no-Redis / Adapt direct pipelines never hit the queue and could start a
+    // second run that wiped the in-flight UI.
+    if (isMemoryInProgress(jobId)) {
+      return res.status(409).json({
+        error: 'This job is still generating — wait for it to finish before regenerating',
+        code: 'JOB_IN_PROGRESS',
+        retryable: true,
+      });
+    }
+
+    // WHY: (R3): atomic claim before snapshot/wipe/enqueue — two concurrent
+    // regenerates used to both pass TOCTOU checks, both wipe memory, and race
+    // the pipeline. UPDATE…RETURNING claims only from terminal statuses.
+    const claim = await claimJobForRegenerate(jobId, userId);
+    if (claim === 'error') {
+      Sentry.captureMessage('regenerate atomic claim failed', {
+        tags: { route: 'POST /:jobId/regenerate', action: 'atomic-claim' },
+        extra: { jobId, userId },
+      });
+      return res.status(500).json({
+        error: 'Failed to regenerate',
+        code: 'SERVER_ERROR',
+        retryable: true,
+      });
+    }
+    if (claim === 'no-db') {
+      return res.status(503).json({
+        error: 'Database unavailable — try again shortly',
+        code: 'SERVICE_UNAVAILABLE',
+        retryable: true,
+      });
+    }
+    if (claim === 'busy') {
+      return res.status(409).json({
+        error: 'This job is still generating — wait for it to finish before regenerating',
+        code: 'JOB_IN_PROGRESS',
+        retryable: true,
+      });
+    }
+
+    const priorStatus = existingJob.status === 'failed' ? 'failed' : 'done';
+    if (claim === 'claimed') {
+      claimedForRollback = {
+        jobId,
+        userId,
+        priorStatus,
+        priorMemory: { ...existingJob, status: priorStatus } as MemoryJob,
+      };
+    }
+
+    // WHY: snapshot AFTER the atomic claim: a rejected regenerate used to leave
+    // a spurious 'Before regenerate' version behind for a run that never started.
+    // Still precedes any pipeline start (direct mode begins below; a queued
+    // worker only overwrites outputs at terminal persist), so nothing is lost.
+    // WHY: snapshot here, not in persistJobToDB: persistJobToDB unconditionally
     // deletes+re-inserts contentOutputs on every persist (every job
     // completion, not just regenerates) — changing that shared path is a much
     // larger blast radius than needed just to keep regenerate history. This is
     // the one call site that actually destroys a previous result the user
     // might want back, so the snapshot lives here, immediately before the
     // in-memory job (and eventually its DB row) gets overwritten by the new run.
-    // WHY best-effort, not blocking regenerate on failure: losing the ability
+    // WHY: best-effort, not blocking regenerate on failure: losing the ability
     // to look back at a previous version is worse UX than blocking a
     // regeneration the user explicitly asked for — same "don't fail the whole
     // request over a non-critical side write" stance as the scheduled_posts
@@ -191,71 +282,46 @@ router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequ
       }
     }
 
-    const regenProfile = await getUserProfile(userId);
-    // WHY no outputs/logs/criticResult here: those only exist on the terminal
-    // PersistedJobResult shape (status 'done'|'failed'); a fresh regenerate is
-    // PipelineJob-shaped with status 'pending' — nothing reads those fields
-    // until runAndPersistPipeline replaces this Map entry with the real result.
-    // WHY copy template/palette/source lineage: omitting them made Result fall
-    // back to the legacy theme for 10 minutes (memory preferred over DB) and
-    // a thin first insert permanently stored nulls on conflict.
-    const job: PipelineJob = {
-      id: jobId, userId, topic: existingJob.topic, platform: existingJob.platform,
-      tone: existingJob.tone ?? undefined, targetAudience: existingJob.targetAudience ?? undefined,
-      brandVoice: regenProfile.brandVoice || existingJob.brandVoice || 'professional',
-      phrasesUse: regenProfile.phrasesUse || existingJob.phrasesUse || '',
-      phrasesAvoid: regenProfile.phrasesAvoid || existingJob.phrasesAvoid || '',
-      contentDna: regenProfile.contentDna || existingJob.contentDna || null,
-      templateId: existingJob.templateId ?? null,
-      paletteId: existingJob.paletteId ?? null,
-      tag: existingJob.tag ?? null,
-      sourceJobId: existingJob.sourceJobId ?? null,
-      sourcePlatform: existingJob.sourcePlatform ?? undefined,
-      sourceUrl: existingJob.sourceUrl ?? null,
-      sourceCompetitorAnalysisId: existingJob.sourceCompetitorAnalysisId ?? null,
-      status: 'pending', retryCount: 0,
-      createdAt: typeof existingJob.createdAt === 'string' ? existingJob.createdAt : existingJob.createdAt?.toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // WHY memory check too (CORR-005): BullMQ 'active' only covers Redis mode —
-    // no-Redis / Adapt direct pipelines never hit the queue and could start a
-    // second run that wiped the in-flight UI.
-    if (isMemoryInProgress(jobId)) {
-      return res.status(409).json({
-        error: 'This job is still generating — wait for it to finish before regenerating',
-        code: 'JOB_IN_PROGRESS',
-        retryable: true,
-      });
-    }
-
-    // WHY check the queue BEFORE wiping memory: if the job is still active,
-    // refusing after clearing outputs left the UI on "Generating" with the
-    // old result gone and no new run accepted.
-    const queueResult = await addJobToQueueDetailed(jobId, { ...job, initialFeedback: feedback });
-    if (queueResult === 'active') {
-      return res.status(409).json({
-        error: 'This job is still generating — wait for it to finish before regenerating',
-        code: 'JOB_IN_PROGRESS',
-        retryable: true,
-      });
-    }
-
     cancelJobEviction(jobId);
     setJobInStore(jobId, job);
+
+    // WHY: enqueue after claim+memory wipe: addJobToQueueDetailed still returns
+    // 'active' if a stale BullMQ lock remains — refuse a second pipeline then.
+    const queueResult = await addJobToQueueDetailed(jobId, { ...job, initialFeedback: feedback });
+    if (queueResult === 'active') {
+      // WHY: claim + memory wipe already happened — without rollback the row
+      // stays pending and Result shows a fake in-progress job until stale sweep.
+      await releaseRegenerateClaim(jobId, userId, priorStatus);
+      claimedForRollback = null;
+      setJobInStore(jobId, { ...existingJob, status: priorStatus } as MemoryJob);
+      return res.status(409).json({
+        error: 'This job is still generating — wait for it to finish before regenerating',
+        code: 'JOB_IN_PROGRESS',
+        retryable: true,
+      });
+    }
 
     sseManager.sendEvent(jobId, { type: 'progress', stage: 'planning', progress: 2, agent: 'system', message: 'Regeneration started…' });
 
     if (queueResult === 'unavailable') {
-      // WHY .catch(): guards against unhandled rejection if acquirePipelineSlot()
+      // WHY: .catch(): guards against unhandled rejection if acquirePipelineSlot()
       // or the pipeline throws before its internal try/finally captures the error
       // (matches the multiply handler's pattern below and create.ts's own WHY comment).
       runPipelineDirect(jobId, { ...job, initialFeedback: feedback }).catch((err: unknown) => {
         logger.error('Regenerate pipeline failed', { jobId, error: err instanceof Error ? err.message : String(err) });
       });
     }
+    claimedForRollback = null;
     return res.json({ success: true });
   } catch (error) {
+    if (claimedForRollback) {
+      await releaseRegenerateClaim(
+        claimedForRollback.jobId,
+        claimedForRollback.userId,
+        claimedForRollback.priorStatus,
+      ).catch(() => undefined);
+      setJobInStore(claimedForRollback.jobId, claimedForRollback.priorMemory);
+    }
     return res.status(500).json({ error: 'Failed to regenerate', code: 'SERVER_ERROR', retryable: true });
   }
 });
@@ -267,7 +333,8 @@ router.post('/:jobId/multiply', applyGenerationRateLimit, async (req: AuthReques
     const body = parseBody(multiplyJobSchema, req.body, res);
     if (!body) return;
     const { targetPlatform } = body;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
 
     const sourceJob = await requireJobOwnership(jobId, userId, res);
     if (!sourceJob) return;
@@ -281,8 +348,6 @@ router.post('/:jobId/multiply', applyGenerationRateLimit, async (req: AuthReques
     }
 
     const cached = await loadCachedResearchBundle(sourceJob, userId, res);
-    // WHY null after ownership 404: loadCachedResearchBundle already sent the
-    // response — bail without a second write.
     if (res.headersSent) return;
     if (!cached) {
       return res.status(400).json({
@@ -291,70 +356,28 @@ router.post('/:jobId/multiply', applyGenerationRateLimit, async (req: AuthReques
         retryable: false,
       });
     }
-    const cachedResearch = cached.research;
-    const cachedOrchestrator = cached.orchestrator;
-
-    // WHY reuse a done sibling: Adapt LinkedIn → Carousel → Caption used to
-    // create a second Caption when opening Adapt from Carousel, so the family
-    // had duplicates and Open only worked for session-local multiplyJobs. If
-    // this research tree already has a finished job for targetPlatform, return
-    // that id so every Result page shares the same Open links.
-    const family = await collectRelatedVariants(sourceJob, userId, res);
-    if (res.headersSent) return;
-    if (family) {
-      const existing = pickVariantForPlatform(family.variants, targetPlatform, jobId);
-      if (existing && existing.status === 'done') {
-        return res.status(200).json({ jobId: existing.jobId, reused: true });
-      }
-      // WHY 409 on in-flight sibling (CORR-005): Adapt used to spawn a second
-      // job for the same target while the first was still generating.
-      if (existing && isMemoryInProgress(existing.jobId)) {
-        return res.status(409).json({
-          error: 'An Adapt job for this platform is already generating',
-          code: 'JOB_IN_PROGRESS',
-          retryable: true,
-          jobId: existing.jobId,
-        });
-      }
-    }
-
-    const newJobId = uuidv4();
-    const userProfile = await getUserProfile(userId);
-    const newJob: PipelineJob = {
-      id: newJobId, userId, topic: sourceJob.topic, platform: targetPlatform,
-      tone: sourceJob.tone ?? undefined, targetAudience: sourceJob.targetAudience ?? undefined,
-      brandVoice: userProfile.brandVoice || sourceJob.brandVoice || 'professional',
-      phrasesUse: userProfile.phrasesUse || sourceJob.phrasesUse || '',
-      phrasesAvoid: userProfile.phrasesAvoid || sourceJob.phrasesAvoid || '',
-      contentDna: userProfile.contentDna || sourceJob.contentDna || null,
-      sourceJobId: jobId, sourcePlatform: sourceJob.platform,
-      status: 'pending', retryCount: 0, deleted: 0,
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    };
-
-    setJobInStore(newJobId, newJob);
-    await insertPendingJobRow(newJob);
-
-    // FLOW: Content Multiplier skips orchestrator+researcher — it reuses the
-    // source job's cached research/task-plan/platform-rules and starts
-    // runContentPipeline directly at the Writer stage (see pipeline.ts's
-    // `skipResearch` option). WHY runPipelineDirect (not bare
-    // runAndPersistPipeline): Adapt used to ignore MAX_DIRECT_PIPELINES and
-    // never entered BullMQ, so several adapts at once were uncapped Gemini
-    // runs on the API process. Direct mode still applies the slot cap; Redis
-    // queue for skipResearch would need a serialized research payload on the
-    // worker (not yet wired — Adapt stays in-process but gated).
-    runPipelineDirect(newJobId, newJob, {
-      skipResearch: {
-        researchResult: cachedResearch,
-        taskPlan: cachedOrchestrator?.taskPlan || `Create engaging ${targetPlatform.replace(/_/g, ' ')} content about: ${sourceJob.topic}`,
-        platformRules: cachedOrchestrator?.platformRules || {},
-      },
-    }).catch((err: unknown) => {
-      logger.error('Multiply pipeline failed', { jobId: newJobId, error: err instanceof Error ? err.message : String(err) });
+    const result = await createMultiplyAdaptJob({
+      sourceJob,
+      sourceJobId: jobId,
+      userId,
+      targetPlatform,
+      cachedResearch: cached.research,
+      cachedOrchestrator: cached.orchestrator,
+      res,
     });
-
-    return res.status(201).json({ jobId: newJobId });
+    if (result.kind === 'headers_sent') return;
+    if (result.kind === 'reused') {
+      return res.status(200).json({ jobId: result.jobId, reused: true });
+    }
+    if (result.kind === 'in_progress') {
+      return res.status(409).json({
+        error: 'An Adapt job for this platform is already generating',
+        code: 'JOB_IN_PROGRESS',
+        retryable: true,
+        ...(result.jobId ? { jobId: result.jobId } : {}),
+      });
+    }
+    return res.status(201).json({ jobId: result.jobId });
   } catch (error: unknown) {
     console.error('Failed to multiply job:', error);
     Sentry.captureException(error, { tags: { route: 'POST /:jobId/multiply' } });

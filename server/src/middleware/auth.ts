@@ -15,7 +15,7 @@ export interface AuthRequest extends Request {
 const authCache = new Map<string, { dbUserId: string; expiresAt: number }>();
 const AUTH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes — balanced between freshness and DB load
 
-// WHY a hard cap: authCache is otherwise never bounded — it only ever grows with
+// WHY: a hard cap: authCache is otherwise never bounded — it only ever grows with
 // total distinct signups, since entries are read/set but never deleted on their
 // own. A Map preserves insertion order, so the oldest entry is always
 // `authCache.keys().next().value`; evicting it on overflow gives simple LRU-ish
@@ -31,7 +31,7 @@ function setAuthCacheEntry(clerkUserId: string, dbUserId: string): void {
   authCache.set(clerkUserId, { dbUserId, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
 }
 
-// WHY exported: called by routes/users/account.ts's DELETE /me, right after
+// WHY: exported: called by routes/users/account.ts's DELETE /me, right after
 // its deletion transaction commits, to evict a stale Clerk ID → dbUserId
 // mapping immediately rather than waiting out the 5-minute TTL — otherwise a
 // deleted user's requests (bearing a still-valid Clerk session token) would
@@ -72,7 +72,7 @@ export async function authMiddleware(
         if (existingUser) {
           dbId = existingUser.id;
         } else {
-          // WHY onConflictDoNothing + re-select: two concurrent requests from a
+          // WHY: onConflictDoNothing + re-select: two concurrent requests from a
           // brand-new user (e.g. two tabs firing in the same few hundred ms) can
           // both miss the findFirst above and both reach this insert. A plain
           // insert would let the second one throw on the clerkId unique

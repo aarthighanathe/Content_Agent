@@ -237,12 +237,37 @@ describe('runResearcher — parallel search handling (Promise.allSettled)', () =
     const { searchTavily } = await import('../../src/lib/ai.js');
     vi.mocked(searchTavily).mockRejectedValue(new Error('timeout'));
 
+    const { sseManager } = await import('../../src/lib/sse.js');
     const { runResearcher } = await import('../../src/agents/researcher.js');
     const result = await runResearcher(MOCK_JOB, QUERIES);
 
     expect(result.trendingAngles).toHaveLength(0);
     expect(result.keyFacts).toHaveLength(0);
     expect(result.rawResults).toHaveLength(0);
+    // M4: surface thin/empty research so Result is not blind to failed Tavily
+    expect(sseManager.sendEvent).toHaveBeenCalledWith(
+      MOCK_JOB.id,
+      expect.objectContaining({
+        agent: 'researcher',
+        message: 'Research returned no sources — continuing with topic only',
+      }),
+    );
+  });
+
+  it('emits thin-research SSE when Tavily returns empty result sets', async () => {
+    const { searchTavily } = await import('../../src/lib/ai.js');
+    vi.mocked(searchTavily).mockResolvedValue({ results: [] });
+
+    const { sseManager } = await import('../../src/lib/sse.js');
+    const { runResearcher } = await import('../../src/agents/researcher.js');
+    await runResearcher(MOCK_JOB, QUERIES);
+
+    expect(sseManager.sendEvent).toHaveBeenCalledWith(
+      MOCK_JOB.id,
+      expect.objectContaining({
+        message: 'Research returned no sources — continuing with topic only',
+      }),
+    );
   });
 
   it('only searches the first 3 queries even if more are provided', async () => {

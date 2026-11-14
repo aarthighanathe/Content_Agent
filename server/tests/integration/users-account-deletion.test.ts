@@ -37,7 +37,13 @@ vi.mock('../../src/config.js', () => ({
 }));
 
 vi.mock('../../src/lib/ai.js', () => ({ generateWithAI: vi.fn() }));
-vi.mock('../../src/routes/jobs/index.js', () => ({ jobsMemory: new Map() }));
+const mockJobsMemory = vi.hoisted(() => new Map());
+vi.mock('../../src/routes/jobs/index.js', () => ({ jobsMemory: mockJobsMemory }));
+vi.mock('../../src/lib/jobStore.js', () => ({
+  jobsMemory: mockJobsMemory,
+  getJobFromStore: vi.fn(),
+  setJobInStore: vi.fn(),
+}));
 
 const deleteCalls: string[] = [];
 const jobRowsInDb = [{ id: 'job-1' }, { id: 'job-2' }];

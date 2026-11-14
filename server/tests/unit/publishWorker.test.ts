@@ -170,9 +170,10 @@ describe('processPublishJob (real module)', () => {
     const { processPublishJob } = await import('../../src/workers/publishWorker.js');
     await expect(processPublishJob(makeJob({ scheduledPostId: 'sp-1' }))).resolves.toBeUndefined();
 
+    // SECURITY (SEC-002): provider text is logged, not stored in publishError.
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
       publishStatus: 'failed',
-      publishError: expect.stringContaining('LinkedIn API rate limited'),
+      publishError: 'Publishing failed — please reconnect the account or try again',
     }));
   });
 
@@ -201,7 +202,7 @@ describe('processPublishJob (real module)', () => {
     expect(publishToSocialPlatform).not.toHaveBeenCalled();
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
       publishStatus: 'failed',
-      publishError: expect.stringContaining('No final content'),
+      publishError: 'This job has no publishable content',
     }));
   });
 });

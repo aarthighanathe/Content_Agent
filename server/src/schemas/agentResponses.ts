@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CS, CN } from './coercion.js';
 
-// WHY this file exists: CLAUDE.md forbids `any` (including under "Hard Stops"), but
+// WHY: this file exists: CLAUDE.md forbids `any` (including under "Hard Stops"), but
 // agents/critic.ts and agents/writer.ts both used `let parsed: any` at the exact
 // boundary where raw LLM JSON is parsed into structured data — the same class of
 // boundary that produced the critic.ts score-clamping bug (an out-of-spec
@@ -9,7 +9,7 @@ import { CS, CN } from './coercion.js';
 // that boundary a documented shape AND a runtime check, instead of a type annotation
 // that only exists at compile time and says nothing about what the LLM actually sent.
 //
-// WHY .safeParse() + fallback rather than throwing on a shape mismatch: both
+// WHY: .safeParse() + fallback rather than throwing on a shape mismatch: both
 // critic.ts and writer.ts already have an existing "if parsing fails, degrade to a
 // safe default" path for JSON.parse() failures — a schema mismatch is treated as the
 // same class of failure (untrustworthy LLM output) and folds into that same fallback,
@@ -17,7 +17,7 @@ import { CS, CN } from './coercion.js';
 // parsing stricter than it already effectively was via clampScore/fallback objects,
 // it just makes the "untrustworthy shape" check real instead of implicit.
 //
-// WHY every leaf field across every schema in this file is wrapped in
+// WHY: every leaf field across every schema in this file is wrapped in
 // .catch(default) (via the CS/CN helpers below) rather than left as bare
 // .optional(): Zod's default behavior is all-or-nothing per object/array — ONE
 // malformed field fails validation for the entire structure containing it. See
@@ -27,11 +27,9 @@ import { CS, CN } from './coercion.js';
 // the ones where a bug was first caught. CS/CN themselves live in ./coercion.js,
 // shared with contentResponses.ts's standalone-tool schemas.
 
-// ─── Orchestrator ────────────────────────────────────────────────────────────
-
 export const orchestratorResponseSchema = z.object({
   taskPlan: CS().optional(),
-  // WHY .catch([]) on the array (not just CS() on each string element): a
+  // WHY: .catch([]) on the array (not just CS() on each string element): a
   // malformed searchQueries value (e.g. the LLM returns a string instead of an
   // array) should degrade to an empty array — orchestrator.ts's own fallback logic
   // already treats `parsed.searchQueries?.length >= 1` as the signal to use a
@@ -42,9 +40,7 @@ export const orchestratorResponseSchema = z.object({
 
 export type OrchestratorResponse = z.infer<typeof orchestratorResponseSchema>;
 
-// ─── Critic ──────────────────────────────────────────────────────────────────
-
-// WHY z.number().catch(0) per field (not .optional() alone, not .int().min(0).max(20)):
+// WHY: z.number().catch(0) per field (not .optional() alone, not .int().min(0).max(20)):
 // the real consumer (critic.ts's clampScore) already tolerates missing/out-of-range/
 // non-numeric values by coercing through `Number(n) || 0` and clamping to 0-20 —
 // rejecting the WHOLE response for one bad field (e.g. "hookStrength": "n/a") would be
@@ -55,7 +51,7 @@ export type OrchestratorResponse = z.infer<typeof orchestratorResponseSchema>;
 // here on purpose — that's what clampScore's own 0-20 clamp exists to handle,
 // keeping this schema's job scoped to "is it shaped like a number" only.
 export const criticResponseSchema = z.object({
-  // WHY CN() (coerce+catch), not bare z.number().catch(0): an LLM that returns
+  // WHY: CN() (coerce+catch), not bare z.number().catch(0): an LLM that returns
   // "hookStrength": "18" used to parse as success with that dimension set to 0
   // because z.number() rejects strings and .catch(0) fires. Coerce keeps the
   // real score. feedback uses CS so null/omitted become '' instead of failing
@@ -71,8 +67,7 @@ export const criticResponseSchema = z.object({
 
 export type CriticResponse = z.infer<typeof criticResponseSchema>;
 
-// ─── Content DNA ─────────────────────────────────────────────────────────────
-// WHY here, not schemas/users.ts: this is the exact JSON contract users.ts's
+// WHY: here, not schemas/users.ts: this is the exact JSON contract users.ts's
 // POST /analyze-voice prompts the LLM for (see routes/users.ts) — a genuine
 // LLM-response-parsing boundary, same class as critic/writer. It's placed in this
 // file (rather than a request-body schema file) because writer.ts is what actually
@@ -104,14 +99,13 @@ export const contentDnaSchema = z.object({
   keyPhrasePatterns: z.array(CS()).catch([]).optional(),
 }) satisfies z.ZodType<ContentDna>;
 
-// ─── Writer ──────────────────────────────────────────────────────────────────
 // NOTE: content shapes differ per platform — this mirrors the same reasoning as
 // patchContentSchema in schemas/jobs.ts, just for the LLM's raw response instead of
 // a client PATCH body. Each platform schema is intentionally loose (optional fields,
 // no length caps) since this is pre-formatter/pre-render raw model output, not the
 // render-time shape schemas/jobs.ts's slideDataSchema already guards downstream.
 //
-// WHY .catch() on every leaf field AND every array/nested-object, not just the top
+// WHY: .catch() on every leaf field AND every array/nested-object, not just the top
 // level: z.array()/z.object() are all-or-nothing by default — ONE malformed field
 // anywhere (e.g. a numeric headline instead of a string on slide 5 of 8, or a single
 // bad item in a points array) fails validation for the ENTIRE structure containing
@@ -146,7 +140,7 @@ export const writerCarouselSlideSchema = z.object({
     .optional(),
 });
 
-// WHY .catch({}) per slide (inside the array below), not just .catch([]) on the
+// WHY: .catch({}) per slide (inside the array below), not just .catch([]) on the
 // array itself: without a per-element fallback, one genuinely unparseable slide
 // (e.g. a bare string instead of an object) would still need the WHOLE array to
 // fail before .catch([]) on the array kicks in, wiping out every other real slide
@@ -158,7 +152,7 @@ export const writerCarouselResponseSchema = z
 
 export const writerLinkedInResponseSchema = z.object({
   hook: CS().optional(),
-  // WHY optional hookAlt: Result LinkedInContent already exposes an A/B hook
+  // WHY: optional hookAlt: Result LinkedInContent already exposes an A/B hook
   // toggle; without this field zod stripped the writer's second hook.
   hookAlt: CS().optional(),
   body: CS().optional(),
@@ -227,7 +221,7 @@ export type WriterTwitterResponse = z.infer<typeof writerTwitterResponseSchema>;
 export type WriterInstagramCaptionResponse = z.infer<typeof writerInstagramCaptionResponseSchema>;
 export type WriterVideoScriptResponse = z.infer<typeof writerVideoScriptResponseSchema>;
 
-// WHY a union rather than one schema per call site: runWriter's return type is
+// WHY: a union rather than one schema per call site: runWriter's return type is
 // genuinely platform-dependent (an array for carousels, an object shape that varies
 // by platform otherwise) — this union is what replaces writer.ts's
 // `Promise<any>` return type with something real.
@@ -238,9 +232,7 @@ export type WriterResponse =
   | WriterInstagramCaptionResponse
   | WriterVideoScriptResponse;
 
-// ─── Performance Predictor ────────────────────────────────────────────────────
-
-// WHY z.enum(...).catch('medium') for tier specifically (not CS()): the original
+// WHY: z.enum(...).catch('medium') for tier specifically (not CS()): the original
 // code validated this with `['high','medium','low'].includes(parsed.tier) ?
 // parsed.tier : 'medium'` — an enum membership check with a fallback, not a
 // string coercion. z.enum(...).catch() reproduces that exact check-and-fallback

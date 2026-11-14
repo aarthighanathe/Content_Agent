@@ -512,14 +512,37 @@ describe('browser pool — via renderSlideWithPuppeteer / closeBrowserPool', () 
     await mod.renderSlideWithPuppeteer('<div>hello</div>');
     expect(requestHandler).toBeDefined();
 
+    // SECURITY: only data:/about: schemes are allowed now (fonts/images inlined).
     for (const type of ['script', 'xhr', 'fetch', 'websocket', 'other']) {
-      requestHandler!({ resourceType: () => type, abort, continue: continueReq });
+      requestHandler!({
+        resourceType: () => type,
+        url: () => 'https://evil.example/x',
+        abort,
+        continue: continueReq,
+      });
     }
-    for (const type of ['document', 'stylesheet', 'font']) {
-      requestHandler!({ resourceType: () => type, abort, continue: continueReq });
+    for (const type of ['document', 'stylesheet', 'font', 'image']) {
+      requestHandler!({
+        resourceType: () => type,
+        url: () => 'https://cdn.example/asset',
+        abort,
+        continue: continueReq,
+      });
     }
-    expect(abort).toHaveBeenCalledTimes(5);
-    expect(continueReq).toHaveBeenCalledTimes(3);
+    requestHandler!({
+      resourceType: () => 'document',
+      url: () => 'data:text/html,ok',
+      abort,
+      continue: continueReq,
+    });
+    requestHandler!({
+      resourceType: () => 'stylesheet',
+      url: () => 'about:blank',
+      abort,
+      continue: continueReq,
+    });
+    expect(abort).toHaveBeenCalledTimes(9);
+    expect(continueReq).toHaveBeenCalledTimes(2);
   });
 
   it('closeBrowserPool() closes every pooled browser', async () => {

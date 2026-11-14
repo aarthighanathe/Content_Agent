@@ -1,14 +1,15 @@
 // workers/feedMonitorWorker.ts — polls active feed_monitors rows every 30 min,
 // parses RSS/Atom XML, and creates a Repurpose job for each new item.
 //
-// WHY node-cron (not BullMQ): feed checking is not "work that can be retried
+// WHY: node-cron (not BullMQ): feed checking is not "work that can be retried
 // from a queue" — it's a recurring scheduled scan. BullMQ's repeatable jobs
 // add the overhead of a Bull queue + worker process for what is essentially
 // a setInterval. node-cron gives us the same cron-syntax schedule in ~0 deps.
 //
-// WHY rss-parser: it handles both RSS 2.0 and Atom 1.0, normalises item.guid
+// WHY: rss-parser: it handles both RSS 2.0 and Atom 1.0, normalises item.guid
 // (which is the dedupe key), and handles edge-cases like CDATA and namespaced
 // tags that a hand-rolled regex would get wrong.
+import { randomUUID } from 'node:crypto';
 import * as Sentry from '@sentry/node';
 import cron from 'node-cron';
 import type Parser from 'rss-parser';
@@ -17,13 +18,18 @@ import { feedMonitors, users, type FeedMonitor } from '../db/schema.js';
 import { db } from '../db/index.js';
 import { getUserProfile } from '../routes/users.js';
 import { fetchAndExtractArticle, createJobsForPlatforms } from '../routes/content/repurpose.js';
-import { assertUrlIsPublic, formatFetchError } from '../lib/ssrfGuard.js';
+import {
+  assertUrlIsPublic,
+  formatFetchError,
+  toClientFetchFailureMessage,
+} from '../lib/ssrfGuard.js';
+import { CLIENT_FEED_JOB_FAILURE } from '../lib/clientErrors.js';
 import { fetchFeedXml, parseFeedXml } from '../lib/feedFetch.js';
 import { getRedisClient } from '../lib/redisClient.js';
 import { reserveGenerationBudget, releaseGenerationBudget } from '../middleware/rateLimit.js';
 import { logger } from '../lib/logger.js';
 
-// WHY a typeof guard, not a bare `as string` cast: rss-parser types every
+// WHY: a typeof guard, not a bare `as string` cast: rss-parser types every
 // custom/namespaced field (pubDate/guid/link) as `unknown` on
 // Parser.Output<Record<string, unknown>> — a malformed feed could send a
 // non-string value through, which a bare cast would silently trust and let
@@ -32,36 +38,76 @@ function asOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-// WHY exported: POST /api/feed-monitors/:id/check calls this directly so a
+// WHY: Lua: compare-and-delete/extend must be atomic so a check whose lock TTL
+// expired can never delete or extend a lock now owned by a different check.
+const RELEASE_LOCK_LUA =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+const RENEW_LOCK_LUA =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end";
+const FEED_LOCK_TTL_SECONDS = 300;
+const FEED_LOCK_RENEW_MS = 60_000;
+
+// WHY: exported: POST /api/feed-monitors/:id/check calls this directly so a
 // user can trigger an on-demand check without waiting for the cron tick.
 export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Promise<void> {
   if (!db) return;
 
   // SECURITY: single-flight lock so cron + POST /:id/check cannot race and
-  // create duplicate jobs for the same new feed item (SEC-005).
+  // create duplicate jobs for the same new feed item. Fail closed without Redis
+  // (or on lock error) — continuing unlocked caused duplicate generations.
   const redis = getRedisClient();
   const lockKey = `feed:check:${monitor.id}`;
-  if (redis) {
+  if (!redis) {
+    logger.warn('[FeedMonitor] Redis unavailable — refusing check without lock', {
+      monitorId: monitor.id,
+    });
     try {
-      const got = await redis.set(lockKey, '1', 'EX', 120, 'NX');
-      if (got !== 'OK') {
-        logger.info('[FeedMonitor] Check already in progress, skipping', { monitorId: monitor.id });
-        return;
-      }
-    } catch (err: unknown) {
-      logger.warn('[FeedMonitor] Lock acquire failed — continuing without lock', {
-        monitorId: monitor.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      await db.update(feedMonitors)
+        .set({
+          lastCheckedAt: new Date(),
+          lastError: 'Feed check unavailable — please try again shortly',
+        })
+        .where(eq(feedMonitors.id, monitor.id));
+    } catch {
+      // best-effort UI signal
     }
+    return;
   }
 
+  let lockHeld = false;
+  // SECURITY: unique token proves ownership on release (no blind del).
+  const lockToken = randomUUID();
+  try {
+    const got = await redis.set(lockKey, lockToken, 'EX', FEED_LOCK_TTL_SECONDS, 'NX');
+    if (got !== 'OK') {
+      logger.info('[FeedMonitor] Check already in progress, skipping', { monitorId: monitor.id });
+      return;
+    }
+    lockHeld = true;
+  } catch (err: unknown) {
+    logger.warn('[FeedMonitor] Lock acquire failed — refusing check', {
+      monitorId: monitor.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  // WHY: renew: a slow feed + extraction + job creation can outlast the TTL,
+  // letting a second check start; heartbeat keeps the lock while we still own it.
+  const renewTimer = setInterval(() => {
+    redis
+      .eval(RENEW_LOCK_LUA, 1, lockKey, lockToken, String(FEED_LOCK_TTL_SECONDS))
+      .catch(() => {
+        // best-effort; TTL still bounds the lock
+      });
+  }, FEED_LOCK_RENEW_MS);
   try {
     await runFeedMonitorCheck(monitor, userId);
   } finally {
-    if (redis) {
+    clearInterval(renewTimer);
+    if (lockHeld) {
       try {
-        await redis.del(lockKey);
+        await redis.eval(RELEASE_LOCK_LUA, 1, lockKey, lockToken);
       } catch {
         // lock TTL will expire
       }
@@ -89,7 +135,7 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     await db.delete(feedMonitors).where(eq(feedMonitors.id, monitor.id));
     return;
   }
-  // WHY Clerk id for budget: same key authJobRateLimit uses (req.userId).
+  // WHY: Clerk id for budget: same key authJobRateLimit uses (req.userId).
   const budgetKey = owner.clerkId || userId;
 
   const feedUrl = monitor.feedUrl;
@@ -105,12 +151,18 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
   const urlSafety = await assertUrlIsPublic(feedUrl);
   if (!urlSafety.safe) {
     logger.warn('[FeedMonitor] Feed URL failed SSRF check, skipping', { feedUrl, reason: urlSafety.reason });
-    // WHY lastError, not just lastCheckedAt: without this, a monitor whose feed
+    // WHY: lastError, not just lastCheckedAt: without this, a monitor whose feed
     // URL starts resolving to a private address (DNS rebinding, or the domain
     // simply changing owners) fails silently forever — `active` stays true and
     // the UI showed it as healthy with no way to discover it had stopped working.
     await db.update(feedMonitors)
-      .set({ lastCheckedAt: new Date(), lastError: `Feed URL is not publicly reachable: ${urlSafety.reason || 'blocked'}` })
+      .set({
+        lastCheckedAt: new Date(),
+        // SECURITY: lastError is shown in the UI — use client-safe copy (SEC-002).
+        lastError: toClientFetchFailureMessage(
+          urlSafety.reason || 'URL points to a private or reserved address',
+        ),
+      })
       .where(eq(feedMonitors.id, monitor.id));
     return;
   }
@@ -127,7 +179,10 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     logger.warn('[FeedMonitor] Failed to fetch/parse feed', { feedUrl, error: message });
     // Update lastCheckedAt even on failure so we don't hammer a broken feed
     await db.update(feedMonitors)
-      .set({ lastCheckedAt: new Date(), lastError: `Failed to fetch/parse feed: ${message}` })
+      .set({
+        lastCheckedAt: new Date(),
+        lastError: toClientFetchFailureMessage(message),
+      })
       .where(eq(feedMonitors.id, monitor.id));
     return;
   }
@@ -138,11 +193,11 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     return;
   }
 
-  // WHY sort by pubDate descending (newest first): this means item[0] is
+  // WHY: sort by pubDate descending (newest first): this means item[0] is
   // always the most-recent, and we stop processing once we hit the known
   // lastItemGuid — so the first run after creating a monitor processes only
   // the very latest item (not the entire feed history).
-  // WHY parseDate: a pubDate string can be present but unparseable (malformed
+  // WHY: parseDate: a pubDate string can be present but unparseable (malformed
   // RSS date), which makes `new Date(x).getTime()` return NaN — NaN propagating
   // into the `bDate - aDate` subtraction breaks the sort's total order (an item
   // can land at an arbitrary position instead of sorting as oldest), silently
@@ -189,7 +244,7 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     return;
   }
 
-  // SECURITY / COST-001: feed-monitor jobs sit outside authJobRateLimit —
+  // SECURITY: / COST-001: feed-monitor jobs sit outside authJobRateLimit —
   // atomically reserve the same hourly generation budget as Create/Repurpose.
   // Fail closed when Redis is down (HTTP limiters already 503 in that case).
   const budget = await reserveGenerationBudget(budgetKey, 1, { alreadyCounted: false });
@@ -207,7 +262,7 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
   }
 
   try {
-    // WHY parallel profile + article fetch (O4): they don't depend on each other;
+    // WHY: parallel profile + article fetch (O4): they don't depend on each other;
     // sequential awaits added ~network RTT before createJobsForPlatforms every tick.
     const [userProfile, extracted] = await Promise.all([
       getUserProfile(userId),
@@ -216,10 +271,14 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     if (!extracted.ok) {
       logger.warn('[FeedMonitor] Failed to extract article from new item', { feedUrl, itemUrl, error: extracted.error });
       await releaseGenerationBudget(budgetKey, budget.reserved);
-      // WHY do NOT advance lastItemGuid: a transient extract failure would
+      // WHY: do NOT advance lastItemGuid: a transient extract failure would
       // permanently skip the item if we moved the cursor (CORR-012).
+      // extracted.error is already client-safe from fetchAndExtractArticle.
       await db.update(feedMonitors)
-        .set({ lastCheckedAt: new Date(), lastError: `Failed to extract article: ${extracted.error}` })
+        .set({
+          lastCheckedAt: new Date(),
+          lastError: extracted.error.slice(0, 500),
+        })
         .where(eq(feedMonitors.id, monitor.id));
       return;
     }
@@ -246,19 +305,51 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     await db.update(feedMonitors)
       .set({
         lastCheckedAt: new Date(),
-        lastError: err instanceof Error ? err.message.slice(0, 500) : 'Failed to create job for feed item',
+        lastError: CLIENT_FEED_JOB_FAILURE,
       })
       .where(eq(feedMonitors.id, monitor.id));
   }
 }
 
+// WHY: in-process overlap guard — a slow tick must not start a second pass
+// when the next */30 fires while the first is still iterating monitors.
+let tickRunning = false;
+
 async function runAllActiveMonitors(): Promise<void> {
   if (!db) return;
+  if (tickRunning) {
+    logger.warn('[FeedMonitor] Skipping cron tick — previous tick still running');
+    return;
+  }
+  tickRunning = true;
+
+  // WHY: cross-instance tick lock — every API replica runs the same cron;
+  // per-monitor locks prevent duplicate jobs, but this avoids N× feed fetches.
+  const redis = getRedisClient();
+  const tickLockKey = 'feed:tick';
+  const tickToken = randomUUID();
+  let tickLockHeld = false;
+  if (redis) {
+    try {
+      const got = await redis.set(tickLockKey, tickToken, 'EX', 25 * 60, 'NX');
+      if (got !== 'OK') {
+        logger.info('[FeedMonitor] Skipping cron tick — another instance holds feed:tick');
+        tickRunning = false;
+        return;
+      }
+      tickLockHeld = true;
+    } catch (lockErr: unknown) {
+      logger.warn('[FeedMonitor] Tick lock failed — continuing single-process', {
+        error: lockErr instanceof Error ? lockErr.message : String(lockErr),
+      });
+    }
+  }
+
   try {
     const activeMonitors = await db.select().from(feedMonitors).where(eq(feedMonitors.active, true));
     logger.info('[FeedMonitor] Running scheduled check', { count: activeMonitors.length });
 
-    // WHY sequential per monitor (not Promise.all): feed checks each make 1–2
+    // WHY: sequential per monitor (not Promise.all): feed checks each make 1–2
     // outbound HTTP requests + a Gemini call. Running N of them in parallel
     // when there are many monitors could spike memory/connections; sequential
     // processing keeps the impact predictable. A user with many monitors will
@@ -276,12 +367,21 @@ async function runAllActiveMonitors(): Promise<void> {
   } catch (err) {
     logger.error('[FeedMonitor] Failed to query active monitors', { error: err instanceof Error ? err.message : String(err) });
     Sentry.captureException(err, { tags: { action: 'feed-monitor-cron' } });
+  } finally {
+    if (tickLockHeld && redis) {
+      try {
+        await redis.eval(RELEASE_LOCK_LUA, 1, tickLockKey, tickToken);
+      } catch {
+        // TTL will expire
+      }
+    }
+    tickRunning = false;
   }
 }
 
 let cronTask: ReturnType<typeof cron.schedule> | null = null;
 
-// WHY every 30 minutes (*/30 * * * *): most content blogs publish at most a
+// WHY: every 30 minutes (*/30 * * * *): most content blogs publish at most a
 // few times per day — a 30-min polling window balances freshness against
 // not hammering external servers or the AI pipeline. Users can always trigger
 // an immediate check via POST /api/feed-monitors/:id/check.

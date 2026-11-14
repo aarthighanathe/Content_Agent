@@ -54,6 +54,15 @@ vi.mock('../../src/routes/jobs/ownership.js', () => ({
   },
   getJobFromStore: (jobId: string) => jobsMemoryMock.get(jobId),
   jobsMemory: jobsMemoryMock,
+  // WHY: create.ts batch/single now use requireAuthUserId (SEC-006) instead of
+  // reading req.dbUserId inline — tests must export the same helper.
+  requireAuthUserId: (req: { dbUserId?: string }, res: { status: (n: number) => { json: (b: unknown) => void } }) => {
+    if (!req.dbUserId) {
+      res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
+      return null;
+    }
+    return req.dbUserId;
+  },
 }));
 vi.mock('../../src/middleware/rateLimit.js', () => ({
   authJobRateLimit: [(req: unknown, res: unknown, next: () => void) => next(), (req: unknown, res: unknown, next: () => void) => next()],

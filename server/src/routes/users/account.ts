@@ -1,7 +1,9 @@
 import * as Sentry from '@sentry/node';
 import { Router, Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
-import { jobsMemory } from '../jobs/index.js';
+// WHY: jobStore, not jobs/index — importing the jobs router pulled create/
+// regenerate into the users tree (madge circular). Memory map lives in lib.
+import { jobsMemory } from '../../lib/jobStore.js';
 import { db } from '../../db/index.js';
 import {
   users,
@@ -17,11 +19,18 @@ import {
   jobOutputVersions,
   feedMonitors,
 } from '../../db/schema.js';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, desc, sql } from 'drizzle-orm';
 import { userProfiles } from './profileStore.js';
 import { invalidateAuthCache } from '../../middleware/auth.js';
+import { cancelContentJob } from '../../lib/queue.js';
+import { cancelPublishJob } from '../../lib/publishQueue.js';
+import { logger } from '../../lib/logger.js';
 
 const router = Router();
+
+// WHY: hard cap — unbounded findMany of jobs+outputs+logs OOMs / stalls Neon
+// for power users; GDPR export still returns the most recent work + a warning.
+const EXPORT_JOB_CAP = 100;
 
 // GET /api/users/me/export — full data export (GDPR-style "download my data")
 router.get('/me/export', async (req: AuthRequest, res: Response) => {
@@ -32,19 +41,31 @@ router.get('/me/export', async (req: AuthRequest, res: Response) => {
       return;
     }
     if (!db) {
-      res.status(503).json({ error: 'Export unavailable — database not configured', code: 'SERVICE_UNAVAILABLE', retryable: true });
+      res.status(503).json({
+        error: 'Export unavailable — database not configured',
+        code: 'SERVICE_UNAVAILABLE',
+        retryable: true,
+      });
       return;
     }
 
     // WHY: allSettled, not all — a "download my data" export should return
     // whatever succeeded rather than failing entirely because one of five
     // independent per-user queries had a transient error.
-    const [userResult, jobsResult, tokensResult, onboardingResult, scheduledResult] =
+    const [userResult, jobCountResult, jobsResult, tokensResult, onboardingResult, scheduledResult] =
       await Promise.allSettled([
         db.query.users.findFirst({ where: (u, { eq: ueq }) => ueq(u.id, userId) }),
+        db
+          .select({ total: sql<number>`cast(count(*) as int)` })
+          .from(contentJobs)
+          .where(eq(contentJobs.userId, userId)),
+        // WHY: cap + no agentLogs — logs are bulky stage traces; outputs carry
+        // the portable content. Truncation is surfaced via `truncated` below.
         db.query.contentJobs.findMany({
           where: (j, { eq: jeq }) => jeq(j.userId, userId),
-          with: { outputs: true, logs: true },
+          orderBy: [desc(contentJobs.createdAt)],
+          limit: EXPORT_JOB_CAP,
+          with: { outputs: true },
         }),
         // SECURITY: access/refresh tokens are encrypted at rest and excluded from the
         // export — only metadata about which platforms are connected is included.
@@ -63,9 +84,20 @@ router.get('/me/export', async (req: AuthRequest, res: Response) => {
     const tokens = tokensResult.status === 'fulfilled' ? tokensResult.value : [];
     const onboarding = onboardingResult.status === 'fulfilled' ? onboardingResult.value : null;
     const scheduled = scheduledResult.status === 'fulfilled' ? scheduledResult.value : [];
+    const jobTotal =
+      jobCountResult.status === 'fulfilled' && jobCountResult.value[0]
+        ? jobCountResult.value[0].total
+        : jobs.length;
+    const truncated = jobTotal > EXPORT_JOB_CAP;
 
-    const partialFailures = [userResult, jobsResult, tokensResult, onboardingResult, scheduledResult]
-      .filter((r) => r.status === 'rejected').length;
+    const partialFailures = [
+      userResult,
+      jobCountResult,
+      jobsResult,
+      tokensResult,
+      onboardingResult,
+      scheduledResult,
+    ].filter((r) => r.status === 'rejected').length;
     if (partialFailures > 0) {
       Sentry.captureMessage('GET /me/export: partial data export', {
         tags: { route: 'GET /me/export' },
@@ -77,15 +109,29 @@ router.get('/me/export', async (req: AuthRequest, res: Response) => {
     res.json({
       exportedAt: new Date().toISOString(),
       partial: partialFailures > 0,
-      user: user ? {
-        id: user.id,
-        email: user.email,
-        brandName: user.brandName,
-        brandVoice: user.brandVoice,
-        phrasesUse: user.phrasesUse,
-        phrasesAvoid: user.phrasesAvoid,
-        createdAt: user.createdAt,
-      } : null,
+      truncated,
+      ...(truncated
+        ? {
+            warning:
+              `Export includes the ${EXPORT_JOB_CAP} most recent content jobs ` +
+              `(${jobTotal} total). Agent logs omitted to keep the download bounded.`,
+          }
+        : {
+            warning: 'Agent logs omitted from export to keep the download bounded.',
+          }),
+      jobTotal,
+      jobExportLimit: EXPORT_JOB_CAP,
+      user: user
+        ? {
+            id: user.id,
+            email: user.email,
+            brandName: user.brandName,
+            brandVoice: user.brandVoice,
+            phrasesUse: user.phrasesUse,
+            phrasesAvoid: user.phrasesAvoid,
+            createdAt: user.createdAt,
+          }
+        : null,
       contentJobs: jobs,
       connectedSocialAccounts: tokens,
       onboarding: onboarding || null,
@@ -108,8 +154,49 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
       return;
     }
     if (!db) {
-      res.status(503).json({ error: 'Account deletion unavailable — database not configured', code: 'SERVICE_UNAVAILABLE', retryable: true });
+      res.status(503).json({
+        error: 'Account deletion unavailable — database not configured',
+        code: 'SERVICE_UNAVAILABLE',
+        retryable: true,
+      });
       return;
+    }
+
+    // WHY: soft-delete first so in-flight pipelines see deleted=1 in memory/DB
+    // and abort via isSoftDeleted before we hard-delete rows mid-write.
+    try {
+      await db.update(contentJobs).set({ deleted: 1 }).where(eq(contentJobs.userId, userId));
+    } catch (softErr) {
+      logger.warn('[Account] Soft-delete before account deletion failed', {
+        userId,
+        error: softErr instanceof Error ? softErr.message : String(softErr),
+      });
+    }
+    for (const [, job] of jobsMemory.entries()) {
+      if (job.userId === userId) {
+        job.deleted = 1;
+      }
+    }
+
+    // WHY: cancel queue jobs BEFORE the hard delete: a waiting BullMQ content/publish
+    // job would otherwise still run for a deleted user, burning Gemini/Tavily
+    // quota or posting to a social account after the user asked to be erased.
+    // Best-effort (allSettled): a Redis hiccup must not block account deletion;
+    // workers re-resolve the missing rows and fail harmlessly.
+    try {
+      const [ownedJobs, ownedPosts] = await Promise.all([
+        db.select({ id: contentJobs.id }).from(contentJobs).where(eq(contentJobs.userId, userId)),
+        db.select({ id: scheduledPosts.id }).from(scheduledPosts).where(eq(scheduledPosts.userId, userId)),
+      ]);
+      await Promise.allSettled([
+        ...ownedJobs.map((j) => cancelContentJob(j.id)),
+        ...ownedPosts.map((p) => cancelPublishJob(p.id)),
+      ]);
+    } catch (cancelErr) {
+      logger.warn('[Account] Failed to cancel queued jobs before deletion', {
+        userId,
+        error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
+      });
     }
 
     // WHY: wrap every table's deletion in one transaction — a partial failure
@@ -123,7 +210,7 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
       // must be deleted before contentJobs/users or the transaction aborts.
       await tx.delete(scheduledPosts).where(eq(scheduledPosts.userId, userId));
 
-      // WHY explicit, not automatic: feed_monitors.userId has NO FK constraint
+      // WHY: explicit, not automatic: feed_monitors.userId has NO FK constraint
       // at all (schema.ts's own WHY comment — the worker runs outside a
       // request context and re-resolves the user by clerkId rather than
       // joining). Without this, a deleted user's active monitor would keep
@@ -136,7 +223,7 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
       // WHY: collectionJobs.jobId/collectionId, collections.userId, competitorAnalyses.userId,
       // and jobOutputVersions.jobId are FKs with ON DELETE no action — must be deleted
       // before contentJobs/users or the transaction aborts.
-      // WHY collection_jobs BEFORE collections: collection_jobs.collection_id
+      // WHY: collection_jobs BEFORE collections: collection_jobs.collection_id
       // references collections with no ON DELETE CASCADE. Deleting collections
       // first aborted the whole transaction whenever the user had a job in a
       // Library folder, so DELETE /me returned 500 and the account stayed.

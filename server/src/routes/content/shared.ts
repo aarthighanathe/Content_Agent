@@ -2,7 +2,7 @@ import type { MemoryJob, AssembledJob } from '../jobs/ownership.js';
 import type { PipelineOutput } from '../../lib/pipeline.js';
 import { stripScriptsAndEventHandlers } from '../../lib/carousel.js';
 
-// WHY a shared helper, not inline casts at each call site: a job pulled from
+// WHY: a shared helper, not inline casts at each call site: a job pulled from
 // jobsMemory/jobStore is MemoryJob | AssembledJob | undefined — `outputs` only
 // exists on the terminal PersistedJobResult/AssembledJob arms, and TS won't
 // narrow a union through an `in` check cleanly here because PipelineJob's

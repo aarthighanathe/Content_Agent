@@ -1,6 +1,8 @@
 import { Router, Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
-import { jobsMemory } from '../jobs/index.js';
+import { requireAuthUserId } from '../jobs/ownership.js';
+// WHY: jobStore, not jobs/index — same circular-import break as account.ts.
+import { jobsMemory } from '../../lib/jobStore.js';
 import type { PipelineOutput } from '../../lib/pipeline.js';
 import { db } from '../../db/index.js';
 import { getUserProfile } from './profileStore.js';
@@ -9,8 +11,7 @@ import { getLatestCritique } from '../../lib/qualityScore.js';
 
 const router = Router();
 
-// ─── Feature: per-dimension quality trend + prediction tier aggregation ──────
-// WHY these types live here, not a shared types file: they're the exact shape
+// WHY: these types live here, not a shared types file: they're the exact shape
 // this one route computes and returns; client/src/types/api.ts mirrors them
 // for the response contract, which is the usual split in this codebase (see
 // ProfileStats there already).
@@ -29,7 +30,7 @@ interface PredictionTierCounts {
   low: number;
 }
 
-// WHY a narrow runtime shape guard, not a zod schema: this reads back content
+// WHY: a narrow runtime shape guard, not a zod schema: this reads back content
 // this same server wrote (critic/predictor output), already validated once by
 // agentResponses.ts's schemas at write time — a lightweight structural check
 // here is defense against the jsonb column holding an older/differently-shaped
@@ -50,7 +51,7 @@ function isPredictionTier(v: unknown): v is 'high' | 'medium' | 'low' {
   return v === 'high' || v === 'medium' || v === 'low';
 }
 
-// WHY totalScore is read as number | null, not defaulted to 0 inline: a critic
+// WHY: totalScore is read as number | null, not defaulted to 0 inline: a critic
 // row that scored a legitimate 0 (every dimension clamped to 0 by critic.ts's
 // clampScore on garbage LLM output) must still be counted in avgScore/
 // platformStats — treating "score computed as 0" the same as "no score
@@ -100,7 +101,7 @@ function aggregateStats(jobs: StatsJob[]): AggregatedStats {
   const predictionTierCounts: PredictionTierCounts = { high: 0, medium: 0, low: 0 };
   let latestPredictionTopReason: string | null = null;
 
-  // WHY jobs must already be chronologically ascending: both callers below
+  // WHY: jobs must already be chronologically ascending: both callers below
   // (the DB query's orderBy and jobsMemory's insertion order via Map) hand
   // this function jobs oldest-first, so "last prediction seen in this loop"
   // is the most recent job's prediction — simpler and more robust than a
@@ -141,7 +142,7 @@ function aggregateStats(jobs: StatsJob[]): AggregatedStats {
   const avgScore = allScores.length > 0
     ? Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length)
     : 0;
-  // WHY named mostUsedPlatform, not bestPlatform: this is picked by post count,
+  // WHY: named mostUsedPlatform, not bestPlatform: this is picked by post count,
   // not quality — a platform someone spams low-quality posts to would otherwise
   // misleadingly show as "best." Renamed rather than re-ranked by avgScore so the
   // label always matches what it actually measures.
@@ -163,7 +164,7 @@ function aggregateStats(jobs: StatsJob[]): AggregatedStats {
       }, {} as DimensionAverages)
     : null;
 
-  // WHY cap at the most recent 50 points: dimensionTrend is built by iterating
+  // WHY: cap at the most recent 50 points: dimensionTrend is built by iterating
   // jobs in chronological order (asc), so slicing the tail keeps the most
   // recent history for a line chart without an unbounded response payload for
   // high-volume accounts — 50 points is already dense for a trend line.
@@ -187,7 +188,8 @@ function aggregateStats(jobs: StatsJob[]): AggregatedStats {
 // GET /api/users/me
 router.get('/me', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const profile = await getUserProfile(userId);
 
     // WHY: stats are read from DB rather than jobsMemory — completed jobs are evicted
@@ -201,15 +203,20 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
             jand(jeq(j.userId, userId), jeq(j.deleted, 0), jeq(j.status, 'done')),
           columns: { id: true, platform: true, createdAt: true },
           with: {
-            // WHY only critique + prediction: aggregateStats never reads final/research
+            // WHY: only critique + prediction: aggregateStats never reads final/research
             // content — loading every output's full jsonb was the M13 cost bug.
             outputs: {
               columns: { outputType: true, qualityScore: true, content: true, createdAt: true },
               where: (o, { inArray: oIn }) => oIn(o.outputType, ['critique', 'prediction']),
             },
           },
-          orderBy: (j, { asc }) => [asc(j.createdAt)],
+          // WHY: newest 200 then reverse: bounds the query for high-volume accounts
+          // (aggregateStats needs oldest-first). NOTE: totalPosts/averages reflect
+          // the most recent 200 completed jobs, not lifetime.
+          orderBy: (j, { desc }) => [desc(j.createdAt)],
+          limit: 200,
         });
+        completedJobs.reverse();
 
         stats = aggregateStats(completedJobs.map((job) => ({
           id: job.id,
@@ -236,7 +243,7 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
 
     // Generate dynamic quick tips
     const quickTips: string[] = [];
-    // WHY case-insensitive: Brand page saves Title Case ("Professional") while
+    // WHY: case-insensitive: Brand page saves Title Case ("Professional") while
     // onboarding/profileStore default to lowercase "professional" — both mean
     // the user hasn't customized beyond the default single tone.
     const voice = (profile.brandVoice || '').trim().toLowerCase();

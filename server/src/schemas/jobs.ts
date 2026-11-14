@@ -8,7 +8,7 @@ export const VALID_PLATFORMS = [
   'video_script',
 ] as const;
 
-// WHY these 9 (not the original 5): client/src/pages/Create/ToneSelector.tsx (5:
+// WHY: these 9 (not the original 5): client/src/pages/Create/ToneSelector.tsx (5:
 // professional/casual/bold/playful/minimal) and client/src/pages/Brand/VoiceCard.tsx
 // (6: professional/casual/witty/educational/direct/inspirational) had each drifted
 // into their own independent tone vocabulary that didn't match this enum or each
@@ -31,7 +31,7 @@ export const VALID_TONES = [
 export const platformEnum = z.enum(VALID_PLATFORMS);
 export const toneEnum = z.enum(VALID_TONES);
 
-// WHY duplicated here, not imported: the carousel template catalog is defined
+// WHY: duplicated here, not imported: the carousel template catalog is defined
 // in client/src/lib/templateSystem.ts (client-only TypeScript, not reachable
 // from the server build). Mirrors this codebase's existing VALID_TONES
 // pattern — keep this list in sync with templateSystem.ts's TemplateId union
@@ -53,7 +53,7 @@ export const VALID_TEMPLATE_IDS = [
 
 export const templateIdEnum = z.enum(VALID_TEMPLATE_IDS);
 
-// WHY mirrored from client Result/constants CAROUSEL_THEMES + TemplateId:
+// WHY: mirrored from client Result/constants CAROUSEL_THEMES + TemplateId:
 // export theme used to be an unbounded string (SEC-019). Keep in sync with
 // carousel.ts ThemeKey / client legacy theme keys.
 export const VALID_LEGACY_THEME_IDS = [
@@ -73,18 +73,18 @@ export const exportThemeEnum = z.enum([
   ...VALID_TEMPLATE_IDS,
 ]);
 
-// SECURITY (SEC-019): only raster data URLs — svg+xml can carry external refs
+// SECURITY: (SEC-019): only raster data URLs — svg+xml can carry external refs
 // that Chromium would fetch during export (images are not blocked by interception).
 const IMAGE_DATA_URL_RE =
   /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\s]+$/i;
 
-// WHY a loose regex, not z.string().uuid(): matches this codebase's existing
+// WHY: a loose regex, not z.string().uuid(): matches this codebase's existing
 // UUID convention (lib/uuid.ts's isValidUUID) rather than zod's stricter RFC
 // 4122 version/variant check — same reasoning as schemas/scheduledPosts.ts's
 // jobIdSchema.
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// WHY exported: this is the real, enforced business-rule cap on a job's topic —
+// WHY: exported: this is the real, enforced business-rule cap on a job's topic —
 // jobs/create.ts's POST /batch route mirrors it in its own inline per-item schema
 // (import this instead of hand-typing 250 again there). It's intentionally lower
 // than sanitizeGenerationInput's LIMITS.topic=500 in middleware/rateLimit.ts,
@@ -100,7 +100,7 @@ export const createJobSchema = z.object({
   platform: platformEnum,
   tone: toneEnum,
   targetAudience: z.string().min(1, 'targetAudience is required').max(300).trim(),
-  // WHY optional, C3 (Competitor Content Lens → job creation): set only when
+  // WHY: optional, C3 (Competitor Content Lens → job creation): set only when
   // the job originates from a Competitor.tsx "Create content →" CTA — see
   // CreateHandoff in client/src/lib/utils.ts and this schema's sibling
   // sourceCompetitorAnalysisId. competitorContext is free-form (the gap/
@@ -109,7 +109,7 @@ export const createJobSchema = z.object({
   // fields, before it ever reaches this schema.
   competitorContext: z.string().max(300).trim().optional(),
   competitorAnalysisId: z.string().regex(UUID_REGEX, 'competitorAnalysisId must be a valid UUID').optional(),
-  // WHY optional, carousel-only: the client's template system
+  // WHY: optional, carousel-only: the client's template system
   // (client/src/lib/templateSystem.ts) choice made on the Create form's
   // AdvancedOptions panel. Only meaningful for platform='instagram_carousel'.
   // It's pure display metadata carried through to the job row so Result.tsx's
@@ -159,7 +159,7 @@ export const slideDataSchema = z.object({
   body: z.string().max(1000).optional(),
   visual_hint: z.string().max(32).optional(),
   imagePrompt: z.string().max(500).optional(),
-  // WHY optional data URL (F2 / SEC-019): AI-generated slide images from
+  // WHY: optional data URL (F2 / SEC-019): AI-generated slide images from
   // EditSlideModal — must be a raster data:image URL (not https://) so Puppeteer
   // never fetches attacker-controlled hosts during export.
   imageDataUrl: z.string().max(2_000_000).regex(IMAGE_DATA_URL_RE, 'imageDataUrl must be a data:image/(png|jpeg|webp) URL').optional(),
@@ -177,7 +177,7 @@ export const slideDataSchema = z.object({
 export const exportCarouselSsrSchema = z.object({
   theme: exportThemeEnum,
   slides: z.array(slideDataSchema).min(1, 'slides[] must have at least 1 item').max(20),
-  // WHY bounded but not pinned to the preset count: the renderer already wraps with
+  // WHY: bounded but not pinned to the preset count: the renderer already wraps with
   // modulo, so any in-range integer is safe, and hardcoding the exact count here would
   // create a second place to update whenever a design preset is added.
   designPreset: z.number().int().min(0).max(63),
@@ -193,13 +193,147 @@ export const exportCarouselSsrSchema = z.object({
 // post object with hook/body/cta, twitter thread with tweets array, etc.).
 // Using z.record(z.string(), z.unknown()) instead of z.any() at least rejects
 // non-object types (null, array, primitive) at the boundary.
-export const patchContentSchema = z.object({ content: z.record(z.string(), z.unknown()).or(z.array(z.record(z.string(), z.unknown()))).or(z.string()) });
+// SECURITY: superRefine size cap — without it a huge nested JSON payload can
+// pass shape checks and still blow memory/DB when persisted on PATCH /content.
+export const CONTENT_PAYLOAD_MAX_BYTES = 200_000;
+
+export const patchContentSchema = z
+  .object({
+    content: z
+      .record(z.string(), z.unknown())
+      .or(z.array(z.record(z.string(), z.unknown())))
+      .or(z.string()),
+  })
+  .superRefine((data, ctx) => {
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(data.content);
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'content could not be serialized for size check',
+        path: ['content'],
+      });
+      return;
+    }
+    if (serialized.length > CONTENT_PAYLOAD_MAX_BYTES) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          `content exceeds maximum size of ${CONTENT_PAYLOAD_MAX_BYTES} bytes ` +
+          `(got ${serialized.length})`,
+        path: ['content'],
+      });
+    }
+  });
+
+// WHY: stricter than patchContentSchema — body size alone still lets a user
+// save shapes that break export/Result. Handler picks by job.platform after ownership.
+const patchLinkedInContentSchema = z.object({
+  hook: z.string().max(500).optional(),
+  hookAlt: z.string().max(500).optional(),
+  body: z.string().max(12_000).optional(),
+  cta: z.string().max(500).optional(),
+  hashtags: z.array(z.string().max(100)).max(40).optional(),
+});
+
+const patchTwitterContentSchema = z.object({
+  tweets: z
+    .array(
+      z.object({
+        number: z.number().int().optional(),
+        text: z.string().max(500),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+const patchCaptionContentSchema = z.object({
+  caption: z.string().max(5000).optional(),
+  hashtags: z.array(z.string().max(100)).max(40).optional(),
+});
+
+const patchVideoContentSchema = z.object({
+  hook: z
+    .object({
+      text: z.string().max(1000).optional(),
+      duration: z.string().max(40).optional(),
+      visual: z.string().max(500).optional(),
+    })
+    .optional(),
+  segments: z
+    .array(
+      z.object({
+        number: z.number().int().optional(),
+        script: z.string().max(4000).optional(),
+        duration: z.string().max(40).optional(),
+        broll: z.string().max(500).optional(),
+        caption: z.string().max(500).optional(),
+      }),
+    )
+    .max(30)
+    .optional(),
+  cta: z
+    .object({
+      text: z.string().max(1000).optional(),
+      duration: z.string().max(40).optional(),
+      visual: z.string().max(500).optional(),
+    })
+    .optional(),
+});
+
+/**
+ * Validate PATCH /content payload against the job's platform shape.
+ * Returns parsed content or a user-facing error string.
+ */
+export function parseContentForPlatform(
+  platform: string,
+  content: unknown,
+): { ok: true; content: unknown } | { ok: false; error: string } {
+  if (platform === 'instagram_carousel') {
+    const parsed = z.array(slideDataSchema).min(1).max(20).safeParse(content);
+    if (!parsed.success) {
+      return { ok: false, error: 'Carousel content must be an array of valid slides' };
+    }
+    return { ok: true, content: parsed.data };
+  }
+  if (platform === 'linkedin_post') {
+    const parsed = patchLinkedInContentSchema.safeParse(content);
+    if (!parsed.success) {
+      return { ok: false, error: 'LinkedIn content must include valid hook/body/cta fields' };
+    }
+    return { ok: true, content: parsed.data };
+  }
+  if (platform === 'twitter_thread') {
+    const parsed = patchTwitterContentSchema.safeParse(content);
+    if (!parsed.success) {
+      return { ok: false, error: 'Twitter content must include a tweets[] array' };
+    }
+    return { ok: true, content: parsed.data };
+  }
+  if (platform === 'instagram_caption') {
+    const parsed = patchCaptionContentSchema.safeParse(content);
+    if (!parsed.success) {
+      return { ok: false, error: 'Caption content must include valid caption/hashtags fields' };
+    }
+    return { ok: true, content: parsed.data };
+  }
+  if (platform === 'video_script') {
+    const parsed = patchVideoContentSchema.safeParse(content);
+    if (!parsed.success) {
+      return { ok: false, error: 'Video script content has an invalid shape' };
+    }
+    return { ok: true, content: parsed.data };
+  }
+  return { ok: false, error: 'Unknown platform — cannot validate content shape' };
+}
 
 export const tagJobSchema = z.object({
   tag: z.string().min(1, 'Tag cannot be empty').max(30, 'Tag must be 30 characters or fewer').trim(),
 });
 
-// WHY a dedicated schema, not reusing createJobSchema's optional templateId/
+// WHY: a dedicated schema, not reusing createJobSchema's optional templateId/
 // paletteId: this one requires at least templateId (switching template is the
 // point of the request) while still allowing paletteId to reset to the
 // template's own default when omitted.

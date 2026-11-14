@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { platformEnum, toneEnum } from './jobs.js';
 
-// WHY a loose regex, not z.string().uuid(): matches this codebase's existing
+// WHY: a loose regex, not z.string().uuid(): matches this codebase's existing
 // UUID convention (lib/uuid.ts's isValidUUID) rather than zod's stricter RFC
 // 4122 version/variant check — same reasoning as schemas/scheduledPosts.ts's
 // jobIdSchema.
@@ -10,21 +10,21 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export const ideateSchema = z.object({
   count: z.number().int().min(1).max(20).default(10),
   focusTopic: z.string().max(200).trim().optional(),
-  // WHY optional, not required alongside a mode flag: presence alone signals
+  // WHY: optional, not required alongside a mode flag: presence alone signals
   // "competitor-gap mode" (I5) — ideate.ts loads this analysis server-side
   // and splices its contentGaps/suggestedAngles into the prompt. Ownership is
   // re-checked server-side (the id alone doesn't prove the requester owns it).
   competitorAnalysisId: z.string().regex(UUID_REGEX, 'competitorAnalysisId must be a valid UUID').optional(),
 });
 
-// WHY a separate schema (not ideateSchema with count clamped to 1): I1's
+// WHY: a separate schema (not ideateSchema with count clamped to 1): I1's
 // regenerate-one call also carries excludeTitles, a field that only makes
 // sense in the single-idea-replacement flow — keeping it a distinct schema
 // avoids ideateSchema silently accepting an unused field on the main
 // generate-batch call.
 export const regenerateIdeaSchema = z.object({
   focusTopic: z.string().max(200).trim().optional(),
-  // WHY capped at 10 + 100 chars each: this only needs to carry the titles
+  // WHY: capped at 10 + 100 chars each: this only needs to carry the titles
   // currently visible on screen so the model avoids near-duplicates — an
   // unbounded array/length here would let a caller balloon the prompt with
   // attacker-controlled text for no benefit to the actual feature.
@@ -32,20 +32,22 @@ export const regenerateIdeaSchema = z.object({
   competitorAnalysisId: z.string().regex(UUID_REGEX, 'competitorAnalysisId must be a valid UUID').optional(),
 });
 
-// WHY the array branch: carousel jobs pass their slide array (SlideData[]) as `content`
+// WHY: the array branch: carousel jobs pass their slide array (SlideData[]) as `content`
 // (see HashtagPanel.tsx) — without it, every hashtag request for a carousel job failed
 // validation and the panel silently rendered blank forever.
 export const hashtagsSchema = z.object({
   topic: z.string().min(1, 'topic is required').max(500).trim(),
   platform: platformEnum.optional(),
   content: z.union([
-    z.string(),
+    // WHY: max(20000) on the string branch: hashtag generation only needs the
+    // gist; the body-size cap alone would still let ~256kb reach the LLM prompt.
+    z.string().max(20000),
     z.record(z.string(), z.unknown()),
-    z.array(z.record(z.string(), z.unknown())),
+    z.array(z.record(z.string(), z.unknown())).max(30),
   ]).optional(),
 });
 
-// WHY platforms (array) alongside platform (single), not a breaking replace:
+// WHY: platforms (array) alongside platform (single), not a breaking replace:
 // the client always sent one platform before this change — keeping `platform`
 // required and adding `platforms` as an optional override lets a single-URL,
 // multi-platform submission fan out from one fetch+extraction (see
@@ -55,14 +57,14 @@ export const hashtagsSchema = z.object({
 // one article everywhere" without letting one request balloon into an
 // unbounded fan-out of Gemini calls.
 export const repurposeSchema = z.object({
-  url: z.string().url('url must be a valid URL'),
+  url: z.string().url('url must be a valid URL').max(2000),
   platform: platformEnum,
   platforms: z.array(platformEnum).min(1).max(5).optional(),
   tone: toneEnum,
   targetAudience: z.string().min(1).max(300).trim(),
 });
 
-// WHY a separate schema (not repurposeSchema with urls[] instead of url):
+// WHY: a separate schema (not repurposeSchema with urls[] instead of url):
 // the batch endpoint is a genuinely different call shape — N URLs each
 // getting one fetch+extract+job, not one URL fanned to N platforms.
 // Capped at 10 URLs (same reasoning as jobs/batch's 7-topic cap: generous
@@ -73,7 +75,7 @@ export const repurposeSchema = z.object({
 export const repurposeBatchSchema = z.object({
   items: z.array(
     z.object({
-      url: z.string().url('url must be a valid URL'),
+      url: z.string().url('url must be a valid URL').max(2000),
       platform: platformEnum,
       platforms: z.array(platformEnum).min(1).max(4).optional(),
       tone: toneEnum,
@@ -82,7 +84,7 @@ export const repurposeBatchSchema = z.object({
   ).min(1, 'items must not be empty').max(10, 'at most 10 URLs per batch'),
 });
 
-// WHY 300-char limit on feedUrl: the longest real-world feed URLs are much
+// WHY: 300-char limit on feedUrl: the longest real-world feed URLs are much
 // shorter; a cap prevents a fat URL from being used as an injection vector
 // while being generous enough for any legitimate feed address.
 export const feedMonitorSchema = z.object({
@@ -92,7 +94,7 @@ export const feedMonitorSchema = z.object({
   targetAudience: z.string().min(1).max(300).trim(),
 });
 
-// WHY a separate partial schema for PATCH: all fields are optional on update,
+// WHY: a separate partial schema for PATCH: all fields are optional on update,
 // but we still want the same validation constraints (platform/tone enums,
 // targetAudience length) as the create schema. This prevents mass-assignment
 // and ensures invalid values can't slip through the PATCH route.
@@ -103,7 +105,7 @@ export const feedMonitorUpdateSchema = z.object({
   targetAudience: z.string().max(300).trim().optional(),
 });
 
-// WHY a dedicated enum (not job `platformEnum`): competitor analysis targets a
+// WHY: a dedicated enum (not job `platformEnum`): competitor analysis targets a
 // live social network profile (linkedin/twitter/instagram), while job platforms
 // are content formats (`instagram_carousel`, `linkedin_post`, etc.). Mixing them
 // would force the UI to map "LinkedIn Post" → LinkedIn and leave Instagram
@@ -112,7 +114,7 @@ export const COMPETITOR_PLATFORMS = ['linkedin', 'twitter', 'instagram'] as cons
 export const competitorPlatformEnum = z.enum(COMPETITOR_PLATFORMS);
 
 export const competitorSchema = z.object({
-  // WHY 300 not 100: users paste full profile URLs
+  // WHY: 300 not 100: users paste full profile URLs
   // (https://www.linkedin.com/in/vanity-slug/) which exceed a username-only cap.
   handle: z.string().min(1, 'handle is required').max(300).trim(),
   // SECURITY: required — without a platform, bare-handle Tavily search often
@@ -121,7 +123,7 @@ export const competitorSchema = z.object({
   industry: z.string().max(200).optional(),
 });
 
-// WHY a hardcoded max of 20 (not user-configurable): the history dropdown in
+// WHY: a hardcoded max of 20 (not user-configurable): the history dropdown in
 // Competitor.tsx only ever needs a short recent list, not full pagination —
 // same "capped at a reasonable count" scope called out in the task; a query
 // param here would add surface area with no real UI need for it yet.

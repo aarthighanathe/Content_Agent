@@ -75,6 +75,16 @@ vi.mock('../../src/routes/jobs/ownership.js', async (importOriginal) => {
     jobsMemory: jobsMemoryMock,
   };
 });
+// WHY: fetchWithSsrfGuard pins via http(s).request, not global.fetch — bridge
+// the existing fetch mocks so article-extract tests stay hermetic.
+vi.mock('../../src/lib/pinnedRequest.js', () => ({
+  pinnedRequest: async (
+    url: URL,
+    _ip: string,
+    _family: 4 | 6,
+    init: RequestInit,
+  ): Promise<Response> => fetch(url.toString(), { ...init, redirect: 'manual' }),
+}));
 
 const addJobToQueueMock = vi.fn().mockResolvedValue(true);
 vi.mock('../../src/lib/queue.js', () => ({

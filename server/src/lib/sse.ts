@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { publishJobSSE, startSSERedisSubscriber } from './sseRedis.js';
 
 interface SSEClient {
   id: string;
@@ -13,7 +14,7 @@ interface SSEClient {
 // browser without polling. One job can have multiple connected clients (e.g.,
 // two browser tabs open on the same result page) — hence the clients array per jobId.
 const MAX_SSE_CLIENTS_PER_JOB = 5;
-// WHY 5 min idle: terminal jobs may leave tabs open; without an idle drop the
+// WHY: 5 min idle: terminal jobs may leave tabs open; without an idle drop the
 // keep-alive ping keeps proxy sockets forever (O5). Heartbeat stays at 20s so
 // proxies under ~60s idle timeout still stay open during active streams.
 const SSE_IDLE_MS = 5 * 60 * 1000;
@@ -89,7 +90,7 @@ class SSEManager {
     if (!clients) return;
     const client = clients.find((c) => c.id === clientId);
     if (!client) return;
-    // WHY remove before end(): res.end() fires 'close', which would re-enter
+    // WHY: remove before end(): res.end() fires 'close', which would re-enter
     // closeClient while the client is still in the Map.
     clearInterval(client.keepAlive);
     clearTimeout(client.idleTimer);
@@ -120,7 +121,11 @@ class SSEManager {
     }
   }
 
-  sendEvent(jobId: string, data: Record<string, unknown>): void {
+  /**
+   * Deliver to this process's connected clients only (no Redis publish).
+   * Used by sendEvent (local path) and by the Redis subscriber (remote path).
+   */
+  deliverLocal(jobId: string, data: Record<string, unknown>): void {
     const clients = this.clients.get(jobId);
     if (clients) {
       clients.forEach((client) => {
@@ -133,12 +138,19 @@ class SSEManager {
       });
     }
 
-    // WHY close shortly after terminal: client has the final event; keeping the
+    // WHY: close shortly after terminal: client has the final event; keeping the
     // socket open only burns keep-alive pings until the browser navigates away.
     const stage = data.stage;
     if (stage === 'done' || stage === 'failed' || data.type === 'error') {
       setTimeout(() => this.closeJob(jobId), SSE_CLOSE_AFTER_TERMINAL_MS);
     }
+  }
+
+  sendEvent(jobId: string, data: Record<string, unknown>): void {
+    // WHY: deliver locally first, then publish — this process skips its own
+    // Redis echo via originId in sseRedis, so clients here get exactly one copy.
+    this.deliverLocal(jobId, data);
+    publishJobSSE(jobId, data);
   }
 
   private sendToClient(client: SSEClient, data: Record<string, unknown>): void {
@@ -152,3 +164,9 @@ class SSEManager {
 }
 
 export const sseManager = new SSEManager();
+
+// FLOW: start pattern-subscribe once this module loads (every API process that
+// imports sseManager). No Redis → local-only degraded mode inside the helper.
+startSSERedisSubscriber((jobId, data) => {
+  sseManager.deliverLocal(jobId, data);
+});

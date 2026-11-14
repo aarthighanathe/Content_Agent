@@ -1,11 +1,20 @@
 import { Response } from 'express';
 import { db } from '../../db/index.js';
-import type { PipelineJob, PersistedJobResult, PipelineOutput, PipelineLog } from '../../lib/pipeline.js';
+import type { PipelineOutput, PipelineLog } from '../../lib/pipeline.js';
 import type { ContentJob, ContentOutput, AgentLog } from '../../db/schema.js';
 import type { AuthRequest } from '../../middleware/auth.js';
 import { isValidUUID } from '../../lib/uuid.js';
+import {
+  jobsMemory,
+  getJobFromStore,
+  setJobInStore,
+  type MemoryJob,
+} from '../../lib/jobStore.js';
 
 export { isValidUUID };
+// WHY: re-export: route modules historically import jobsMemory/getJobFromStore/
+// MemoryJob from ownership — keep that import path stable after the lib extract.
+export { jobsMemory, getJobFromStore, setJobInStore, type MemoryJob };
 
 /**
  * Shared guard for any route that needs both a reachable DB and a real UUID
@@ -32,14 +41,20 @@ export function requireDbUser(req: AuthRequest, res: Response, featureLabel: str
   return userId;
 }
 
-// WHY a union, not one interface: a job in jobsMemory/jobStore is either still
-// running (PipelineJob — mutated in place with stage/progress/status as the
-// pipeline advances) or has reached a terminal state (PersistedJobResult, the
-// same discriminated 'done' | 'failed' union runAndPersistPipeline already
-// produces). Both types carry `[key: string]: unknown`, so ad-hoc fields set
-// by callers (tag, sourceJobId, stage, progress) remain assignable without
-// forcing every one of them into a shared interface.
-export type MemoryJob = PipelineJob | PersistedJobResult;
+/**
+ * Resolve the authenticated internal UUID for any protected route.
+ * SECURITY: never fall back to Clerk id or the latent `'demo'` string —
+ * authMiddleware already fails closed without dbUserId; this guards the
+ * call site if middleware is ever weakened (SEC-006).
+ */
+export function requireAuthUserId(req: AuthRequest, res: Response): string | null {
+  const userId = req.dbUserId;
+  if (!userId) {
+    res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
+    return null;
+  }
+  return userId;
+}
 
 // The shape assembleJobFromDB reconstructs once a job has aged out of memory —
 // same field set callers already read off a MemoryJob (id/userId/topic/... plus
@@ -51,7 +66,7 @@ export interface AssembledJob {
   platform: string;
   tone: string | null;
   targetAudience: string | null;
-  // WHY undefined, not columns off contentJobs: brand_voice/phrases_use/
+  // WHY: undefined, not columns off contentJobs: brand_voice/phrases_use/
   // phrases_avoid/content_dna live on the `users` table, not per-job — a job
   // row never snapshots them. regenerate/multiply (manage.ts) already prefer
   // a fresh getUserProfile(userId) lookup over these fields for exactly that
@@ -65,7 +80,7 @@ export interface AssembledJob {
   tag: string | null;
   sourceJobId: string | null;
   sourcePlatform: string | null;
-  // WHY added here (found while wiring Repurpose's sourceUrl persistence):
+  // WHY: added here (found while wiring Repurpose's sourceUrl persistence):
   // sourceCompetitorAnalysisId was added to the contentJobs DB column and to
   // persistJob.ts's INSERT earlier the same day, but never added to this DTO —
   // meaning the "based on competitor analysis" lineage silently disappeared
@@ -86,29 +101,7 @@ export interface AssembledJob {
   criticResult: unknown;
 }
 
-// Shared in-memory cache: holds active/in-flight jobs before they are persisted to DB.
-// Also populated briefly after completion (TTL: 10 min) so polling clients can still read the result.
-export const jobsMemory = new Map<string, MemoryJob>();
-
-// BullMQ worker store — kept in sync with jobsMemory on every write so ownership
-// and SSE never read a stale jobsMemory row after the worker evicts jobStore alone.
-const jobStore = new Map<string, MemoryJob>();
-
-export function getJobFromStore(jobId: string): MemoryJob | undefined {
-  return jobStore.get(jobId);
-}
-
-export function setJobInStore(jobId: string, data: MemoryJob | undefined): void {
-  if (data === undefined) {
-    jobStore.delete(jobId);
-    jobsMemory.delete(jobId);
-  } else {
-    jobStore.set(jobId, data);
-    jobsMemory.set(jobId, data);
-  }
-}
-
-// WHY Pick, not the full ContentOutput/AgentLog: callers of assembleJobFromDB
+// WHY: Pick, not the full ContentOutput/AgentLog: callers of assembleJobFromDB
 // query relations with different column subsets (manage.ts's list endpoint
 // omits `content` on outputs to keep the paginated list response light — see
 // GET / — while requireJobOwnership's single-job lookup selects every
@@ -135,7 +128,7 @@ export function assembleJobFromDB(dbJob: DBJobWithRelations): AssembledJob {
     outputSummary: l.outputSummary ?? '',
     durationMs: l.durationMs ?? 0,
   }));
-  // WHY last critique (CORR-004): align assembleJobFromDB with Result/Library.
+  // WHY: last critique (CORR-004): align assembleJobFromDB with Result/Library.
   const criticOutputs = (dbJob.outputs || []).filter(
     (o) => o.outputType === 'critique' && o.agentName === 'critic',
   );

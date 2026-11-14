@@ -1,5 +1,5 @@
 // Shared critique/final quality score picker (CORR-004).
-// WHY last critique / final.qualityScore: critic retries append multiple
+// WHY: last critique / final.qualityScore: critic retries append multiple
 // critique rows; Result used .pop() while Library/list used .find() (first),
 // so the same job showed different scores across surfaces.
 

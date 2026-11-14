@@ -1,5 +1,5 @@
 // lib/jobEviction.ts — generation-safe 10-minute memory eviction (CORR-002/014).
-// WHY a module-level Map: a bare setTimeout(evict(jobId)) from a prior run can
+// WHY: a module-level Map: a bare setTimeout(evict(jobId)) from a prior run can
 // fire mid-regenerate (same jobId) and delete the in-flight snapshot. Each
 // schedule bumps a generation token; only the matching token may evict.
 

@@ -4,6 +4,7 @@ import { AuthRequest } from '../../middleware/auth.js';
 import { generateWithAI } from '../../lib/ai.js';
 import { parseBody, hashtagsSchema, hashtagsResponseSchema } from '../../schemas/index.js';
 import { parseAIJson } from './shared.js';
+import { escapeXml } from '../../lib/sanitizeSearchText.js';
 
 const router = Router();
 
@@ -20,9 +21,9 @@ router.post('/hashtags', async (req: AuthRequest, res: Response) => {
       : '';
 
     const prompt = `You are a social media hashtag strategist. Generate the best hashtag strategy for:
-<topic>${topic}</topic>
-<platform>${platformLabel}</platform>
-${contentSnippet ? `<content_preview>${contentSnippet}</content_preview>` : ''}
+<topic>${escapeXml(topic)}</topic>
+<platform>${escapeXml(platformLabel)}</platform>
+${contentSnippet ? `<content_preview>${escapeXml(contentSnippet)}</content_preview>` : ''}
 
 Create three tiers:
 1. Broad hashtags (high-volume, general audience)

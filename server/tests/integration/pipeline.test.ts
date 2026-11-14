@@ -61,12 +61,12 @@ vi.mock('../../src/agents/performancePredictor.js', () => ({ runPerformancePredi
 
 // runAndPersistPipeline (not used by these tests) pulls in jobsMemory/getJobFromStore/persistJobToDB —
 // stub them so importing lib/pipeline.js doesn't require a live DB or the BullMQ worker.
-// WHY getJobFromStore on ownership (not contentWorker): pipeline.ts imports it from
-// ownership.js for isSoftDeleted / failed-persist merge — a contentWorker-only stub
-// left getJobFromStore undefined and crashed every runContentPipeline call.
-vi.mock('../../src/routes/jobs/ownership.js', () => ({
+// WHY jobStore (not ownership): pipeline.ts/pipelineRun.ts import isSoftDeleted
+// helpers from lib/jobStore.js after the routes→lib extract.
+vi.mock('../../src/lib/jobStore.js', () => ({
   jobsMemory: new Map(),
   getJobFromStore: () => undefined,
+  setJobInStore: vi.fn(),
 }));
 vi.mock('../../src/lib/persistJob.js', () => ({ persistJobToDB: vi.fn() }));
 vi.mock('../../src/lib/sse.js', () => ({ sseManager: { sendEvent: vi.fn() } }));

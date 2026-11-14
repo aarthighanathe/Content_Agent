@@ -1,21 +1,30 @@
 import * as Sentry from '@sentry/node';
 import { db } from '../db/index.js';
 import { contentJobs, contentOutputs, agentLogs } from '../db/schema.js';
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { logger } from './logger.js';
-import { sseManager } from './sse.js';
-import type { PersistedJobResult, PipelineOutput } from './pipeline.js';
+// WHY: pipelineTypes, not pipeline.ts — importing pipeline created a
+// persistJob ↔ pipeline cycle (madge); types live here without the runtime edge.
+import type { PersistedJobResult, PipelineOutput } from './pipelineTypes.js';
 import { VALID_PLATFORMS, VALID_TONES } from '../schemas/jobs.js';
 import { isValidUUID } from './uuid.js';
 
-// WHY 15 min (REL-001): a healthy pipeline with 3 critic retries is usually
-// under ~10 min. The old 1h default left crashed pending rows invisible to
-// Result's 404-based "lost" detector for the whole hour. 15 min is above the
-// slow-path ceiling and below "stuck forever" UX.
-export const STALE_IN_FLIGHT_MAX_AGE_MS = 15 * 60 * 1000;
-const STALE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+/** Thrown when persist is refused because the durable row is soft-deleted (M3). */
+export class JobSoftDeletedError extends Error {
+  constructor(jobId: string) {
+    super(`Job ${jobId} is soft-deleted — refusing persist`);
+    this.name = 'JobSoftDeletedError';
+  }
+}
 
-// WHY narrow here, not trust the caller: PipelineJob.platform/tone are plain
+// WHY: re-exported from sweeps: Result timeout + tests historically imported
+// these constants from persistJob.js.
+export {
+  STALE_IN_FLIGHT_MAX_AGE_MS,
+  STALE_PUBLISHING_MAX_AGE_MS,
+} from './persistJobSweeps.js';
+
+// WHY: narrow here, not trust the caller: PipelineJob.platform/tone are plain
 // `string`/`string | undefined` (the pipeline never re-derives the zod-narrowed
 // literal type after createJobSchema validates it in routes/jobs/create.ts),
 // but contentJobs.platform/tone are DB enum columns with a fixed literal union.
@@ -23,7 +32,7 @@ const STALE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 // `jobResult: any`) or, now that it's typed, fail the whole transaction on a
 // TS overload-resolution error instead of a clear runtime message — this
 // guard makes an unexpected value a loud, specific failure instead of either.
-// WHY exported: routes/jobs/regenerate.ts needs the identical predicate to
+// WHY: exported: routes/jobs/regenerate.ts needs the identical predicate to
 // validate a source job's tone before reusing it for a new pipeline run
 // (STALE_JOB_DATA guard) — importing this keeps both call sites in lockstep
 // instead of maintaining two separate `includes()` literals.
@@ -34,9 +43,9 @@ export function isValidTone(t: string): t is (typeof VALID_TONES)[number] {
   return (VALID_TONES as readonly string[]).includes(t);
 }
 
-// WHY a type guard, not a plain filter callback: narrowing here lets the
+// WHY: a type guard, not a plain filter callback: narrowing here lets the
 // .map() below assign o.outputType directly into the insert without a cast.
-// WHY 'prediction' now included (2026-08-04): PerformancePredictor's output
+// WHY: 'prediction' now included (2026-08-04): PerformancePredictor's output
 // was previously discarded before this point — the DB's outputTypeEnum only
 // had 4 values. The Dashboard "surface PerformancePredictor output" feature
 // needs prediction rows durably stored so stats can aggregate across all of
@@ -107,113 +116,87 @@ export async function insertPendingJobRow(job: {
   }
 }
 
-/** Mark non-terminal jobs failed (worker exhausted / startup stale sweep). */
-export async function markJobFailedIfInFlight(
-  jobId: string,
-  reason: string,
-): Promise<boolean> {
-  if (!db || !isValidUUID(jobId)) return false;
-  try {
-    const updated = await db.update(contentJobs)
-      .set({ status: 'failed', updatedAt: new Date() })
-      .where(and(
-        eq(contentJobs.id, jobId),
-        inArray(contentJobs.status, [
-          'pending',
-          'researching',
-          'writing',
-          'formatting',
-          'critiquing',
-        ]),
-      ))
-      .returning({ id: contentJobs.id });
-    if (updated.length > 0) {
-      logger.warn('[DB] Marked in-flight job failed', { jobId, reason: reason.slice(0, 200) });
-      return true;
-    }
-    return false;
-  } catch (err: unknown) {
-    logger.warn('[DB] Failed to mark in-flight job failed', {
-      jobId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
-}
+// WHY: stage→enum map: memory used a single 'processing' status while the DB
+// enum has researching|writing|formatting|critiquing — those values were
+// unused and Library/sweep only saw "pending" for the whole run.
+const PIPELINE_STAGE_TO_DB_STATUS: Record<string, 'pending' | 'researching' | 'writing' | 'formatting' | 'critiquing'> = {
+  planning: 'pending',
+  researching: 'researching',
+  writing: 'writing',
+  formatting: 'formatting',
+  critiquing: 'critiquing',
+  predicting: 'writing',
+};
+
+const lastPersistedStage = new Map<string, string>();
+const lastStageHeartbeatAt = new Map<string, number>();
+// WHY (R6): long single LLM stages do not change dbStatus, so without a periodic
+// updatedAt bump another instance's stale sweep can treat this row as abandoned.
+const STAGE_HEARTBEAT_MS = 5 * 60 * 1000;
 
 /**
- * Fail pending/in-flight jobs older than `maxAgeMs` and emit terminal SSE so
- * Result clients exit the loading state (REL-001).
+ * Best-effort mid-pipeline DB status update (on stage change, plus heartbeat).
+ * Fire-and-forget from emitProgress — never blocks the LLM pipeline.
  */
-export async function sweepStaleInFlightJobs(
-  maxAgeMs = STALE_IN_FLIGHT_MAX_AGE_MS,
-): Promise<number> {
-  if (!db) return 0;
-  try {
-    const cutoff = new Date(Date.now() - maxAgeMs);
-    const updated = await db.update(contentJobs)
-      .set({ status: 'failed', updatedAt: new Date() })
-      .where(and(
-        inArray(contentJobs.status, [
-          'pending',
-          'researching',
-          'writing',
-          'formatting',
-          'critiquing',
-        ]),
-        lt(contentJobs.updatedAt, cutoff),
-      ))
-      .returning({ id: contentJobs.id });
-    if (updated.length > 0) {
-      logger.warn('[DB] Swept stale in-flight jobs', { count: updated.length });
-      for (const row of updated) {
-        sseManager.sendEvent(row.id, {
-          type: 'progress',
-          stage: 'failed',
-          progress: 0,
-          agent: 'system',
-          message: 'Content generation timed out. Please try again or start a new job.',
-        });
-      }
-    }
-    return updated.length;
-  } catch (err: unknown) {
-    logger.warn('[DB] Stale in-flight sweep failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return 0;
-  }
-}
-
-let staleSweepTimer: ReturnType<typeof setInterval> | null = null;
-
-/** Periodic + immediate sweep from the web process (covers no-Redis / direct mode). */
-export function startStaleJobSweep(): void {
-  if (staleSweepTimer) return;
-  sweepStaleInFlightJobs().catch((err: unknown) => {
-    logger.warn('Initial stale in-flight job sweep failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
-  staleSweepTimer = setInterval(() => {
-    sweepStaleInFlightJobs().catch((err: unknown) => {
-      logger.warn('Periodic stale in-flight job sweep failed', {
+export function updateJobStageInDb(jobId: string, stage: string): void {
+  if (!db || !isValidUUID(jobId) || stage === 'done' || stage === 'failed') return;
+  const dbStatus = PIPELINE_STAGE_TO_DB_STATUS[stage];
+  if (!dbStatus) return;
+  const now = Date.now();
+  const statusUnchanged = lastPersistedStage.get(jobId) === dbStatus;
+  const lastBeat = lastStageHeartbeatAt.get(jobId) ?? 0;
+  // WHY: skip only when status is unchanged AND heartbeat is still fresh —
+  // otherwise touch updatedAt so multi-instance sweeps see the job as alive.
+  if (statusUnchanged && now - lastBeat < STAGE_HEARTBEAT_MS) return;
+  lastPersistedStage.set(jobId, dbStatus);
+  lastStageHeartbeatAt.set(jobId, now);
+  db.update(contentJobs)
+    .set({ status: dbStatus, updatedAt: new Date() })
+    .where(and(
+      eq(contentJobs.id, jobId),
+      inArray(contentJobs.status, [
+        'pending',
+        'researching',
+        'writing',
+        'formatting',
+        'critiquing',
+      ]),
+    ))
+    .then(() => undefined)
+    .catch((err: unknown) => {
+      logger.warn('[DB] Failed to update mid-pipeline job stage', {
+        jobId,
+        stage: dbStatus,
         error: err instanceof Error ? err.message : String(err),
       });
     });
-  }, STALE_SWEEP_INTERVAL_MS);
-  staleSweepTimer.unref?.();
 }
 
-export function stopStaleJobSweep(): void {
-  if (staleSweepTimer) {
-    clearInterval(staleSweepTimer);
-    staleSweepTimer = null;
-  }
+/** Clear stage throttle when a job reaches a terminal persist or soft-delete. */
+export function clearJobStageThrottle(jobId: string): void {
+  lastPersistedStage.delete(jobId);
+  lastStageHeartbeatAt.delete(jobId);
 }
+
+// WHY: re-exported: workers/index historically import sweeps from persistJob.js.
+export {
+  markJobFailedIfInFlight,
+  sweepStaleInFlightJobs,
+  sweepStalePublishingPosts,
+  startStaleJobSweep,
+  stopStaleJobSweep,
+} from './persistJobSweeps.js';
 
 export async function persistJobToDB(jobResult: PersistedJobResult): Promise<void> {
-  if (!db || !isValidUUID(jobResult.userId)) return;
+  // WHY: throw (CORR-008): a silent return when db is null made
+  // runAndPersistPipeline treat persist as success, emit complete SSE, then
+  // evict memory after 10 min — results vanished with no DB row.
+  if (!db) {
+    throw new Error('Database unavailable — cannot persist job');
+  }
+  if (!isValidUUID(jobResult.userId)) {
+    throw new Error('Invalid userId — cannot persist job');
+  }
   const { platform, targetAudience } = jobResult;
   const tone = jobResult.tone ?? '';
   if (!isValidPlatform(platform) || !isValidTone(tone) || !targetAudience) {
@@ -224,6 +207,20 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
     throw error;
   }
   try {
+    // WHY: re-check before write (M3): a mid-run soft-delete can land between
+    // pipeline's isSoftDeleted() check and this persist — never clear deleted
+    // or rewrite outputs for a row the user already removed.
+    const existingRows = await db
+      .select({ deleted: contentJobs.deleted })
+      .from(contentJobs)
+      .where(eq(contentJobs.id, jobResult.id))
+      .limit(1);
+    if (existingRows.length > 0 && existingRows[0]?.deleted === 1) {
+      logger.warn('[DB] Refusing to persist soft-deleted job', { jobId: jobResult.id });
+      clearJobStageThrottle(jobResult.id);
+      throw new JobSoftDeletedError(jobResult.id);
+    }
+
     // WHY: wrap all writes in a Drizzle transaction so partial failure (e.g.
     // the INSERT after a successful DELETE) rolls back atomically instead of
     // leaving orphaned data. This is the project's own rule for multi-table writes.
@@ -237,7 +234,7 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
           tone,
           targetAudience,
           tag: jobResult.tag || null,
-          // WHY carried through here: sourceJobId/sourcePlatform are set on the
+          // WHY: carried through here: sourceJobId/sourcePlatform are set on the
           // in-memory job by POST /:jobId/multiply (manage.ts) but were previously
           // dropped on DB persist, so a multiplied job's origin badge went blank
           // once it aged out of memory (FUNCTIONAL_AUDIT_2026-07.md finding #11).
@@ -246,7 +243,7 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
             jobResult.sourcePlatform && isValidPlatform(jobResult.sourcePlatform)
               ? jobResult.sourcePlatform
               : null,
-          // WHY carried through here (C3): same lineage-metadata pattern as
+          // WHY: carried through here (C3): same lineage-metadata pattern as
           // sourceJobId/sourcePlatform above — set on the in-memory job by
           // routes/jobs/create.ts when created from a Competitor.tsx CTA, and
           // must survive to the DB row or the "based on competitor analysis"
@@ -256,13 +253,13 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
             jobResult.sourceCompetitorAnalysisId && isValidUUID(jobResult.sourceCompetitorAnalysisId)
               ? jobResult.sourceCompetitorAnalysisId
               : null,
-          // WHY carried through here: same lineage-metadata pattern as
+          // WHY: carried through here: same lineage-metadata pattern as
           // sourceJobId/sourceCompetitorAnalysisId above — set on the
           // in-memory job by routes/content/repurpose.ts, previously dropped
           // on DB persist, same class of bug FUNCTIONAL_AUDIT_2026-07.md
           // finding #11 fixed for sourceJobId.
           sourceUrl: jobResult.sourceUrl || null,
-          // WHY carried through here: same lineage/display-metadata pattern as
+          // WHY: carried through here: same lineage/display-metadata pattern as
           // sourceJobId/sourceUrl above — set on the in-memory job by
           // routes/jobs/create.ts from the client's template-system selection
           // (client/src/lib/templateSystem.ts), must survive to the DB row so
@@ -272,14 +269,19 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
           paletteId: jobResult.paletteId || null,
           status: jobResult.status,
           retryCount: jobResult.retryCount || 0,
-          deleted: jobResult.deleted || 0,
+          // WHY: omit forcing deleted:0 from jobResult: a stale in-memory
+          // snapshot with deleted undefined must not clear a soft-delete on
+          // insert conflict — DB default (0) applies only to brand-new rows.
         })
         .onConflictDoUpdate({
           target: contentJobs.id,
+          // WHY: deleted=0 only (M3): never update a soft-deleted row — and
+          // never put `deleted` in `set`, so conflict cannot resurrect it.
+          where: eq(contentJobs.deleted, 0),
           set: {
             status: jobResult.status,
             retryCount: jobResult.retryCount || 0,
-            // WHY only write display/lineage fields when the snapshot has them:
+            // WHY: only write display/lineage fields when the snapshot has them:
             // always writing `|| null` cleared a Library tag or template PATCH
             // made mid-run, because the worker's jobData is the queue payload
             // from create time — not the patched memory row.
@@ -299,7 +301,19 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
           },
         });
 
-      // WHY skip output wipe on empty failed: regenerate's failure path used to
+      // WHY: re-read after upsert (M3): ON CONFLICT … WHERE deleted=0 is a no-op
+      // when a concurrent soft-delete won the race — must not wipe outputs on a
+      // deleted row just because the INSERT conflicted.
+      const afterUpsert = await tx
+        .select({ deleted: contentJobs.deleted })
+        .from(contentJobs)
+        .where(eq(contentJobs.id, jobResult.id))
+        .limit(1);
+      if (afterUpsert.length > 0 && afterUpsert[0]?.deleted === 1) {
+        throw new JobSoftDeletedError(jobResult.id);
+      }
+
+      // WHY: skip output wipe on empty failed: regenerate's failure path used to
       // delete the previous final from content_outputs while only a version
       // snapshot (best-effort) remained — leaving Library/Result with nothing
       // to show after a mid-regen LLM error. Status still flips to failed.
@@ -312,7 +326,7 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
         await tx.delete(contentOutputs).where(eq(contentOutputs.jobId, jobResult.id));
         await tx.delete(agentLogs).where(eq(agentLogs.jobId, jobResult.id));
 
-        // WHY the Array.from: jobResult.outputs is typed PipelineOutput[] | []
+        // WHY: the Array.from: jobResult.outputs is typed PipelineOutput[] | []
         // (the union of the 'done' and 'failed' PersistedJobResult arms) — TS's
         // Array.prototype.filter does not apply its type-guard overload across a
         // union-typed receiver like that, silently falling back to the plain
@@ -348,10 +362,12 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
     });
 
     logger.info('[DB] Job persisted', { jobId: jobResult.id, status: jobResult.status });
-  } catch (err) {
+  } catch (err: unknown) {
+    // WHY: not Sentry: soft-delete refusal is an expected race, not a DB fault.
+    if (err instanceof JobSoftDeletedError) throw err;
     console.error('[DB] Failed to persist job:', err);
     Sentry.captureException(err, { tags: { jobId: jobResult.id, action: 'persistJob' } });
-    // WHY rethrow: callers used to treat a swallowed DB error as success —
+    // WHY: rethrow: callers used to treat a swallowed DB error as success —
     // runAndPersistPipeline emitted "Content generation complete!", then
     // evicted the only in-memory copy after 10 minutes, leaving a permanent
     // 404. The success path retries inline and keeps memory without eviction;

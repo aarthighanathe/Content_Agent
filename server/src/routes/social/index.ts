@@ -1,4 +1,4 @@
-// WHY split 2026-08-14: this file grew past the 400-line cap (CLAUDE.md "Code
+// WHY: split 2026-08-14: this file grew past the 400-line cap (CLAUDE.md "Code
 // Style Rules" / "Never Do These"). The OAuth state-signing + /connect +
 // /callback flow (the largest, most self-contained chunk) moved to
 // oauth.ts; the token storage layer (DB + in-memory fallback) moved to
@@ -10,6 +10,7 @@
 import { Router, Response } from 'express';
 import type { NextFunction } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
+import { requireAuthUserId } from '../jobs/ownership.js';
 import { parseBody, postSocialSchema } from '../../schemas/index.js';
 import { socialRateLimit } from '../../middleware/rateLimit.js';
 import { publishToSocialPlatform } from '../../lib/socialPublish.js';
@@ -24,7 +25,8 @@ router.use(oauthRoutes);
 // GET /api/social/connections
 router.get('/connections', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const tokens = await dbGetTokens(userId);
     const connections = Object.entries(tokens).map(([platform, data]) => ({
       platform,
@@ -33,7 +35,7 @@ router.get('/connections', async (req: AuthRequest, res: Response, next: NextFun
       displayName: data.displayName || null,
       expiresAt: data.expiresAt || null,
     }));
-    // WHY oauthConfigured: Brand's Connect buttons looked enabled even when
+    // WHY: oauthConfigured: Brand's Connect buttons looked enabled even when
     // LINKEDIN_/TWITTER_CLIENT_ID were empty — clicks only then failed with a
     // generic toast. Surfacing config up front lets the UI disable Connect
     // with a clear "Not configured" state instead of a dead-end click.
@@ -56,7 +58,8 @@ router.delete('/disconnect/:platform', async (req: AuthRequest, res: Response, n
     if (platform !== 'linkedin' && platform !== 'twitter' && platform !== 'instagram') {
       return res.status(400).json({ error: `Unsupported platform: ${platform}`, code: 'VALIDATION_ERROR', retryable: false });
     }
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     await dbDeleteToken(userId, platform);
     return res.json({ ok: true });
   } catch (error: unknown) {
@@ -65,7 +68,7 @@ router.delete('/disconnect/:platform', async (req: AuthRequest, res: Response, n
 });
 
 // POST /api/social/post — post content to a connected platform
-// WHY rate-limited: calls external LinkedIn/Twitter APIs via publishToSocialPlatform.
+// WHY: rate-limited: calls external LinkedIn/Twitter APIs via publishToSocialPlatform.
 // Without rate limiting, a user could script repeated posts and risk the OAuth app
 // being rate-limited/banned by the platform. This complies with CLAUDE.md's rule
 // that any endpoint calling external APIs must have a rate limiter.
@@ -74,11 +77,12 @@ router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response, ne
     const body = parseBody(postSocialSchema, req.body, res);
     if (!body) return;
     const { platform, content } = body;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const conn = await dbGetToken(userId, platform);
 
     if (!conn?.accessToken) {
-      res.status(401).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED', retryable: false });
+      res.status(409).json({ error: `Not connected to ${PLATFORM_LABELS[platform] || platform}. Connect your account first.`, code: 'NOT_CONNECTED', retryable: false });
       return;
     }
 

@@ -3,13 +3,13 @@ import { parseBody, imageGenSchema } from '../schemas/index.js';
 import { env } from '../config.js';
 import { logger } from '../lib/logger.js';
 
-// WHY these interfaces: each covers only the fields this route actually reads off
+// WHY: these interfaces: each covers only the fields this route actually reads off
 // the corresponding provider's JSON response, matching the same "type what you
 // use" scope as routes/social.ts's OAuth response types.
 interface OpenAIImageResponse {
   data?: Array<{ b64_json?: string; url?: string }>;
 }
-// WHY shared, not per-provider: OpenAI and Gemini's error envelopes both use
+// WHY: shared, not per-provider: OpenAI and Gemini's error envelopes both use
 // this exact { error: { message } } shape — a shared type here avoids two
 // identical interfaces.
 interface ProviderErrorResponse {
@@ -31,7 +31,7 @@ function errorMessage(e: unknown): string {
 
 const MAX_IMAGE_DOWNLOAD_BYTES = 8 * 1024 * 1024;
 
-// SECURITY (SEC-017): only fetch image bytes from known provider hosts — a
+// SECURITY: (SEC-017): only fetch image bytes from known provider hosts — a
 // poisoned provider JSON URL must not become an SSRF foothold from this route.
 const ALLOWED_IMAGE_HOSTS = new Set([
   'oaidalleapiprodscus.blob.core.windows.net',
@@ -68,6 +68,14 @@ function normalizeImageContentType(raw: string | null): string {
   return base === 'image/jpg' ? 'image/jpeg' : base;
 }
 
+// WHY: provider-supplied mimeType is interpolated into a data: URL — default
+// and allowlist it rather than emitting "data:undefined" or an arbitrary type.
+function normalizeGeminiMime(raw: string | undefined): string {
+  const base = (raw ?? 'image/png').split(';')[0]?.trim().toLowerCase() ?? 'image/png';
+  if (!ALLOWED_IMAGE_TYPES.has(base)) return 'image/png';
+  return base === 'image/jpg' ? 'image/jpeg' : base;
+}
+
 async function readCappedArrayBuffer(
   res: { headers: { get(name: string): string | null }; arrayBuffer(): Promise<ArrayBuffer> },
   maxBytes = MAX_IMAGE_DOWNLOAD_BYTES,
@@ -88,13 +96,27 @@ async function readCappedArrayBuffer(
 
 const router = Router();
 
+// WHY: in-process cap (max 2) — each generation fans out to OpenAI/Together/
+// Gemini/Pollinations with multi-MB payloads; unbounded concurrency OOMs the
+// free-tier host. 429 when full so clients retry rather than queue forever.
+const MAX_IMAGE_GEN_CONCURRENT = 2;
+let _activeImageGens = 0;
+
 router.post('/generate', async (req, res: Response, next: NextFunction) => {
-  // WHY the whole handler wrapped in try/catch, not relying solely on each
+  // WHY: the whole handler wrapped in try/catch, not relying solely on each
   // provider block's own try/catch: every fetch block below already self-
   // catches, so no provider exception can escape today — but that only holds
   // as long as every one of the 5 blocks stays correctly wrapped forever. This
   // outer boundary is defense-in-depth so a future edit that adds code between/
   // after the provider blocks without its own try/catch doesn't throw unhandled.
+  if (_activeImageGens >= MAX_IMAGE_GEN_CONCURRENT) {
+    return res.status(429).json({
+      error: 'Image generation is busy — please retry shortly',
+      code: 'IMAGE_GEN_BUSY',
+      retryable: true,
+    });
+  }
+  _activeImageGens += 1;
   try {
     const body = parseBody(imageGenSchema, req.body, res);
     if (!body) return;
@@ -109,7 +131,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
       ? `${prompt.trim()} Flat graphic design. Every word must be in English. All text must be sharp, crisp, and fully legible. No human faces. No people.`
       : `Professional abstract social media background. Absolutely no text, no words, no letters, no numbers anywhere. Clean minimal composition. No human faces. ${prompt.trim()}`;
 
-    // ── Attempt 1: OpenAI gpt-image-1 (newest, b64_json) ─────────────────────────
+    // FLOW: fallback 1 — OpenAI gpt-image-1 (newest, b64_json)
     if (openaiKey) {
       try {
         const ctrl = new AbortController();
@@ -143,7 +165,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
       }
     }
 
-    // ── Attempt 2: OpenAI DALL-E 3 (URL → download) ──────────────────────────────
+    // FLOW: fallback 2 — OpenAI DALL-E 3 (URL → download)
     if (openaiKey) {
       try {
         const genCtrl = new AbortController();
@@ -168,7 +190,8 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
             assertAllowedImageUrl(imageUrl);
             const dlCtrl = new AbortController();
             const dlTimer = setTimeout(() => dlCtrl.abort(), 30_000);
-            const dl = await fetch(imageUrl, { signal: dlCtrl.signal });
+            // SECURITY: redirect:'error' — an allowlisted host must not bounce us elsewhere.
+            const dl = await fetch(imageUrl, { signal: dlCtrl.signal, redirect: 'error' });
             clearTimeout(dlTimer);
             const contentType = normalizeImageContentType(dl.headers.get('content-type'));
             const buffer = await readCappedArrayBuffer(dl);
@@ -185,7 +208,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
       }
     }
 
-    // ── Attempt 3: Together AI FLUX.1-schnell-Free ───────────────────────────────
+    // FLOW: fallback 3 — Together AI FLUX.1-schnell-Free
     if (togetherKey) {
       try {
         const controller = new AbortController();
@@ -217,7 +240,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
       }
     }
 
-    // ── Attempt 4: Gemini image generation (current image-capable Flash models) ─
+    // FLOW: fallback 4 — Gemini image generation (current image-capable Flash models)
     if (geminiKey) {
       for (const modelId of [
         'gemini-2.5-flash-image',
@@ -249,7 +272,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
               if (part.inlineData?.data) {
                 logger.info('[imageGen] Gemini model succeeded', { modelId });
                 return res.json({
-                  image: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+                  image: `data:${normalizeGeminiMime(part.inlineData.mimeType)};base64,${part.inlineData.data}`,
                   source: 'gemini',
                 });
               }
@@ -264,7 +287,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
       }
     }
 
-    // ── Attempt 5: Pollinations.AI (no key, last resort) ────────────────────────
+    // FLOW: fallback 5 — Pollinations.AI (no key, last resort)
     try {
       const pollinationsUrl =
         `https://image.pollinations.ai/prompt/${encodeURIComponent(enhanced)}` +
@@ -272,7 +295,7 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 50_000);
-      const r = await fetch(pollinationsUrl, { signal: controller.signal });
+      const r = await fetch(pollinationsUrl, { signal: controller.signal, redirect: 'error' });
       clearTimeout(timer);
 
       if (r.ok) {
@@ -288,12 +311,15 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
     }
 
     res.status(500).json({
-      error: 'Image generation failed. Ensure OPENAI_API_KEY is set in .env for best results.',
+      // SECURITY: generic message — never reveal which provider keys/config exist.
+      error: 'Image generation failed. Please try again later.',
       code: 'IMAGE_GEN_FAILED',
       retryable: true,
     });
   } catch (error) {
     next(error);
+  } finally {
+    _activeImageGens = Math.max(0, _activeImageGens - 1);
   }
 });
 

@@ -1,4 +1,4 @@
-// WHY a separate sub-router, not inline in index.ts: extracted 2026-08-14 to
+// WHY: a separate sub-router, not inline in index.ts: extracted 2026-08-14 to
 // keep routes/social/index.ts under the 400-line split threshold — same
 // "split when it grows, mirror the routes/jobs/ sub-router pattern" convention
 // as routes/jobs/render.ts/stream.ts/insights.ts/versions.ts. This module owns
@@ -7,11 +7,13 @@
 import { Router, Request, Response } from 'express';
 import type { NextFunction } from 'express';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
+import { z } from 'zod';
 import { AuthRequest } from '../../middleware/auth.js';
 import { env } from '../../config.js';
 import { socialRateLimit } from '../../middleware/rateLimit.js';
 import { dbUpsertToken } from '../../lib/socialTokens.js';
 import { getRedisClient } from '../../lib/redisClient.js';
+import { storePkceVerifier, takePkceVerifier } from '../../lib/oauthPkce.js';
 
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 // SECURITY: binds /callback to the same browser that started /connect (OAuth
@@ -66,21 +68,31 @@ function safeEqualString(a: string, b: string): boolean {
   return timingSafeEqual(aBuf, bBuf);
 }
 
+// SECURITY: mirrors config.ts — a non-localhost APP_URL (staging/preview) is treated like
+// production even when NODE_ENV=development, so nonce replay checks fail closed there.
+function isNonceFailOpenAllowed(): boolean {
+  let host = '';
+  try {
+    host = new URL(env.APP_URL).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  return env.NODE_ENV !== 'production' && isLocalhost;
+}
+
 async function consumeOAuthNonce(nonce: string): Promise<boolean> {
   const client = getRedisClient();
-  // SECURITY: without Redis, nonce replay is possible — fail closed in
-  // production; local/dev without Redis still allows the flow.
-  if (!client) return env.NODE_ENV !== 'production';
+  // SECURITY: without Redis, nonce replay is possible — fail closed unless local dev.
+  if (!client) return isNonceFailOpenAllowed();
   try {
     const key = `oauth:nonce:${nonce}`;
     const set = await client.set(key, '1', 'EX', 600, 'NX');
     return set === 'OK';
   } catch {
-    return env.NODE_ENV !== 'production';
+    return isNonceFailOpenAllowed();
   }
 }
-
-// ── OAuth state HMAC signing ───────────────────────────────────────────────────
 
 // SECURITY: config.ts provides a default for local dev, but in production this
 // must be set to a strong random value. Without it, OAuth state tokens can be
@@ -121,45 +133,43 @@ function verifyOAuthState(state: string): Record<string, unknown> | null {
   }
 }
 
-// WHY these interfaces: each covers only the fields this file actually reads off
-// the corresponding OAuth provider's JSON response — not the full response shape
-// (both LinkedIn and Twitter return considerably more than this), matching the
-// same "type what you use" scope as the rest of this pass's response schemas.
-interface LinkedInTokenResponse {
-  access_token?: string;
-  expires_in?: number;
-}
-interface LinkedInProfileResponse {
-  id?: string;
-  sub?: string;
-  name?: string;
-  given_name?: string;
-  family_name?: string;
-}
-interface TwitterTokenResponse {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-}
-interface TwitterProfileResponse {
-  data?: { username?: string };
-}
+// WHY: zod schemas (not interfaces + `as` casts): provider JSON can be malformed
+// or an error body — fail closed on shape mismatch instead of trusting casts.
+const linkedInTokenSchema = z.object({
+  access_token: z.string().min(1),
+  expires_in: z.number().positive().optional(),
+});
+const linkedInProfileSchema = z.object({
+  id: z.string().optional(),
+  sub: z.string().optional(),
+  name: z.string().optional(),
+  given_name: z.string().optional(),
+  family_name: z.string().optional(),
+});
+const twitterTokenSchema = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().optional(),
+  expires_in: z.number().positive().optional(),
+});
+const twitterProfileSchema = z.object({
+  data: z.object({ username: z.string().optional() }).optional(),
+});
 
 const router = Router();
 
 // GET /api/social/connect/:platform — initiate OAuth
-// WHY JSON { authorizeUrl } instead of a 302: the Brand page must call this
+// WHY: JSON { authorizeUrl } instead of a 302: the Brand page must call this
 // through the authenticated axios client (Bearer + credentials) so (a) Clerk
 // auth reaches the API on Vercel→Render and (b) the CSRF cookie is set on the
 // API origin before the browser navigates to LinkedIn/Twitter.
-// WHY rate-limited here, not at the /api/social router mount: the callback
+// WHY: rate-limited here, not at the /api/social router mount: the callback
 // route calls external LinkedIn/Twitter token + profile APIs and needs
 // backpressure, but /connections (a frequent read-only DB lookup, no external
 // call) and /post/schedule shouldn't share that same tight OAuth-dance budget.
-router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/connect/:platform', socialRateLimit, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const platform = req.params.platform as string;
-    // SECURITY (SEC-020): never mint OAuth state for a shared 'demo' identity —
+    // SECURITY: (SEC-020): never mint OAuth state for a shared 'demo' identity —
     // authMiddleware already guarantees dbUserId on this route.
     if (!req.dbUserId) {
       res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
@@ -191,11 +201,15 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
       }
       const scopes = ['tweet.read', 'tweet.write', 'users.read', 'offline.access'].join('%20');
       // SECURITY: S256 PKCE — verifier is generated once here and carried through
-      // to the callback via the signed state param.
+      // to the callback via Redis keyed by nonce (never exposed in the URL).
       const codeVerifier = randomBytes(32).toString('base64url');
       const codeChallenge = pkceS256Challenge(codeVerifier);
+      if (!(await storePkceVerifier(nonce, codeVerifier))) {
+        res.status(503).json({ error: 'Could not start connection. Please try again.', code: 'SERVICE_UNAVAILABLE', retryable: true });
+        return;
+      }
       const state = signOAuthState({
-        userId, platform, nonce, codeVerifier, issuedAt: Date.now(),
+        userId, platform, nonce, issuedAt: Date.now(),
       });
       const authorizeUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopes}&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
       setOAuthCsrfCookie(res, nonce);
@@ -210,7 +224,7 @@ router.get('/connect/:platform', socialRateLimit, (req: AuthRequest, res: Respon
 });
 
 // GET /api/social/callback/:platform — OAuth callback
-// WHY no next(error) anywhere in this handler: an OAuth callback is a top-level
+// WHY: no next(error) anywhere in this handler: an OAuth callback is a top-level
 // browser redirect the user is mid-flow on, not an API call with a JSON error
 // consumer — every failure path (bad state, missing token, upstream API error)
 // redirects back to the Brand page with a social_error query param instead of
@@ -250,7 +264,7 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
       res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('invalid_state')}`);
       return;
     }
-    // SECURITY (SEC-020): reject malformed state rather than falling back to
+    // SECURITY: (SEC-020): reject malformed state rather than falling back to
     // a shared 'demo' userId, and bind state.platform to the URL platform so a
     // LinkedIn code cannot be stored under /callback/twitter.
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -290,19 +304,36 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: callbackUrl, client_id: clientId, client_secret: clientSecret }).toString(),
+        signal: AbortSignal.timeout(10_000),
       });
-      const tokenData = await tokenRes.json() as LinkedInTokenResponse;
-      if (!tokenData.access_token) throw new Error('No access token');
+      let tokenJson: unknown;
+      try {
+        tokenJson = await tokenRes.json();
+      } catch {
+        throw new Error('LinkedIn token response was not JSON');
+      }
+      const tokenParsed = linkedInTokenSchema.safeParse(tokenJson);
+      if (!tokenParsed.success) throw new Error('No access token');
+      const tokenData = tokenParsed.data;
 
       let displayName = 'LinkedIn User';
       let platformUserId: string | undefined;
       try {
-        const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
-        const profile = await profileRes.json() as LinkedInProfileResponse;
-        platformUserId = profile.sub || profile.id;
-        displayName = profile.name?.trim()
-          || `${profile.given_name || ''} ${profile.family_name || ''}`.trim()
-          || displayName;
+        const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', { headers: { Authorization: `Bearer ${tokenData.access_token}` }, signal: AbortSignal.timeout(10_000) });
+        let profileJson: unknown;
+        try {
+          profileJson = await profileRes.json();
+        } catch {
+          profileJson = null;
+        }
+        const profileParsed = linkedInProfileSchema.safeParse(profileJson);
+        if (profileParsed.success) {
+          const profile = profileParsed.data;
+          platformUserId = profile.sub || profile.id;
+          displayName = profile.name?.trim()
+            || `${profile.given_name || ''} ${profile.family_name || ''}`.trim()
+            || displayName;
+        }
       } catch { /* ignore */ }
 
       await dbUpsertToken(userId, platform, {
@@ -320,22 +351,43 @@ router.get('/callback/:platform', socialRateLimit, async (req: Request, res: Res
         return;
       }
       const clientSecret = env.TWITTER_CLIENT_SECRET || '';
+      const codeVerifier = await takePkceVerifier(nonce);
+      if (!codeVerifier) {
+        res.redirect(`${frontendUrl}/brand?social_error=${encodeURIComponent('session_expired')}`);
+        return;
+      }
       const tokenRes = await fetch('https://api.twitter.com/2/oauth2/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           ...(clientSecret ? { Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}` } : {}),
         },
-        body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: callbackUrl, code_verifier: typeof decoded.codeVerifier === 'string' ? decoded.codeVerifier : '' }).toString(),
+        body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: callbackUrl, code_verifier: codeVerifier }).toString(),
+        signal: AbortSignal.timeout(10_000),
       });
-      const tokenData = await tokenRes.json() as TwitterTokenResponse;
-      if (!tokenData.access_token) throw new Error('No access token');
+      let tokenJson: unknown;
+      try {
+        tokenJson = await tokenRes.json();
+      } catch {
+        throw new Error('Twitter token response was not JSON');
+      }
+      const tokenParsed = twitterTokenSchema.safeParse(tokenJson);
+      if (!tokenParsed.success) throw new Error('No access token');
+      const tokenData = tokenParsed.data;
 
       let displayName = 'Twitter User';
       try {
-        const profileRes = await fetch('https://api.twitter.com/2/users/me', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
-        const profile = await profileRes.json() as TwitterProfileResponse;
-        displayName = profile.data?.username ? `@${profile.data.username}` : displayName;
+        const profileRes = await fetch('https://api.twitter.com/2/users/me', { headers: { Authorization: `Bearer ${tokenData.access_token}` }, signal: AbortSignal.timeout(10_000) });
+        let profileJson: unknown;
+        try {
+          profileJson = await profileRes.json();
+        } catch {
+          profileJson = null;
+        }
+        const profileParsed = twitterProfileSchema.safeParse(profileJson);
+        if (profileParsed.success && profileParsed.data.data?.username) {
+          displayName = `@${profileParsed.data.data.username}`;
+        }
       } catch { /* ignore */ }
 
       await dbUpsertToken(userId, platform, {

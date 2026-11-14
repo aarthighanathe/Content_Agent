@@ -1,9 +1,9 @@
-// WHY this route exists: replaces the 100%-client-side localStorage calendar
+// WHY: this route exists: replaces the 100%-client-side localStorage calendar
 // schedule (client/src/pages/Calendar/calendarHelpers.ts's old SCHEDULE_KEY)
 // with a real DB-backed table so scheduled placements survive a cleared
 // browser and sync across devices.
 //
-// WHY this table is a SEPARATE concept from social.ts's in-memory
+// WHY: this table is a SEPARATE concept from social.ts's in-memory
 // scheduledPosts Map, not the same thing under two names: this table tracks
 // a calendar date-placement tied to a jobId (platform is optional — only set
 // when the user wants real auto-publish, see below); social.ts's Map tracks a
@@ -15,7 +15,7 @@
 // See social.ts's own scheduledPosts Map comment for the mirrored
 // cross-reference.
 //
-// WHY added 2026-08-05 (real auto-publish, `publishPlatform` on
+// WHY: added 2026-08-05 (real auto-publish, `publishPlatform` on
 // createScheduledPostSchema): previously this table was purely a planning
 // aid — placing a job on a date never actually posted anything anywhere,
 // same disclosed scope as social.ts's reminder-only POST /api/social/schedule
@@ -26,7 +26,7 @@
 // with social.ts's own interactive POST /api/social/post route). Scheduling
 // with no publishPlatform stays exactly the old reminder-only behavior.
 import { Router, Response, NextFunction } from 'express';
-import { and, eq, gte, lt } from 'drizzle-orm';
+import { and, eq, gte, lt, ne } from 'drizzle-orm';
 import { AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/index.js';
 import { scheduledPosts } from '../db/schema.js';
@@ -35,11 +35,15 @@ import { parseBody, createScheduledPostSchema, listScheduledPostsQuerySchema } f
 import { isValidUUID } from '../lib/uuid.js';
 import { queuePublishJob, cancelPublishJob } from '../lib/publishQueue.js';
 
-// WHY default hour 9: morning slot when the client omits publishHour (older
+// WHY: default hour 9: morning slot when the client omits publishHour (older
 // clients / reminder-only schedules). L10/F12 added an optional 0–23 picker.
 const DEFAULT_PUBLISH_HOUR = 9;
 
-// WHY timezoneOffsetMinutes, not just trusting scheduledDate as a UTC day:
+// WHY: hard cap even inside a month window — a month of personal calendar
+// rows should be tiny; this bounds a pathological / crafted query.
+const LIST_MAX_ROWS = 200;
+
+// WHY: timezoneOffsetMinutes, not just trusting scheduledDate as a UTC day:
 // CalendarGrid.tsx builds scheduledDate from the browser's LOCAL calendar day
 // (year/month/dayNum all come from local Date methods), but this function
 // used to interpret that same string as a UTC calendar day via Date.UTC() —
@@ -67,7 +71,7 @@ export function publishDelayMs(
 
 const router = Router();
 
-// WHY computed, not a hardcoded "-31": query.month is validated YYYY-MM by
+// WHY: computed, not a hardcoded "-31": query.month is validated YYYY-MM by
 // listScheduledPostsQuerySchema, so this always receives a real "YYYY-MM"
 // pair — returns the first day of the following month as "YYYY-MM-DD" for
 // use as an exclusive upper bound (see the GET / route's WHY above).
@@ -79,9 +83,16 @@ function firstDayOfNextMonth(month: string): string {
   return `${yyyy}-${mm}-01`;
 }
 
-// GET /api/scheduled-posts?month=YYYY-MM — list this user's scheduled posts.
-// Omitting `month` returns all of the user's scheduled posts (used by the
-// Dashboard "next scheduled post" card to look past the current month).
+function currentUtcMonth(): string {
+  const now = new Date();
+  const yyyy = now.getUTCFullYear();
+  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+  return `${yyyy}-${mm}`;
+}
+
+// GET /api/scheduled-posts?month=YYYY-MM — list this user's scheduled posts
+// for one calendar month. Omitting `month` defaults to the current UTC month
+// (never unbounded — M8).
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const userId = requireDbUser(req, res, 'Scheduling');
@@ -90,23 +101,28 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const query = parseBody(listScheduledPostsQuerySchema, req.query, res);
     if (!query) return;
 
-    const conditions = [eq(scheduledPosts.userId, userId)];
-    if (query.month) {
-      // WHY string range, not a date-column BETWEEN: scheduledDate is stored
-      // as a plain YYYY-MM-DD string (see schema.ts's WHY comment) — lexical
-      // comparison on that format sorts identically to chronological order.
-      // WHY an exclusive next-month bound, not lte(`${month}-31`): a literal
-      // `-31` upper bound only happens to work because every real day in a
-      // month lexically falls within 01-31 — it silently stops being a valid
-      // calendar day for February/30-day months if this were ever generalized
-      // (e.g. to a query spanning a day range instead of a whole month).
-      // Computing the real first-day-of-next-month bound removes that
-      // coincidence dependency.
-      conditions.push(gte(scheduledPosts.scheduledDate, `${query.month}-01`));
-      conditions.push(lt(scheduledPosts.scheduledDate, firstDayOfNextMonth(query.month)));
-    }
+    // WHY: default current UTC month when omitted — previously missing `month`
+    // returned every row for the user (unbounded). Schema still allows omit
+    // for older clients; the route always scopes to one month + LIST_MAX_ROWS.
+    const month = query.month ?? currentUtcMonth();
 
-    // WHY joining the job's topic/platform inline: NextScheduledCard.tsx
+    // WHY: string range, not a date-column BETWEEN: scheduledDate is stored
+    // as a plain YYYY-MM-DD string (see schema.ts's WHY comment) — lexical
+    // comparison on that format sorts identically to chronological order.
+    // WHY: an exclusive next-month bound, not lte(`${month}-31`): a literal
+    // `-31` upper bound only happens to work because every real day in a
+    // month lexically falls within 01-31 — it silently stops being a valid
+    // calendar day for February/30-day months if this were ever generalized
+    // (e.g. to a query spanning a day range instead of a whole month).
+    // Computing the real first-day-of-next-month bound removes that
+    // coincidence dependency.
+    const conditions = [
+      eq(scheduledPosts.userId, userId),
+      gte(scheduledPosts.scheduledDate, `${month}-01`),
+      lt(scheduledPosts.scheduledDate, firstDayOfNextMonth(month)),
+    ];
+
+    // WHY: joining the job's topic/platform inline: NextScheduledCard.tsx
     // (Dashboard) only needs those two fields off the nearest upcoming row —
     // without this, it had to issue a second, sequential GET /jobs/:jobId
     // after this query resolved (a network waterfall on every Dashboard
@@ -116,10 +132,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const rows = await db!.query.scheduledPosts.findMany({
       where: and(...conditions),
       orderBy: (sp, { asc }) => [asc(sp.scheduledDate)],
+      limit: LIST_MAX_ROWS,
       with: { job: { columns: { topic: true, platform: true } } },
     });
 
-    res.json({
+    return res.json({
       scheduledPosts: rows.map((row) => ({
         id: row.id,
         userId: row.userId,
@@ -135,7 +152,6 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         job: row.job ? { topic: row.job.topic, platform: row.job.platform } : undefined,
       })),
     });
-    return;
   } catch (error) {
     next(error);
   }
@@ -160,7 +176,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const publishHour = body.publishHour ?? 9;
 
-    // WHY reject past/current-hour schedules before insert: publishQueue used
+    // WHY: reject past/current-hour schedules before insert: publishQueue used
     // to clamp a negative delay to 0 and fire immediately while the 201 body
     // still said publishStatus pending — so "schedule for 15:00" at 15:40
     // posted now. Require a future top-of-hour before accepting auto-publish.
@@ -186,6 +202,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       .from(scheduledPosts)
       .where(and(eq(scheduledPosts.jobId, body.jobId), eq(scheduledPosts.userId, userId)))
       .limit(1);
+    // WHY: 409 while publishing: the worker already claimed this row and may be
+    // mid-post; resetting to pending and re-queuing would double-post.
+    if (existing?.publishStatus === 'publishing') {
+      return res.status(409).json({
+        error: 'This post is being published right now — try again shortly',
+        code: 'PUBLISH_IN_PROGRESS',
+        retryable: false,
+      });
+    }
     if (
       existing
       && existing.publishStatus === 'posted'
@@ -200,12 +225,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return res.status(200).json({ scheduledPost: row });
     }
 
-    // WHY reset publishStatus/publishedAt/postUrl/publishError to their
+    // WHY: reset publishStatus/publishedAt/postUrl/publishError to their
     // pending/null defaults on every upsert, not just on first insert: moving
     // an already-published or already-failed job to a new date (or changing
     // its platform) must re-arm it for a fresh publish attempt — otherwise a
     // rescheduled job would keep showing a stale "posted"/"failed" badge from
     // its previous date.
+    // WHY: onConflict WHERE excludes publishing (R1): the select-then-upsert
+    // gap lets publishWorker claim pending→publishing; an unconditional
+    // set publishStatus:'pending' would re-arm mid-post and queuePublishJob
+    // would double-post. Postgres skips the UPDATE when WHERE fails;
+    // returning is empty → 409 below (compatible with worker's pending-only claim).
     const [row] = await db!
       .insert(scheduledPosts)
       .values({
@@ -217,6 +247,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       })
       .onConflictDoUpdate({
         target: scheduledPosts.jobId,
+        where: ne(scheduledPosts.publishStatus, 'publishing'),
         set: {
           scheduledDate: body.scheduledDate,
           publishPlatform: body.publishPlatform ?? null,
@@ -229,18 +260,28 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       })
       .returning();
 
+    // WHY: empty returning after conflict WHERE miss — worker claimed between
+    // the publishing check above and this upsert; same 409 as the early guard.
+    if (!row) {
+      return res.status(409).json({
+        error: 'This post is being published right now — try again shortly',
+        code: 'PUBLISH_IN_PROGRESS',
+        retryable: false,
+      });
+    }
+
     if (body.publishPlatform) {
       const delayMs = publishDelayMs(
         body.scheduledDate,
         body.timezoneOffsetMinutes,
         publishHour,
       );
-      // WHY await + fail the request: a swallowed Redis error left a pending
+      // WHY: await + fail the request: a swallowed Redis error left a pending
       // row that the calendar labeled "Will auto-publish" while nothing was
       // queued. Prefer 503 over a silent lie.
       const queued = await queuePublishJob(row.id, delayMs);
       if (!queued) {
-        // WHY clear auto-publish on the row: leaving publishStatus pending
+        // WHY: clear auto-publish on the row: leaving publishStatus pending
         // after a failed queue made the calendar say "Will auto-publish"
         // forever. Downgrade to a reminder-only schedule so the day still
         // shows the job without promising a post that will never fire.
@@ -259,15 +300,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         });
       }
     } else {
-      // WHY cancel unconditionally, not just when downgrading from a platform:
+      // WHY: cancel unconditionally, not just when downgrading from a platform:
       // cheap and idempotent (cancelPublishJob no-ops if nothing is queued) —
       // simpler than tracking "did this upsert change from a platform to
       // none" separately.
       cancelPublishJob(row.id).catch(() => {});
     }
 
-    res.status(201).json({ scheduledPost: row });
-    return;
+    return res.status(201).json({ scheduledPost: row });
   } catch (error) {
     next(error);
   }

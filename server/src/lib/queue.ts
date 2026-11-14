@@ -5,7 +5,7 @@ import { createDedicatedRedisConnection } from './redisClient.js';
 
 // BullMQ requires SEPARATE Redis connections for Queue and Worker (a Worker's
 // blocking commands would otherwise stall a connection shared with the Queue).
-// WHY delegate to redisClient.ts: previously this factory independently read
+// WHY: delegate to redisClient.ts: previously this factory independently read
 // env vars and built its own IORedis instance on every call, duplicating the
 // same connection-building logic that lived in lib/redisClient.ts. Now both
 // derive from redisClient's singleton via `.duplicate()`, so config/credentials
@@ -25,7 +25,7 @@ function getQueue(): Queue | null {
       contentQueue = new Queue('content-generation', {
         connection: createRedisConnection(),
         defaultJobOptions: {
-          // NOTE (L8): attempts: 3 is for worker *crashes* / stalled jobs (BullMQ
+          // NOTE: (L8): attempts: 3 is for worker *crashes* / stalled jobs (BullMQ
           // stalledInterval), not for pipeline business failures. contentWorker
           // deliberately swallows errors after runAndPersistPipeline has already
           // written status:'failed' + terminal SSE — rethrowing would retry an
@@ -55,7 +55,7 @@ export async function addJobToQueue(jobId: string, data: Record<string, unknown>
   return result === 'queued';
 }
 
-// WHY detailed result: regenerate used to treat a locked active job's failed
+// WHY: detailed result: regenerate used to treat a locked active job's failed
 // remove + duplicate add as "queued" (BullMQ returns the old id) and skip
 // direct mode — or, when remove threw and add failed, as "unavailable" and
 // start a second pipeline beside the worker. Callers that need to distinguish
@@ -75,7 +75,7 @@ export async function addJobToQueueDetailed(
       existingJob = await queue.getJob(jobId);
       if (existingJob) {
         const state = await existingJob.getState();
-        // WHY refuse while active/waiting-children: remove() throws when the
+        // WHY: refuse while active/waiting-children: remove() throws when the
         // job is locked, and a subsequent queue.add with the same id returns
         // the old job without writing the new payload — so regenerate wiped
         // the UI, returned success, and never ran with the new feedback.
@@ -87,7 +87,7 @@ export async function addJobToQueueDetailed(
         logger.info('[Queue] Removed old job before re-adding', { jobId });
       }
     } catch (err) {
-      // WHY return 'active' when an existing job could not be removed: falling
+      // WHY: return 'active' when an existing job could not be removed: falling
       // through to queue.add with the same id returns the OLD job without the
       // new payload, and regenerate treated that as success.
       logger.warn('[Queue] getJob/remove failed before re-add', {
@@ -102,6 +102,40 @@ export async function addJobToQueueDetailed(
   } catch (error) {
     console.warn('Failed to add job to queue (Redis may not be available)');
     return 'unavailable';
+  }
+}
+
+/**
+ * Best-effort cancel of a queued content-generation job (soft-delete).
+ * WHY: DELETE used to only flip deleted=1 in memory/DB — waiting BullMQ jobs
+ * still started and burned Gemini/Tavily. Active/locked jobs cannot be removed
+ * from another process (no lock token); those rely on pipeline isSoftDeleted.
+ */
+export async function cancelContentJob(jobId: string): Promise<boolean> {
+  try {
+    const queue = getQueue();
+    if (!queue) return false;
+    const existingJob = await queue.getJob(jobId);
+    if (!existingJob) return false;
+    const state = await existingJob.getState();
+    // WHY: skip active: remove() throws when locked by a worker. Soft-delete
+    // flags in memory/DB still abort the pipeline between stages.
+    if (state === 'active' || state === 'waiting-children') {
+      logger.info('[Queue] Soft-deleted job still active; pipeline will abort', {
+        jobId,
+        state,
+      });
+      return false;
+    }
+    await existingJob.remove();
+    logger.info('[Queue] Cancelled content job after soft-delete', { jobId, state });
+    return true;
+  } catch (err: unknown) {
+    logger.warn('[Queue] Failed to cancel content job', {
+      jobId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
   }
 }
 

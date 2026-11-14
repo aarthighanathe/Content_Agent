@@ -4,7 +4,7 @@ import { ContentJob } from '../db/schema.js';
 import { escapeXml } from '../lib/sanitizeSearchText.js';
 import { criticResponseSchema, type CriticResponse } from '../schemas/agentResponses.js';
 
-// WHY exported: performancePredictor.ts's criticResult parameter reads this exact
+// WHY: exported: performancePredictor.ts's criticResult parameter reads this exact
 // shape (totalScore, scores.hookStrength, etc. — see pipeline.ts's call site,
 // runCritic()'s return value passed straight through as lastCriticResult) —
 // exporting it lets that file use the real type instead of `any`.
@@ -21,13 +21,13 @@ export interface CriticResult {
   feedback: string;
 }
 
-// WHY unknown (not a concrete WriterResponse type) here: this is formatter.ts's
+// WHY: unknown (not a concrete WriterResponse type) here: this is formatter.ts's
 // output, and formatter.ts still types its own return as `any` (a separate,
 // not-yet-fixed `any` — out of scope for this pass) — critic.ts cannot honestly
 // claim a concrete shape for a value whose producer doesn't guarantee one yet.
 // Narrowing happens per-branch below via runtime checks instead of a type
 // assertion, so this stays truthful about what's actually known at this boundary.
-// WHY exported: tests/unit/critic-buildContentSummary.test.ts calls this
+// WHY: exported: tests/unit/critic-buildContentSummary.test.ts calls this
 // directly to exercise each of the 5 platform-specific formatting branches —
 // a regression in any one of them would silently degrade what the critic LLM
 // actually sees for that platform, lowering real quality scores in a way
@@ -87,7 +87,7 @@ export async function runCritic(
 
   const contentSummary = buildContentSummary(content, job.platform);
 
-  // WHY wrapped in <brand_voice> tags: every other agent (writer.ts,
+  // WHY: wrapped in <brand_voice> tags: every other agent (writer.ts,
   // orchestrator.ts) wraps this exact user-controlled field in XML delimiters
   // per CLAUDE.md's prompt-injection rule; this prompt used to splice it in
   // bare, which was a direct (if low-blast-radius — a user can only affect
@@ -96,11 +96,11 @@ export async function runCritic(
   const safeAudience = escapeXml(job.targetAudience || '');
   const safeTone = escapeXml(job.tone || '');
   const safePlatform = escapeXml(job.platform.replace(/_/g, ' '));
-  // SECURITY (AI-001): contentSummary is model output from a prior stage —
+  // SECURITY: (AI-001): contentSummary is model output from a prior stage —
   // still wrap+escape so a crafted draft cannot break out of the critic prompt.
   const safeContent = escapeXml(contentSummary);
 
-  // WHY LinkedIn-specific notes: the generic rubric never checked "see more"
+  // WHY: LinkedIn-specific notes: the generic rubric never checked "see more"
   // hooks, short paragraphs, or soft CTAs — LinkedIn posts scored high while
   // still feeling corporate and vague. These rules steer retries.
   const linkedInRubric = job.platform === 'linkedin_post'
@@ -159,7 +159,7 @@ Output ONLY valid JSON — no markdown, no explanation:
   try {
     const jsonMatch = result.match(/\{[\s\S]*\}/);
     const rawParsed: unknown = JSON.parse(jsonMatch ? jsonMatch[0] : result);
-    // WHY safeParse + fallback rather than throwing on a shape mismatch: this
+    // WHY: safeParse + fallback rather than throwing on a shape mismatch: this
     // folds an out-of-spec response into the exact same conservative fallback
     // path as a JSON.parse() failure — both mean the LLM output can't be
     // trusted, so both get the identical safe, non-approving default. See
@@ -185,7 +185,7 @@ Output ONLY valid JSON — no markdown, no explanation:
     ctaClarity:         clampScore(parsed.ctaClarity),
   };
 
-  // WHY deterministic word-count gate (L11): writer targets 45–60 words on
+  // WHY: deterministic word-count gate (L11): writer targets 45–60 words on
   // cover/problem/solution/stat bodies and shorter ranges on feature/quote/
   // how-to/CTA (see writer.ts). Applying 45–60 to every slide docked
   // platformCompliance on carousels that followed the prompt, then told the
@@ -222,7 +222,7 @@ Output ONLY valid JSON — no markdown, no explanation:
     }
   }
 
-  // WHY deterministic LinkedIn gates: the LLM critic often waved through soft
+  // WHY: deterministic LinkedIn gates: the LLM critic often waved through soft
   // CTAs and topic-label hooks. Cap scores here so retries get concrete feedback.
   if (job.platform === 'linkedin_post' && content && typeof content === 'object' && !Array.isArray(content)) {
     const li = content as Record<string, unknown>;
@@ -270,7 +270,7 @@ Output ONLY valid JSON — no markdown, no explanation:
     feedback,
   };
 
-  // WHY no terminal SSE here: runAndPersistPipeline owns the single `stage: 'done'`
+  // WHY: no terminal SSE here: runAndPersistPipeline owns the single `stage: 'done'`
   // event after outputs are persisted — emitting done from the critic let clients
   // tear down SSE before a `final` output existed.
 

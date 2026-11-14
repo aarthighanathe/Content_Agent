@@ -2,10 +2,12 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { randomUUID } from 'crypto';
 import { AuthRequest } from '../../middleware/auth.js';
+import { streamTokenRateLimit } from '../../middleware/rateLimit.js';
 import { sseManager } from '../../lib/sse.js';
 import { getRedisClient } from '../../lib/redisClient.js';
-import { requireJobOwnership, jobsMemory } from './ownership.js';
-import { getJobFromStore } from '../../workers/contentWorker.js';
+import { requireJobOwnership } from './ownership.js';
+import { getJobFromStore, jobsMemory } from '../../lib/jobStore.js';
+import { isValidUUID } from '../../lib/uuid.js';
 
 const router = Router({ mergeParams: true });
 
@@ -20,6 +22,9 @@ export interface VerifiedSSEToken {
 
 export async function verifySSEToken(token: string | undefined): Promise<VerifiedSSEToken | null> {
   if (!token) return null;
+  // SECURITY: stream-token mints randomUUID — reject oversized / non-UUID strings
+  // before hitting Redis (DoS / key abuse) (SEC-005).
+  if (token.length > 64 || !isValidUUID(token)) return null;
 
   // First, check for a short-lived Redis-issued SSE token
   try {
@@ -44,7 +49,7 @@ export async function verifySSEToken(token: string | undefined): Promise<Verifie
     console.warn('[SSE] Redis lookup failed for token verification:', e instanceof Error ? e.message : e);
   }
 
-  // WHY no Clerk session-JWT fallback: putting a full session token in the
+  // WHY: no Clerk session-JWT fallback: putting a full session token in the
   // EventSource query string exposes a bearer credential for the whole API
   // in access logs, history, and referrers. Stream auth is short-lived Redis
   // tokens only (POST /:jobId/stream-token). If Redis is down, that route
@@ -65,7 +70,7 @@ router.get('/:jobId/stream', async (req: Request, res: Response) => {
     res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
     return;
   }
-  // WHY 404 not 403: same ownership-enumeration rule as requireJobOwnership —
+  // WHY: 404 not 403: same ownership-enumeration rule as requireJobOwnership —
   // a 403 would confirm the token is valid for a different job id.
   if (verified.jobId && verified.jobId !== jobId) {
     res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
@@ -84,19 +89,22 @@ router.get('/:jobId/stream', async (req: Request, res: Response) => {
   // Send current state if available
   const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
   if (memJob) {
-    // WHY jobId alias (CORR-013): memory jobs use `id`; the client bootstrap
+    // WHY: jobId alias (CORR-013): memory jobs use `id`; the client bootstrap
     // historically required `data.jobId` and ignored the initial state event.
     res.write(`data: ${JSON.stringify({ type: 'state', jobId: memJob.id, ...memJob })}\n\n`);
   }
 });
 
 // POST /:jobId/stream-token — issue a short-lived SSE token (stored in Redis)
-router.post('/:jobId/stream-token', async (req: AuthRequest, res: Response) => {
+// SECURITY: exempt from jobMutationRateLimit (reconnects shouldn't burn that
+// budget) but still capped by streamTokenRateLimit (60/min per user) so a
+// mint loop can't spam Redis.
+router.post('/:jobId/stream-token', streamTokenRateLimit, async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
     // SECURITY: this route persists its resolved identity into a 15-minute
     // Redis-backed token (unlike a per-request fallback), so unlike other
-    // routes' `req.dbUserId || req.userId || 'demo'` pattern, fail closed
+    // routes' requireAuthUserId helper, fail closed
     // here instead of falling through to a shared 'demo' identity — that
     // fallback should be unreachable given authMiddleware's fail-closed
     // guarantee (this route runs behind it, see the SECURITY note below),

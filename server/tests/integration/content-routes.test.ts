@@ -11,6 +11,10 @@ vi.mock('../../src/lib/ai.js', () => ({
   generateWithAI: vi.fn(),
   searchTavily: vi.fn().mockResolvedValue({ results: [] }),
 }));
+// WHY: demo consumeDemoBudget uses shared Redis — exhausted counters flake as 429.
+vi.mock('../../src/lib/redisClient.js', () => ({
+  getRedisClient: () => null,
+}));
 
 // ─── demo route (BUG-002 regression tests) ───────────────────────────────────
 

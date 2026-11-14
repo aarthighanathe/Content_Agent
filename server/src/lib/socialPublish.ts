@@ -1,4 +1,4 @@
-// WHY extracted from routes/social.ts: the LinkedIn/Twitter posting logic
+// WHY: extracted from routes/social.ts: the LinkedIn/Twitter posting logic
 // (build text from content shape → call the platform API → derive a
 // browsable post URL) previously lived only inline in POST /api/social/post.
 // The new Calendar auto-publish worker (workers/publishWorker.ts) needs the
@@ -24,6 +24,37 @@ export interface PublishResult {
 }
 
 export class SocialPublishError extends Error {}
+
+// WHY: ~25s: LinkedIn/Twitter occasionally hang; calendar publishWorker must
+// fail the scheduled row rather than block a worker slot indefinitely (M1).
+const SOCIAL_FETCH_TIMEOUT_MS = 25_000;
+
+function socialFetchSignal(): AbortSignal {
+  return AbortSignal.timeout(SOCIAL_FETCH_TIMEOUT_MS);
+}
+
+function mapFetchAbort(err: unknown): never {
+  // Node's AbortSignal.timeout uses DOMException name TimeoutError; some
+  // runtimes surface AbortError — both map to the existing failed path.
+  if (
+    err instanceof Error
+    && (err.name === 'TimeoutError' || err.name === 'AbortError')
+  ) {
+    throw new SocialPublishError('Social network request timed out — try again');
+  }
+  throw err;
+}
+
+async function socialFetch(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: socialFetchSignal() });
+  } catch (err: unknown) {
+    mapFetchAbort(err);
+  }
+}
 
 function asText(value: unknown): string {
   return typeof value === 'string' ? value : '';
@@ -91,7 +122,7 @@ async function postTwitterTweet(
   if (replyToId) {
     body.reply = { in_reply_to_tweet_id: replyToId };
   }
-  const tweetRes = await fetch('https://api.twitter.com/2/tweets', {
+  const tweetRes = await socialFetch('https://api.twitter.com/2/tweets', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -105,7 +136,7 @@ async function postTwitterTweet(
   return id;
 }
 
-// WHY content: unknown, narrowed inside: mirrors postSocialSchema's own
+// WHY: content: unknown, narrowed inside: mirrors postSocialSchema's own
 // validated shape (record|array|string — content varies by platform) — this
 // function only reads specific optional fields off it, same pattern as the
 // route this was extracted from.
@@ -122,7 +153,7 @@ export async function publishToSocialPlatform(
       ? (conn.platformUserId.startsWith('urn:') ? conn.platformUserId : `urn:li:person:${conn.platformUserId}`)
       : '';
     if (!authorUrn) {
-      const meRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+      const meRes = await socialFetch('https://api.linkedin.com/v2/userinfo', {
         headers: { Authorization: `Bearer ${conn.accessToken}` },
       });
       if (!meRes.ok) {
@@ -134,7 +165,7 @@ export async function publishToSocialPlatform(
       authorUrn = `urn:li:person:${personId}`;
     }
 
-    const postRes = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+    const postRes = await socialFetch('https://api.linkedin.com/v2/ugcPosts', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${conn.accessToken}`,
@@ -168,7 +199,7 @@ export async function publishToSocialPlatform(
   }
 
   // platform === 'twitter'
-  // WHY reply chain: writer output for twitter_thread is { tweets: [...] }.
+  // WHY: reply chain: writer output for twitter_thread is { tweets: [...] }.
   // Publishing only index 0 reported success while silently dropping the rest
   // of the thread (and calendar auto-publish used this same path).
   const tweets = twitterTweetTexts(content);
@@ -184,7 +215,7 @@ export async function publishToSocialPlatform(
     previousId = id;
   }
 
-  // WHY conn.displayName here: stored as "@username" when the account was
+  // WHY: conn.displayName here: stored as "@username" when the account was
   // connected — Twitter's status URL requires a handle, not just the tweet
   // ID. Falls back to the generic "i" path (still resolves, via redirect)
   // if displayName is somehow missing.

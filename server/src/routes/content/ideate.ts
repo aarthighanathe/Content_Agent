@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node';
 import { Router, Response } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { AuthRequest } from '../../middleware/auth.js';
+import { requireAuthUserId } from '../jobs/ownership.js';
 import { generateWithAI, searchTavily, type TavilySearchResult } from '../../lib/ai.js';
 import { getUserProfile } from '../users.js';
 import { db } from '../../db/index.js';
@@ -17,7 +18,7 @@ import {
   competitorResponseSchema,
 } from '../../schemas/index.js';
 import { parseAIJson } from './shared.js';
-import { sanitizeSearchText } from '../../lib/sanitizeSearchText.js';
+import { sanitizeSearchText, escapeXml } from '../../lib/sanitizeSearchText.js';
 
 const router = Router();
 
@@ -110,7 +111,8 @@ router.post('/ideate', async (req: AuthRequest, res: Response) => {
   try {
     const body = parseBody(ideateSchema, req.body, res);
     if (!body) return;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const profile = await getUserProfile(userId);
     const { count, focusTopic, competitorAnalysisId } = body;
 
@@ -131,22 +133,22 @@ router.post('/ideate', async (req: AuthRequest, res: Response) => {
     // splicing it into the instruction text directly, per the prompt-injection mitigation
     // used everywhere else user text reaches an LLM prompt in this codebase.
     const focusSection = focusTopic
-      ? `\nThe user wants ideas focused specifically on this theme:\n<user_focus>${focusTopic}</user_focus>\n`
+      ? `\nThe user wants ideas focused specifically on this theme:\n<user_focus>${escapeXml(focusTopic)}</user_focus>\n`
       : '';
     const trendSection = trendContext
-      ? `\n<trend_context>Recent web search results — ground your ideas in these where relevant, and cite the matching source URL in "sourceUrl":\n${trendContext}</trend_context>\n`
+      ? `\n<trend_context>Recent web search results — ground your ideas in these where relevant, and cite the matching source URL in "sourceUrl":\n${escapeXml(trendContext)}</trend_context>\n`
       : '';
     // I5: competitor-gap mode blends (not replaces) brand-profile generation —
     // present as additional inspiration, not the sole basis for every idea.
     const competitorSection = competitorGapContext
-      ? `\n<competitor_gaps>A past competitor analysis found these content gaps/angles — use them as inspiration for some (not necessarily all) of the ideas:\n${competitorGapContext}</competitor_gaps>\n`
+      ? `\n<competitor_gaps>A past competitor analysis found these content gaps/angles — use them as inspiration for some (not necessarily all) of the ideas:\n${escapeXml(competitorGapContext)}</competitor_gaps>\n`
       : '';
 
     const prompt = `You are a content strategist. Generate ${count} fresh, trending topic ideas.
 
-<industry>${industry}</industry>
-<brand_name>${brandName}</brand_name>
-<brand_voice>${brandVoice}</brand_voice>
+<industry>${escapeXml(industry)}</industry>
+<brand_name>${escapeXml(brandName)}</brand_name>
+<brand_voice>${escapeXml(brandVoice)}</brand_voice>
 ${focusSection}${trendSection}${competitorSection}
 For each idea:
 - Topic title: specific and scroll-stopping (not generic)
@@ -187,7 +189,8 @@ router.post('/ideate/regenerate-one', async (req: AuthRequest, res: Response) =>
   try {
     const body = parseBody(regenerateIdeaSchema, req.body, res);
     if (!body) return;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const profile = await getUserProfile(userId);
     const { focusTopic, excludeTitles, competitorAnalysisId } = body;
 
@@ -203,27 +206,27 @@ router.post('/ideate/regenerate-one', async (req: AuthRequest, res: Response) =>
     const competitorGapContext = competitorGapOutcome.status === 'fulfilled' ? competitorGapOutcome.value : null;
 
     const focusSection = focusTopic
-      ? `\nThe user wants ideas focused specifically on this theme:\n<user_focus>${focusTopic}</user_focus>\n`
+      ? `\nThe user wants ideas focused specifically on this theme:\n<user_focus>${escapeXml(focusTopic)}</user_focus>\n`
       : '';
     const trendSection = trendContext
-      ? `\n<trend_context>Recent web search results — ground the idea in these where relevant, and cite the matching source URL in "sourceUrl":\n${trendContext}</trend_context>\n`
+      ? `\n<trend_context>Recent web search results — ground the idea in these where relevant, and cite the matching source URL in "sourceUrl":\n${escapeXml(trendContext)}</trend_context>\n`
       : '';
     const competitorSection = competitorGapContext
-      ? `\n<competitor_gaps>A past competitor analysis found these content gaps/angles — consider them as possible inspiration:\n${competitorGapContext}</competitor_gaps>\n`
+      ? `\n<competitor_gaps>A past competitor analysis found these content gaps/angles — consider them as possible inspiration:\n${escapeXml(competitorGapContext)}</competitor_gaps>\n`
       : '';
     // SECURITY: excludeTitles ultimately traces back to a prior LLM generation,
     // not raw keystrokes, but that generation could itself have been steered by
     // a crafted focusTopic — wrapped the same as every other text block reaching
     // this prompt rather than assuming it's safe because it's one hop removed.
     const excludeSection = excludeTitles && excludeTitles.length > 0
-      ? `\n<avoid_duplicating>Do not repeat or closely resemble any of these existing ideas:\n${excludeTitles.map((t) => `- <existing_idea_title>${t}</existing_idea_title>`).join('\n')}</avoid_duplicating>\n`
+      ? `\n<avoid_duplicating>Do not repeat or closely resemble any of these existing ideas:\n${excludeTitles.map((t) => `- <existing_idea_title>${escapeXml(t)}</existing_idea_title>`).join('\n')}</avoid_duplicating>\n`
       : '';
 
     const prompt = `You are a content strategist. Generate exactly ONE fresh, trending topic idea — distinct from any ideas listed below.
 
-<industry>${industry}</industry>
-<brand_name>${brandName}</brand_name>
-<brand_voice>${brandVoice}</brand_voice>
+<industry>${escapeXml(industry)}</industry>
+<brand_name>${escapeXml(brandName)}</brand_name>
+<brand_voice>${escapeXml(brandVoice)}</brand_voice>
 ${focusSection}${trendSection}${competitorSection}${excludeSection}
 Return ONLY this JSON (no markdown, no extra text, no "ideas" wrapper — a single object):
 ${IDEA_JSON_SHAPE}`;

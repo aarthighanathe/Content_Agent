@@ -10,6 +10,10 @@ vi.mock('../../src/lib/ai.js', () => ({
   generateWithAI: vi.fn(),
   searchTavily: vi.fn().mockResolvedValue({ results: [] }),
 }));
+// WHY: demo consumeDemoBudget uses shared Redis — exhausted counters flake as 429.
+vi.mock('../../src/lib/redisClient.js', () => ({
+  getRedisClient: () => null,
+}));
 
 async function buildDemoApp() {
   const { default: demoRouter } = await import('../../src/routes/demo.js');

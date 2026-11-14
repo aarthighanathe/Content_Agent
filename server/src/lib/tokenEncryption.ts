@@ -46,7 +46,7 @@ export function decryptTokenOptional(encoded: string | undefined | null): string
   try {
     return decryptToken(encoded);
   } catch (err) {
-    // WHY log here: this failure previously vanished silently, so a mass
+    // WHY: log here: this failure previously vanished silently, so a mass
     // decryption failure (e.g. a botched TOKEN_ENCRYPTION_KEY rotation)
     // manifested only as social connections quietly appearing
     // "disconnected" with zero server-side signal anything was wrong. Never

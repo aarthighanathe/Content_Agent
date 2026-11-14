@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CS } from './coercion.js';
 
-// WHY a separate file from agentResponses.ts: those schemas validate the core
+// WHY: a separate file from agentResponses.ts: those schemas validate the core
 // 5-agent pipeline's LLM output (orchestrator/critic/writer/predictor). The
 // schemas here validate LLM JSON parsed in routes/content.ts's standalone
 // tools (ideate/hashtags/competitor) — a different call site with no pipeline
@@ -11,9 +11,7 @@ import { CS } from './coercion.js';
 // discarding the whole response. CS itself lives in ./coercion.js, shared
 // with agentResponses.ts's pipeline schemas.
 
-// ─── Ideate ──────────────────────────────────────────────────────────────────
-
-// WHY a subset of PerformancePredictor's PredictionResult, not the full
+// WHY: a subset of PerformancePredictor's PredictionResult, not the full
 // shape: confidenceScore/improvementSuggestion/benchmarkContext all assume
 // written+critiqued content exists, which isn't true at ideation time (I4) —
 // tier + a short reason is the honest amount of signal a pre-writing estimate
@@ -28,7 +26,7 @@ export const ideaSchema = z.object({
   platform: CS().optional(),
   angle: CS().optional(),
   why: CS().optional(),
-  // WHY optional (I3): only populated when the idea's `why` was grounded in a
+  // WHY: optional (I3): only populated when the idea's `why` was grounded in a
   // real Tavily search result — old localStorage-persisted ideas (client
   // store.ts's isIdeatedIdea guard) never had this field, so it must stay
   // optional to avoid silently dropping pre-existing saved/ideated data.
@@ -42,15 +40,13 @@ export const ideateResponseSchema = z.object({
 
 export type IdeateResponse = z.infer<typeof ideateResponseSchema>;
 
-// WHY a single-idea variant, not ideateResponseSchema reused with count=1:
+// WHY: a single-idea variant, not ideateResponseSchema reused with count=1:
 // I1's regenerate-one route returns one bare idea object, not an `ideas`
 // array wrapper — keeping the response shape distinct from the batch
 // endpoint's makes the client-side contract explicit (one idea in, one back).
 export const regenerateIdeaResponseSchema = ideaSchema;
 
 export type RegenerateIdeaResponse = z.infer<typeof regenerateIdeaResponseSchema>;
-
-// ─── Hashtags ────────────────────────────────────────────────────────────────
 
 export const hashtagsResponseSchema = z.object({
   broad: z.array(CS()).catch([]).optional(),
@@ -61,8 +57,6 @@ export const hashtagsResponseSchema = z.object({
 });
 
 export type HashtagsResponse = z.infer<typeof hashtagsResponseSchema>;
-
-// ─── Competitor ──────────────────────────────────────────────────────────────
 
 export const competitorThemeSchema = z.object({
   theme: CS().optional(),

@@ -13,6 +13,12 @@ vi.mock('../../src/lib/ai.js', () => ({
   searchTavily: vi.fn().mockResolvedValue({ results: [] }),
 }));
 
+// WHY: demo.ts consumeDemoBudget() hits real Redis — a shared hourly counter from
+// landing-page / audit traffic returns DEMO_BUDGET_EXHAUSTED (429) and flakes CI.
+vi.mock('../../src/lib/redisClient.js', () => ({
+  getRedisClient: () => null,
+}));
+
 // ─── Build a minimal Express app with just the demo router ───────────────────
 async function buildDemoApp() {
   const { default: demoRouter } = await import('../../src/routes/demo.js');

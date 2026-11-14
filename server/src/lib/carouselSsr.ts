@@ -1,6 +1,6 @@
 // Server-side carousel rendering — the export path that actually matches the UI.
 //
-// WHY this module exists: the previous export asked Gemini to invent HTML per theme,
+// WHY: this module exists: the previous export asked Gemini to invent HTML per theme,
 // so downloaded PNGs looked nothing like the on-screen carousel and differed between
 // runs (the LLM even failed over to Groq mid-export). Here we render the very same
 // IGSlide React component the preview uses, via a prebuilt bundle, then screenshot it.
@@ -19,7 +19,7 @@ import {
 /** Instagram portrait carousel: 1080x1350 (4:5) — the aspect the preview is designed at. */
 const EXPORT_WIDTH = 1080;
 
-// WHY 420x525 at DSF 2.571 instead of a 1080x1350 viewport: the component hardcodes
+// WHY: 420x525 at DSF 2.571 instead of a 1080x1350 viewport: the component hardcodes
 // several px values and SVG viewBoxes at the 420x525 preview size, so laying out at any
 // other CSS size would re-wrap text and misplace decorations. Rendering at preview size
 // and rasterizing at scale reproduces the preview exactly, just at higher resolution.
@@ -68,7 +68,7 @@ export function buildSlideHtml(
   return stripScriptsAndEventHandlers(html);
 }
 
-// WHY 2, not all slides at once: the pool starts at 2 browsers and scales to 8.
+// WHY: 2, not all slides at once: the pool starts at 2 browsers and scales to 8.
 // Firing 8 Puppeteer screenshots together regularly exhausted the pool / hit
 // the 60s acquire timeout, so the ZIP shipped with only the slides that won
 // the race. Two at a time matches the warm pool and keeps every export complete.
@@ -95,7 +95,7 @@ async function renderOneSlideSsr(
     );
     return { index, dataUrl };
   } catch (err) {
-    // WHY re-thrown with `index` attached: render.ts's failure reporting reads
+    // WHY: re-thrown with `index` attached: render.ts's failure reporting reads
     // `reason.index` off each rejected settled result to tell the user which
     // slide(s) failed. A plain rethrow here carried no such property, so every
     // failure was reported as "slide -1" regardless of which one actually broke.
@@ -116,7 +116,7 @@ export async function renderCarouselSlidesSsr(
   theme: ThemeKey,
 ): Promise<PromiseSettledResult<{ index: number; dataUrl: string }>[]> {
   const results: PromiseSettledResult<{ index: number; dataUrl: string }>[] = [];
-  // WHY sequential batches (not one allSettled over every slide): see
+  // WHY: sequential batches (not one allSettled over every slide): see
   // EXPORT_RENDER_CONCURRENCY. Awaiting each batch is intentional resource
   // limiting, not an accidental N+1.
   for (let start = 0; start < slides.length; start += EXPORT_RENDER_CONCURRENCY) {

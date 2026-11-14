@@ -8,7 +8,7 @@ import type {
   WriterInstagramCaptionResponse,
 } from '../schemas/agentResponses.js';
 
-// WHY these types, not a straight re-export of the Writer*Response types: this
+// WHY: these types, not a straight re-export of the Writer*Response types: this
 // module doesn't just pass writer.ts's output through — formatCarousel adds
 // slideNumber (camelCase, alongside the writer's existing slide_number) and
 // formatInstagramCaption adds emojis, a field the writer schema never produces.
@@ -19,7 +19,7 @@ type FormattedCarouselSlide = WriterCarouselResponse[number] & { slideNumber?: n
 type FormattedCarouselResponse = FormattedCarouselSlide[];
 type FormattedInstagramCaptionResponse = WriterInstagramCaptionResponse & { emojis?: string[] };
 
-// WHY a union rather than one return type: same reasoning as WriterResponse
+// WHY: a union rather than one return type: same reasoning as WriterResponse
 // itself — the real shape is platform-dependent, and formatter.ts's job is to
 // dispatch to the matching per-platform function, not to unify them.
 export type FormatterResponse =
@@ -52,7 +52,7 @@ export async function runFormatter(job: ContentJob, content: WriterResponse): Pr
   }
 }
 
-// WHY scrub Zod coerce leftovers: before CS() stopped using z.coerce.string(),
+// WHY: scrub Zod coerce leftovers: before CS() stopped using z.coerce.string(),
 // omitted fields became the literal words "undefined"/"null". Treat those as
 // empty so a stale row or a regression can't paint them on a slide.
 function scrubCoerceJunk(value: string | undefined): string | undefined {
@@ -92,7 +92,7 @@ function formatCarousel(slides: WriterCarouselResponse): FormattedCarouselRespon
       }
     }
 
-    // WHY 65, not 80: writer.ts's prompt (and CLAUDE.md §9) specify a 45-60
+    // WHY: 65, not 80: writer.ts's prompt (and CLAUDE.md §9) specify a 45-60
     // word target per slide body — this truncation is a second enforcement
     // layer, not the primary limit, so it allows a small overshoot (writer
     // output routinely lands a few words over its own target) without
@@ -114,14 +114,14 @@ function formatCarousel(slides: WriterCarouselResponse): FormattedCarouselRespon
 function formatLinkedIn(post: WriterLinkedInResponse): WriterLinkedInResponse {
   if (!post || typeof post !== 'object') return post;
 
-  // WHY spread keeps hookAlt: the A/B hook toggle on Result reads hookAlt;
+  // WHY: spread keeps hookAlt: the A/B hook toggle on Result reads hookAlt;
   // reformatting must not drop it.
   const formatted: WriterLinkedInResponse = { ...post };
 
   if (formatted.hook) {
     formatted.hook = scrubCoerceJunk(formatted.hook.trim());
   }
-  // WHY drop coerce junk: hookAlt === "undefined" is truthy, so LinkedInContent
+  // WHY: drop coerce junk: hookAlt === "undefined" is truthy, so LinkedInContent
   // showed the A/B toggle with the word "undefined" as the alternate hook.
   formatted.hookAlt = scrubCoerceJunk(
     typeof formatted.hookAlt === 'string' ? formatted.hookAlt.trim() : undefined,
@@ -133,7 +133,7 @@ function formatLinkedIn(post: WriterLinkedInResponse): WriterLinkedInResponse {
     formatted.body = scrubCoerceJunk(formatted.body) ?? '';
   }
 
-  // WHY skip re-split when writer already used \\n\\n: forced every-2-sentence
+  // WHY: skip re-split when writer already used \\n\\n: forced every-2-sentence
   // chunking flattened intentional rhythm (tension / proof / list / takeaway).
   if (formatted.body) {
     const body = formatted.body.trim();
@@ -215,14 +215,14 @@ function formatInstagramCaption(caption: WriterInstagramCaptionResponse): Format
     );
   }
 
-  // WHY pad, not replace: overwriting the whole array on <3 emojis discarded
+  // WHY: pad, not replace: overwriting the whole array on <3 emojis discarded
   // any the writer had already chosen for tone/topic, leaving every under-3
   // caption with the same generic 5-emoji set regardless of content.
   const FALLBACK_EMOJIS = ['✨', '💫', '🔥', '💡', '🎯'];
   if (!formatted.emojis || formatted.emojis.length < 3) {
     const existing = formatted.emojis || [];
     const padding = FALLBACK_EMOJIS.filter((e) => !existing.includes(e));
-    // WHY a plain slice(0, 3): this branch only runs when existing.length < 3
+    // WHY: a plain slice(0, 3): this branch only runs when existing.length < 3
     // (the enclosing if-condition above), so existing.length is always 0, 1,
     // or 2 here — Math.max(existing.length, 3) always evaluated to 3 anyway.
     formatted.emojis = [...existing, ...padding].slice(0, 3);

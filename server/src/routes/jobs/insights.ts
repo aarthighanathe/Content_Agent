@@ -8,7 +8,7 @@ import { VALID_PLATFORMS } from '../../schemas/index.js';
 
 const router = Router();
 
-// WHY a fixed recency window (last 40 completed jobs), not all-time: a user's
+// WHY: a fixed recency window (last 40 completed jobs), not all-time: a user's
 // audience can legitimately shift over months (a pivot, a new product line) —
 // weighting toward recent jobs means the learned default tracks that instead
 // of being dominated by whatever they wrote the most of a year ago. 40 is
@@ -18,14 +18,14 @@ const RECENCY_WINDOW = 40;
 
 // GET /api/jobs/audience-defaults — the most common `targetAudience` string
 // this user has actually used per platform, from their recent completed jobs.
-// WHY most-frequent, not most-recent: a one-off job with an unusual audience
+// WHY: most-frequent, not most-recent: a one-off job with an unusual audience
 // (e.g. multiplied content aimed at a different platform's typical reader)
 // shouldn't override what the user overwhelmingly types for that platform —
 // frequency is a steadier signal than recency alone for a "default" value.
 router.get('/audience-defaults', async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.dbUserId;
-    // WHY 200 + empty object, not an error: a missing DB or a non-UUID
+    // WHY: 200 + empty object, not an error: a missing DB or a non-UUID
     // identity (demo mode) simply means no learned defaults exist yet — the
     // client already falls back to its static AUDIENCE_DEFAULTS map in that
     // case, so this is a read-only convenience, not a hard dependency.

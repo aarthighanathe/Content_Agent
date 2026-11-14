@@ -9,14 +9,14 @@ import { logger } from './logger.js';
 const pngCache = new Map<string, { dataUrl: string; cachedAt: number; sizeBytes: number }>();
 const PNG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-// WHY these caps exist: PNG_CACHE_TTL_MS alone was only checked lazily on read — an
+// WHY: these caps exist: PNG_CACHE_TTL_MS alone was only checked lazily on read — an
 // expired entry was skipped when read but never actively evicted, and there was no
 // upper bound at all otherwise. Each entry is a full base64 PNG (~200-800KB per the
 // export route's own viewport sizes), so with no active eviction this Map only ever
 // grows for the lifetime of the process — a slow, guaranteed OOM under sustained
 // export volume, not just a theoretical concern.
 //
-// WHY ~40MB rather than a larger/rounder number: this app's Render deployment
+// WHY: ~40MB rather than a larger/rounder number: this app's Render deployment
 // (render.yaml: plan: free) has 512MB total RAM, and the Puppeteer browser pool in
 // carousel.ts already reserves ~150MB per browser — 300MB at POOL_MIN=2, up to
 // 1.2GB at POOL_MAX=8 under load. A cache cap sized against a generic "how much PNG
@@ -36,7 +36,7 @@ function deletePngCacheEntry(key: string): void {
   _pngCacheTotalBytes -= entry.sizeBytes;
 }
 
-// WHY delete+re-set rather than just returning the existing entry on a hit: Map
+// WHY: delete+re-set rather than just returning the existing entry on a hit: Map
 // iteration order is insertion order, and re-inserting a key moves it to the end —
 // this is what makes evictOldestPngCacheEntries's "evict from the front" behavior a
 // real LRU (least-recently-READ) instead of merely least-recently-WRITTEN. Without
@@ -47,7 +47,7 @@ function touchPngCacheEntry(key: string, entry: { dataUrl: string; cachedAt: num
   pngCache.set(key, entry);
 }
 
-// WHY a function, not just "delete until under cap" inlined at the call site: this
+// WHY: a function, not just "delete until under cap" inlined at the call site: this
 // same eviction logic runs from two places — after every write (addPngCacheEntry)
 // and from the periodic sweep (sweepExpiredPngCacheEntries) — so it needs to be
 // idempotent and callable standalone rather than duplicated.
@@ -83,12 +83,19 @@ export function removeStalePngCacheEntry(key: string): void {
 
 export function addPngCacheEntry(key: string, dataUrl: string): void {
   const sizeBytes = Buffer.byteLength(dataUrl, 'utf8');
+  // WHY: subtract before overwrite: Map.set replaces the entry but we used to
+  // always += sizeBytes, so re-exporting the same key inflated
+  // _pngCacheTotalBytes and triggered premature eviction vs the 40MB cap.
+  const previous = pngCache.get(key);
+  if (previous) {
+    _pngCacheTotalBytes -= previous.sizeBytes;
+  }
   pngCache.set(key, { dataUrl, cachedAt: Date.now(), sizeBytes });
   _pngCacheTotalBytes += sizeBytes;
   evictOldestPngCacheEntries();
 }
 
-// WHY an active sweep, not just the lazy TTL check on read: an entry for a job that's
+// WHY: an active sweep, not just the lazy TTL check on read: an entry for a job that's
 // never re-exported (the common case — most exports happen once) would otherwise sit
 // in memory until the process restarts, since nothing ever reads it again to trigger
 // the lazy expiry check. This periodic pass is what actually bounds memory over the
@@ -109,7 +116,7 @@ function sweepExpiredPngCacheEntries(): void {
   }
 }
 
-// WHY unref(): a setInterval keeps the Node event loop alive by default, which would
+// WHY: unref(): a setInterval keeps the Node event loop alive by default, which would
 // prevent the process from exiting on its own even with no other pending work — the
 // same reasoning as index.ts's forceExit.unref() in the shutdown handler. unref()
 // lets the process exit naturally if this were the only thing left running; the

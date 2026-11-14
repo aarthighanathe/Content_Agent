@@ -1,11 +1,12 @@
-// WHY this route exists: implements FUTURE_FEATURES.md's Library "No
+// WHY: this route exists: implements FUTURE_FEATURES.md's Library "No
 // collections/folders" item — jobs could already be tagged (a single
 // free-text label per job, shipped 2026-08-04) but not grouped into named,
 // persistent, many-to-many groupings a user creates and reuses. See
 // db/schema.ts's WHY comment on the `collections`/`collectionJobs` tables for
 // why this needed two new tables rather than reusing the tag column.
 import { Router, Response, NextFunction } from 'express';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql, desc } from 'drizzle-orm';
+import { z } from 'zod';
 import { AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/index.js';
 import { collections, collectionJobs, contentJobs } from '../db/schema.js';
@@ -14,6 +15,11 @@ import { parseBody, createCollectionSchema, addJobToCollectionSchema } from '../
 import { isValidUUID } from '../lib/uuid.js';
 
 const router = Router();
+
+// WHY: hard page bound — GET :id/jobs used to load every membership + full
+// job rows unbounded; large Library folders stalled Neon and the response.
+const collectionJobsPageSchema = z.coerce.number().int().min(1).max(10_000);
+const collectionJobsLimitSchema = z.coerce.number().int().min(1).max(100);
 
 // GET /api/collections — list this user's collections with a job count each.
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -86,12 +92,18 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       return;
     }
 
-    // WHY delete memberships first: collection_jobs.collection_id has no
+    // WHY: delete memberships first: collection_jobs.collection_id has no
     // ON DELETE CASCADE (this schema declares FKs with no action throughout,
     // e.g. scheduled_posts → content_jobs), so an orphaned membership row
     // would otherwise be left behind.
-    await db!.delete(collectionJobs).where(eq(collectionJobs.collectionId, collectionId));
-    await db!.delete(collections).where(eq(collections.id, collectionId));
+    // WHY: a transaction: a failure between the two deletes used to leave a
+    // collection with its memberships silently wiped.
+    await db!.transaction(async (tx) => {
+      await tx.delete(collectionJobs).where(eq(collectionJobs.collectionId, collectionId));
+      await tx.delete(collections).where(
+        and(eq(collections.id, collectionId), eq(collections.userId, userId)),
+      );
+    });
 
     res.json({ success: true });
     return;
@@ -114,6 +126,19 @@ router.get('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFuncti
       return;
     }
 
+    const pageParsed = collectionJobsPageSchema.safeParse(req.query.page ?? 1);
+    const limitParsed = collectionJobsLimitSchema.safeParse(req.query.limit ?? 50);
+    if (!pageParsed.success || !limitParsed.success) {
+      res.status(400).json({
+        error: 'page must be 1–10000 and limit must be 1–100',
+        code: 'VALIDATION_ERROR',
+        retryable: false,
+      });
+      return;
+    }
+    const page = pageParsed.data;
+    const limit = limitParsed.data;
+
     const owned = await db!
       .select({ id: collections.id })
       .from(collections)
@@ -124,24 +149,63 @@ router.get('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFuncti
       return;
     }
 
-    const memberships = await db!
+    const [{ total }] = await db!
+      .select({ total: sql<number>`cast(count(*) as int)` })
+      .from(collectionJobs)
+      .innerJoin(contentJobs, eq(contentJobs.id, collectionJobs.jobId))
+      .where(and(
+        eq(collectionJobs.collectionId, collectionId),
+        eq(contentJobs.userId, userId),
+        eq(contentJobs.deleted, 0),
+      ));
+
+    if (total === 0) {
+      res.json({ jobs: [], total: 0, page, totalPages: 0, limit });
+      return;
+    }
+
+    const pageRows = await db!
       .select({ jobId: collectionJobs.jobId })
       .from(collectionJobs)
-      .where(eq(collectionJobs.collectionId, collectionId));
-    const jobIds = memberships.map((m) => m.jobId);
+      .innerJoin(contentJobs, eq(contentJobs.id, collectionJobs.jobId))
+      .where(and(
+        eq(collectionJobs.collectionId, collectionId),
+        eq(contentJobs.userId, userId),
+        eq(contentJobs.deleted, 0),
+      ))
+      .orderBy(desc(contentJobs.createdAt))
+      .offset((page - 1) * limit)
+      .limit(limit);
 
+    const jobIds = pageRows.map((m) => m.jobId);
     if (jobIds.length === 0) {
-      res.json({ jobs: [] });
+      res.json({
+        jobs: [],
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+        limit,
+      });
       return;
     }
 
     const dbJobs = await db!.query.contentJobs.findMany({
       where: and(inArray(contentJobs.id, jobIds), eq(contentJobs.userId, userId), eq(contentJobs.deleted, 0)),
-      orderBy: (j, { desc }) => [desc(j.createdAt)],
       with: { outputs: { columns: { agentName: true, outputType: true, qualityScore: true, partial: true } } },
     });
+    // WHY: re-map by page order — findMany does not preserve insertion order.
+    const jobMap = new Map(dbJobs.map((j) => [j.id, j]));
+    const orderedJobs = jobIds
+      .map((id) => jobMap.get(id))
+      .filter((j): j is NonNullable<typeof j> => j !== undefined);
 
-    res.json({ jobs: dbJobs });
+    res.json({
+      jobs: orderedJobs,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      limit,
+    });
     return;
   } catch (error) {
     next(error);
@@ -178,7 +242,7 @@ router.post('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFunct
     const ownership = await requireJobOwnership(body.jobId, userId, res);
     if (!ownership) return;
 
-    // WHY onConflictDoNothing: adding an already-present job is a no-op, not
+    // WHY: onConflictDoNothing: adding an already-present job is a no-op, not
     // an error — the unique index on (collectionId, jobId) is the DB-level
     // enforcement of that invariant.
     await db!

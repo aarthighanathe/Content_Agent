@@ -3,7 +3,7 @@ import { db } from '../../db/index.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../../lib/logger.js';
-// WHY lib/uuid.js, not jobs/ownership.js: ownership.ts transitively pulls in
+// WHY: lib/uuid.js, not jobs/ownership.js: ownership.ts transitively pulls in
 // workers/contentWorker.ts (BullMQ Worker, real Redis connection setup),
 // which is heavier than this file needs and isn't mocked by every test that
 // imports routes/users.ts. lib/uuid.ts has zero imports, so importing it here
@@ -37,7 +37,7 @@ function defaultProfile(): UserProfile {
   };
 }
 
-// WHY this exists: every content-generation route (POST /create, /batch,
+// WHY: this exists: every content-generation route (POST /create, /batch,
 // /regenerate, /multiply, /ideate, /repurpose) used to read
 // `userProfiles.get(userId) || {}` directly — a Map miss (fresh restart, or a
 // request landing on a replica that never got seeded) silently fell back to an
@@ -75,7 +75,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile> {
   return defaultProfile();
 }
 
-// WHY cache-aside (DB write first, Map updated only on confirmed success)
+// WHY: cache-aside (DB write first, Map updated only on confirmed success)
 // instead of the old write-first pattern: writing to the Map unconditionally
 // and only best-effort writing to the DB meant a transient DB failure (e.g. a
 // documented Neon cold-start stall) left the Map looking consistent while the
@@ -130,22 +130,9 @@ export async function saveUserProfile(
   return { success: true, profile: updatedProfile };
 }
 
+// WHY: no full-table warm at boot — SELECT * into an unbounded Map grew RAM
+// with every user and slowed Neon cold starts. getUserProfile() already
+// cache-asides from DB on miss; keep this export so index.ts boot stays stable.
 export async function seedUserProfilesFromDB(): Promise<void> {
-  if (!db) return;
-  try {
-    const allUsers = await db.select().from(users);
-    for (const user of allUsers) {
-      userProfiles.set(user.id, {
-        brandName:    user.brandName    || '',
-        brandVoice:   user.brandVoice   || 'professional',
-        phrasesUse:   user.phrasesUse   || '',
-        phrasesAvoid: user.phrasesAvoid || '',
-        industry:     user.industry     || '',
-        contentDna:   user.contentDna   || undefined,
-      });
-    }
-    logger.info('[users] Seeded user profiles from DB', { count: allUsers.length });
-  } catch (err) {
-    console.warn('[users] Could not seed profiles from DB:', err);
-  }
+  logger.info('[users] Profile cache is on-demand (seed skipped)');
 }

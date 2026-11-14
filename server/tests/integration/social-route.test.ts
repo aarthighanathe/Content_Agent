@@ -133,21 +133,21 @@ describe('DELETE /api/social/disconnect/:platform', () => {
 // ─── POST /post (auth guard) ──────────────────────────────────────────────────
 
 describe('POST /api/social/post — NOT_CONNECTED guard', () => {
-  it('returns 401 with code NOT_CONNECTED when no linkedin token', async () => {
+  it('returns 409 with code NOT_CONNECTED when no linkedin token', async () => {
     const { app } = await buildSocialApp();
     const res = await supertest(app)
       .post('/api/social/post')
       .send({ platform: 'linkedin', content: { hook: 'Test hook', body: 'Body text' } });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(409);
     expect(res.body.code).toBe('NOT_CONNECTED');
   });
 
-  it('returns 401 with code NOT_CONNECTED when no twitter token', async () => {
+  it('returns 409 with code NOT_CONNECTED when no twitter token', async () => {
     const { app } = await buildSocialApp();
     const res = await supertest(app)
       .post('/api/social/post')
       .send({ platform: 'twitter', content: { tweets: [{ text: '1/ Test tweet' }] } });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(409);
     expect(res.body.code).toBe('NOT_CONNECTED');
   });
 

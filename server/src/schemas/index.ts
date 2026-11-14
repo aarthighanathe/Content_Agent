@@ -14,7 +14,7 @@ export function parseBody<T extends z.ZodTypeAny>(
 ): z.infer<T> | null {
   const result = schema.safeParse(body);
   if (!result.success) {
-    // WHY first issue.message as `error`: zod messages on our schemas are
+    // WHY: first issue.message as `error`: zod messages on our schemas are
     // deliberately user-facing ("Topic must be at least 3 characters") — surfacing
     // them beats a opaque "Invalid request body" (QA-A3-003). Still gate flatten()
     // details in production so field paths / received values don't leak.

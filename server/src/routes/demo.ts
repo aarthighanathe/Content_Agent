@@ -3,38 +3,77 @@ import type { z } from 'zod';
 import { generateWithAI } from '../lib/ai.js';
 import { parseBody, demoSchema } from '../schemas/index.js';
 import type { platformEnum } from '../schemas/jobs.js';
+import { escapeXml } from '../lib/sanitizeSearchText.js';
+
+import { getRedisClient } from '../lib/redisClient.js';
+import { logger } from '../lib/logger.js';
+import { sanitizeContentDeep } from './content/shared.js';
 
 const router = Router();
+
+const DEMO_GLOBAL_HOURLY_BUDGET = 200;
+
+// SECURITY: global (all-IP) hourly cap so rotating IPs can't drain LLM quota.
+// Returns true when the request may proceed. Fail-open without Redis (the
+// per-IP limiter still applies) but warn so the gap is visible.
+async function consumeDemoBudget(): Promise<boolean> {
+  const redis = getRedisClient();
+  if (!redis) {
+    logger.warn('[demo] Redis unavailable — global demo budget not enforced');
+    return true;
+  }
+  try {
+    const key = `demo:global:${new Date().toISOString().slice(0, 13)}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, 3700);
+    return count <= DEMO_GLOBAL_HOURLY_BUDGET;
+  } catch (err: unknown) {
+    logger.warn('[demo] global budget check failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return true;
+  }
+}
 
 // POST /api/demo/generate — no auth required, returns a truncated sample
 router.post('/generate', async (req: Request, res: Response) => {
   try {
+    if (!(await consumeDemoBudget())) {
+      res.status(429).json({
+        error: 'The demo is busy right now. Please try again later.',
+        code: 'DEMO_BUDGET_EXHAUSTED',
+        retryable: true,
+      });
+      return;
+    }
     const body = parseBody(demoSchema, req.body, res);
     if (!body) return;
     const { topic: topicTrimmed, platform } = body;
+    // SECURITY: escape before XML wrap — same as writer.ts (prompt-injection).
+    const safeTopic = escapeXml(topicTrimmed);
 
-    // WHY typed against the enum, not Record<string, string>: this only has
+    // WHY: typed against the enum, not Record<string, string>: this only has
     // meaningful entries for the current 5 platforms today, but nothing would
     // catch drift if VALID_PLATFORMS grows — typing the key set against the
     // enum makes TypeScript itself enforce every platform has a demo prompt.
     const platformPrompts: Record<z.infer<typeof platformEnum>, string> = {
-      instagram_carousel: `Generate the FIRST 3 slides only of an Instagram carousel about <topic>${topicTrimmed}</topic> in JSON format:
+      instagram_carousel: `Generate the FIRST 3 slides only of an Instagram carousel about <topic>${safeTopic}</topic> in JSON format:
 [{ "slideNumber": 1, "headline": "...", "body": "..." }, { "slideNumber": 2, "headline": "...", "body": "..." }, { "slideNumber": 3, "headline": "...", "body": "..." }]
 Slide 1 is a compelling hook. Body max 60 words per slide. Return ONLY the JSON array.`,
 
-      linkedin_post: `Generate a SHORT LinkedIn post preview about <topic>${topicTrimmed}</topic> in JSON format:
+      linkedin_post: `Generate a SHORT LinkedIn post preview about <topic>${safeTopic}</topic> in JSON format:
 { "hook": "...", "body": "..." }
 Hook: 1 attention-grabbing line. Body: 80 words max (cut off naturally — the full version will have more). Return ONLY the JSON.`,
 
-      twitter_thread: `Generate the FIRST 3 tweets of a Twitter thread about <topic>${topicTrimmed}</topic> in JSON format:
+      twitter_thread: `Generate the FIRST 3 tweets of a Twitter thread about <topic>${safeTopic}</topic> in JSON format:
 { "tweets": [{ "number": 1, "text": "..." }, { "number": 2, "text": "..." }, { "number": 3, "text": "..." }] }
 Each tweet max 280 chars. Tweet 1 is a hook. Return ONLY the JSON.`,
 
-      instagram_caption: `Generate a SHORT Instagram caption preview about <topic>${topicTrimmed}</topic> in JSON format:
+      instagram_caption: `Generate a SHORT Instagram caption preview about <topic>${safeTopic}</topic> in JSON format:
 { "caption": "...", "hashtags": ["...", "...", "..."] }
 Caption: 60 words max (natural cutoff). 3 sample hashtags only. Return ONLY the JSON.`,
 
-      video_script: `Generate a SHORT video script hook + first segment about <topic>${topicTrimmed}</topic> in JSON format:
+      video_script: `Generate a SHORT video script hook + first segment about <topic>${safeTopic}</topic> in JSON format:
 { "hook": { "text": "...", "duration": "0-3s" }, "segments": [{ "number": 1, "script": "...", "duration": "10s" }] }
 Hook: 1-2 punchy sentences. Segment: 50 words max. Return ONLY the JSON.`,
     };
@@ -44,7 +83,7 @@ Hook: 1-2 punchy sentences. Segment: 50 words max. Return ONLY the JSON.`,
       'You are a social media content writer. Respond with valid JSON only. Keep it brief — this is a demo preview.'
     );
 
-    // WHY unknown, not a Zod schema like the other LLM-JSON boundaries in this
+    // WHY: unknown, not a Zod schema like the other LLM-JSON boundaries in this
     // codebase: this route never reads a field off `parsed` server-side — it's
     // parsed only to confirm valid JSON, then forwarded to the client opaquely
     // as `preview`. A schema would just be dead validation code for a value
@@ -114,7 +153,13 @@ Hook: 1-2 punchy sentences. Segment: 50 words max. Return ONLY the JSON.`,
       };
     }
 
-    res.json({ platform, topic: topicTrimmed, preview: parsed, truncated: true });
+    // SECURITY: LLM output is sanitized before it reaches the client DOM.
+    res.json({
+      platform,
+      topic: topicTrimmed,
+      preview: sanitizeContentDeep(parsed),
+      truncated: true,
+    });
     return;
   } catch (error: unknown) {
     console.error('Demo generation failed:', error instanceof Error ? error.message : String(error));

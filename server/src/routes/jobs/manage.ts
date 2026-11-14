@@ -1,21 +1,30 @@
 import * as Sentry from '@sentry/node';
 import { Router, Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
-import { setJobInStore, getJobFromStore } from '../../workers/contentWorker.js';
+import { setJobInStore, getJobFromStore, jobsMemory } from '../../lib/jobStore.js';
 import { db } from '../../db/index.js';
-import { contentJobs, contentOutputs, scheduledPosts } from '../../db/schema.js';
-import { eq, and } from 'drizzle-orm';
-import { jobsMemory, requireJobOwnership } from './ownership.js';
+import { contentJobs, contentOutputs, scheduledPosts, collectionJobs } from '../../db/schema.js';
+import { eq, and, inArray } from 'drizzle-orm';
+import { requireJobOwnership, requireAuthUserId } from './ownership.js';
 import type { PipelineJob } from '../../lib/pipeline.js';
-import { parseBody, patchContentSchema, tagJobSchema, setCarouselTemplateSchema } from '../../schemas/index.js';
+import {
+  parseBody,
+  patchContentSchema,
+  parseContentForPlatform,
+  tagJobSchema,
+  setCarouselTemplateSchema,
+} from '../../schemas/index.js';
 import { logger } from '../../lib/logger.js';
 import { cancelPublishJob } from '../../lib/publishQueue.js';
+import { cancelContentJob } from '../../lib/queue.js';
 import { readOutputs, sanitizeContentDeep } from '../content/shared.js';
 import { getLatestQualityScore } from '../../lib/qualityScore.js';
+import { isJobInFlightStatus } from '../../lib/jobInFlight.js';
+import { clearJobStageThrottle } from '../../lib/persistJob.js';
 
 const router = Router({ mergeParams: true });
 
-// WHY a shared cache-aside helper: the "DB write first, jobsMemory only on confirmed
+// WHY: a shared cache-aside helper: the "DB write first, jobsMemory only on confirmed
 // success" invariant is repeated at 3 call sites (DELETE /:jobId, PATCH /:jobId/tag,
 // PATCH /:jobId/content). Extracting it here enforces the ordering via function
 // signature instead of duplicated comments, preventing future edits from
@@ -31,7 +40,7 @@ async function updateJobWithCacheAside(
     await dbUpdate(db);
   }
 
-  // WHY check jobStore too, not just jobsMemory: the BullMQ worker keeps its
+  // WHY: check jobStore too, not just jobsMemory: the BullMQ worker keeps its
   // own in-memory copy (jobStore, via getJobFromStore/setJobInStore) separate
   // from the direct-pipeline-fallback jobsMemory Map — an in-flight job
   // running through the queue lives in jobStore, not jobsMemory. Missing this
@@ -48,7 +57,7 @@ async function updateJobWithCacheAside(
 }
 
 // GET /:jobId/status — lightweight status for pollers (Batch poll, Content Multiplier).
-// WHY a dedicated slim endpoint instead of reusing GET /:jobId: the pollers only read
+// WHY: a dedicated slim endpoint instead of reusing GET /:jobId: the pollers only read
 // status/progress/hasFinal/score/topic, but GET /:jobId returns every contentOutputs row
 // including the full `content` JSON (research report, entire carousel slide array). With
 // several jobs polling every 2.5s, that re-downloaded megabytes of unchanged payload per
@@ -59,7 +68,8 @@ async function updateJobWithCacheAside(
 router.get('/:jobId/status', async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
 
     // In-memory path first (in-flight or recently-finished) — cheap, no content columns.
     const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
@@ -123,7 +133,8 @@ router.get('/:jobId/status', async (req: AuthRequest, res: Response) => {
 router.get('/:jobId', async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
     return res.json(job);
@@ -136,13 +147,14 @@ router.get('/:jobId', async (req: AuthRequest, res: Response) => {
 router.delete('/:jobId', async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
 
-    // WHY cache-aside (DB write first, jobsMemory updated only on confirmed
+    // WHY: cache-aside (DB write first, jobsMemory updated only on confirmed
     // success): enforced by updateJobWithCacheAside helper — see that function's
-    // WHY comment for the full rationale (Neon cold-start-stall bug).
+    // WHY: comment for the full rationale (Neon cold-start-stall bug).
     try {
       await updateJobWithCacheAside(
         jobId,
@@ -152,20 +164,28 @@ router.delete('/:jobId', async (req: AuthRequest, res: Response) => {
         },
         (memJob) => { memJob.deleted = 1; },
       );
+      // WHY: soft-delete ends mid-pipeline stage heartbeats — drop throttle so a
+      // later recreate/regenerate of the same id (unlikely) starts clean.
+      clearJobStageThrottle(jobId);
     } catch (dbErr) {
       logger.error('[DB] DELETE job failed', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
       Sentry.captureException(dbErr, { tags: { route: 'DELETE /:jobId', action: 'db-write' } });
       return res.status(500).json({ error: 'Failed to delete job — please try again', code: 'DB_WRITE_FAILED', retryable: true });
     }
 
-    // WHY best-effort, not part of the same failure path above: a job is
-    // already soft-deleted at this point (the DB write above succeeded) —
-    // an orphaned scheduled_posts row is a display-only annoyance (Calendar
-    // already tolerates it, filtering client-side), not corruption worth
-    // failing the whole delete request over. Logged so a persistent
-    // failure here is still visible, without blocking the user's delete.
+    // WHY: best-effort after soft-delete succeeds: orphaned schedule/collection
+    // rows or a still-queued BullMQ job are annoying / costly, not worth failing
+    // the whole delete once deleted=1 is durable.
     // SECURITY: cancel BullMQ delayed publish jobs BEFORE deleting rows so a
     // soft-delete race cannot still post (SEC-011).
+    // COST: cancel waiting content-generation jobs so soft-delete stops spend
+    // before the next pipeline stage (active jobs still abort via isSoftDeleted).
+    await cancelContentJob(jobId).catch((err: unknown) => {
+      logger.warn('[Queue] cancelContentJob after delete failed', {
+        jobId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
     if (db) {
       try {
         const scheduled = await db
@@ -178,6 +198,16 @@ router.delete('/:jobId', async (req: AuthRequest, res: Response) => {
       } catch (dbErr) {
         logger.error('[DB] Failed to clean up scheduled_posts on job delete', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
         Sentry.captureException(dbErr, { tags: { route: 'DELETE /:jobId', action: 'scheduled-posts-cleanup' } });
+      }
+      try {
+        await db.delete(collectionJobs).where(eq(collectionJobs.jobId, jobId));
+      } catch (dbErr) {
+        logger.error('[DB] Failed to clean up collection_jobs on job delete', {
+          jobId,
+          userId,
+          error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+        });
+        Sentry.captureException(dbErr, { tags: { route: 'DELETE /:jobId', action: 'collection-jobs-cleanup' } });
       }
     }
 
@@ -194,13 +224,14 @@ router.patch('/:jobId/tag', async (req: AuthRequest, res: Response) => {
     const body = parseBody(tagJobSchema, req.body, res);
     if (!body) return;
     const { tag } = body;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
 
     // WHY: 404 on mismatch instead of 403 — prevents enumeration of other users' job IDs
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
 
-    // WHY cache-aside: enforced by updateJobWithCacheAside helper — DB write first,
+    // WHY: cache-aside: enforced by updateJobWithCacheAside helper — DB write first,
     // jobsMemory only updated once the write is confirmed durable.
     try {
       await updateJobWithCacheAside(
@@ -235,7 +266,8 @@ router.patch('/:jobId/carousel-template', async (req: AuthRequest, res: Response
     const body = parseBody(setCarouselTemplateSchema, req.body, res);
     if (!body) return;
     const { templateId, paletteId } = body;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
 
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
@@ -272,40 +304,79 @@ router.patch('/:jobId/content', async (req: AuthRequest, res: Response) => {
     const jobId = req.params.jobId as string;
     const body = parseBody(patchContentSchema, req.body, res);
     if (!body) return;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
+
+    // WHY: also block researching|writing|formatting|critiquing — updateJobStageInDb
+    // writes those mid-pipeline; pending|processing alone missed live DB rows (R2).
+    if (isJobInFlightStatus(job.status)) {
+      return res.status(409).json({
+        error: 'Job is still generating — try again when it finishes',
+        code: 'JOB_IN_PROGRESS',
+        retryable: true,
+      });
+    }
+
+    const shaped = parseContentForPlatform(job.platform, body.content);
+    if (!shaped.ok) {
+      return res.status(400).json({
+        error: shaped.error,
+        code: 'VALIDATION_ERROR',
+        retryable: false,
+      });
+    }
 
     // SECURITY: sanitize before either write path so the DB and in-memory
     // copies never diverge on which one saw the raw, unsanitized value —
     // see sanitizeContentDeep's own comment above for why this needs to walk
     // the whole structure rather than just the top-level-string case.
-    const content = sanitizeContentDeep(body.content);
+    const content = sanitizeContentDeep(shaped.content);
 
-    // WHY cache-aside: enforced by updateJobWithCacheAside helper — DB write first,
-    // jobsMemory only mutated once the write is confirmed durable. A missing DB row
-    // here (existing.length === 0) means the job's final output hasn't been
-    // persisted yet (still in-flight — see lib/persistJob.ts), not a failure, so
-    // it's not gated the same as a thrown error: the in-memory copy is still the
-    // correct place to apply the edit in that case.
+    // WHY: atomic terminal guard — regenerate claims done|failed→pending; a
+    // TOCTOU edit after that check would silently lose to persistJob wipe.
+    // UPDATE…RETURNING only matches still-terminal rows, then writes outputs.
     try {
       await updateJobWithCacheAside(
         jobId,
-        async (db) => {
-          const existing = await db.select({ id: contentOutputs.id })
+        async (database) => {
+          const terminal = await database.update(contentJobs)
+            .set({ updatedAt: new Date() })
+            .where(and(
+              eq(contentJobs.id, jobId),
+              eq(contentJobs.userId, userId),
+              inArray(contentJobs.status, ['done', 'failed']),
+              eq(contentJobs.deleted, 0),
+            ))
+            .returning({ id: contentJobs.id });
+          if (terminal.length === 0) {
+            throw new Error('JOB_IN_PROGRESS');
+          }
+          const existing = await database.select({ id: contentOutputs.id })
             .from(contentOutputs)
             .where(and(eq(contentOutputs.jobId, jobId), eq(contentOutputs.outputType, 'final')))
             .limit(1);
           if (existing.length > 0) {
-            await db.update(contentOutputs).set({ content }).where(eq(contentOutputs.id, existing[0].id));
+            await database.update(contentOutputs)
+              .set({ content })
+              .where(eq(contentOutputs.id, existing[0].id));
           }
         },
         (memJob) => {
+          if (isJobInFlightStatus(memJob.status)) return;
           const finalOutput = readOutputs(memJob).find((o) => o.outputType === 'final');
           if (finalOutput) { finalOutput.content = content; }
         },
       );
     } catch (dbErr) {
+      if (dbErr instanceof Error && dbErr.message === 'JOB_IN_PROGRESS') {
+        return res.status(409).json({
+          error: 'Job is still generating — try again when it finishes',
+          code: 'JOB_IN_PROGRESS',
+          retryable: true,
+        });
+      }
       logger.error('[DB] PATCH content failed', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
       Sentry.captureException(dbErr, { tags: { route: 'PATCH /:jobId/content', action: 'db-write' } });
       return res.status(500).json({ error: 'Failed to save changes — please try again', code: 'DB_WRITE_FAILED', retryable: true });

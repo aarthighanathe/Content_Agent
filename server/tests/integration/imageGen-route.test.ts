@@ -136,14 +136,15 @@ describe('POST /api/images/generate — all providers fail', () => {
     expect(res.body.error).toMatch(/image generation failed/i);
   });
 
-  it('error message suggests setting OPENAI_API_KEY', async () => {
+  it('error message is generic (does not leak env key names)', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(makeFailFetchResponse(503));
 
     const app = await buildImageGenApp();
     const res = await supertest(app)
       .post('/api/images/generate')
       .send({ prompt: 'dark abstract' });
-    expect(res.body.error).toMatch(/OPENAI_API_KEY/i);
+    expect(res.body.error).toMatch(/image generation failed/i);
+    expect(res.body.error).not.toMatch(/OPENAI_API_KEY/i);
   });
 });
 

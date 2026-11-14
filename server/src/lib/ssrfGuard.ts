@@ -4,14 +4,15 @@
 // implementation) so both call sites share one hardening pass instead of
 // drifting — see CODE_REVIEW_FULL_CODEBASE.md's feed-monitors SSRF finding.
 import { promises as dns } from 'dns';
-import { isIP } from 'net';
+import { BlockList, isIP } from 'net';
+import { pinnedRequest } from './pinnedRequest.js';
 
 export interface UrlSafetyResult {
   safe: boolean;
   reason?: string;
 }
 
-// WHY both a raw string pattern AND a normalized check: an IPv6 address has
+// WHY: both a raw string pattern AND a normalized check: an IPv6 address has
 // multiple textual forms for the same address (e.g. "::ffff:127.0.0.1" and
 // "::ffff:7f00:1" both mean IPv4-mapped 127.0.0.1) — a single regex anchored
 // to one form misses the others. isPrivateOrReservedIp normalizes via
@@ -20,19 +21,64 @@ export interface UrlSafetyResult {
 // returns them, not just the exact strings the regex enumerates.
 const ssrfPattern = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1$|::$|0\.0\.0\.0|fe80:|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:)/i;
 
+/** Strip URL.hostname IPv6 brackets (`[::1]` → `::1`) before isIP / private checks. */
+export function unwrapHostnameIp(address: string): string {
+  if (address.startsWith('[') && address.endsWith(']') && address.length > 2) {
+    return address.slice(1, -1);
+  }
+  return address;
+}
+
+// SECURITY: CIDR-based blocklist (Node built-in, no new deps) covers ranges the
+// literal-prefix regex above misses: all of 0.0.0.0/8, multicast/reserved
+// 224.0.0.0/3, benchmarking and documentation nets, IPv6 ULA/link-local/
+// multicast, 6to4 and NAT64 (which can embed private IPv4 addresses).
+const reservedBlockList = new BlockList();
+const RESERVED_V4: Array<[string, number]> = [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
+  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
+  ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24],
+  ['203.0.113.0', 24], ['224.0.0.0', 3],
+];
+// WHY: no ::ffff:0:0/96: Node's BlockList treats that mapped range as matching
+// EVERY IPv4 address when check(..., 'ipv4') runs — Cloudflare/public A records
+// were rejected as "private". IPv4-mapped forms are unwrapped below instead.
+const RESERVED_V6: Array<[string, number]> = [
+  ['::', 128], ['::1', 128], ['64:ff9b::', 96],
+  ['2001:db8::', 32], ['2002::', 16], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8],
+];
+for (const [net, prefix] of RESERVED_V4) reservedBlockList.addSubnet(net, prefix, 'ipv4');
+for (const [net, prefix] of RESERVED_V6) reservedBlockList.addSubnet(net, prefix, 'ipv6');
+
 export function isPrivateOrReservedIp(address: string): boolean {
-  if (ssrfPattern.test(address)) return true;
+  // WHY: unwrap first: Node's URL.hostname for http://[::1]/ is "[::1]", and
+  // net.isIP('[::1]') is 0 — without this, loopback IPv6 was only fail-closed
+  // via DNS ENOTFOUND, not recognized as private (SEC-004).
+  const normalized = unwrapHostnameIp(address);
+  if (ssrfPattern.test(normalized)) return true;
+  const family = isIP(normalized);
+  if (family === 4 || family === 6) {
+    try {
+      if (reservedBlockList.check(normalized, family === 4 ? 'ipv4' : 'ipv6')) return true;
+    } catch {
+      // WHY: fail closed: an address the blocklist can't evaluate is not provably public.
+      return true;
+    }
+  }
   // Unwrap IPv4-mapped/compatible IPv6 forms ("::ffff:a.b.c.d" or its
   // hex-quad equivalent "::ffff:7f00:1") down to the plain IPv4 string and
   // re-check — Node's `net.isIPv6` family alone won't do this unwrapping.
-  const mappedMatch = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (mappedMatch) return ssrfPattern.test(mappedMatch[1]);
-  const hexMappedMatch = address.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  // SECURITY: unwrap IPv4-mapped IPv6 and re-run the full IPv4 check (regex +
+  // BlockList), not just the prefix regex — otherwise 10.0.0.1 via ::ffff: would
+  // be caught but 192.0.2.1 (documentation net, BlockList-only) would slip through.
+  const mappedMatch = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mappedMatch?.[1]) return isPrivateOrReservedIp(mappedMatch[1]);
+  const hexMappedMatch = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
   if (hexMappedMatch) {
     const hi = parseInt(hexMappedMatch[1], 16);
     const lo = parseInt(hexMappedMatch[2], 16);
     const ipv4 = `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`;
-    return ssrfPattern.test(ipv4);
+    return isPrivateOrReservedIp(ipv4);
   }
   return false;
 }
@@ -55,7 +101,7 @@ export async function assertUrlIsPublic(url: string): Promise<UrlSafetyResult> {
     return { safe: false, reason: 'Invalid URL — must start with http:// or https://' };
   }
 
-  const hostname = parsedUrl.hostname;
+  const hostname = unwrapHostnameIp(parsedUrl.hostname);
   if (isPrivateOrReservedIp(hostname)) {
     return { safe: false, reason: 'URL points to a private or reserved address' };
   }
@@ -74,6 +120,34 @@ export async function assertUrlIsPublic(url: string): Promise<UrlSafetyResult> {
   }
 
   return { safe: true };
+}
+
+export type PinResult =
+  | { safe: true; address: string; family: 4 | 6 }
+  | { safe: false; reason: string };
+
+// SECURITY: resolve once, validate EVERY returned address, and hand back the
+// first one so the caller can pin its connection to it (no re-resolution).
+export async function lookupAndAssertPublic(url: string): Promise<PinResult> {
+  const safety = await assertUrlIsPublic(url);
+  if (!safety.safe) {
+    return { safe: false, reason: safety.reason ?? 'URL points to a private or reserved address' };
+  }
+  const hostname = unwrapHostnameIp(new URL(url).hostname);
+  const literal = isIP(hostname);
+  if (literal === 4 || literal === 6) return { safe: true, address: hostname, family: literal };
+  try {
+    const addresses = await dns.lookup(hostname, { all: true });
+    // WHY: re-validate: this is a fresh lookup (assertUrlIsPublic's result isn't
+    // returned), so the pinned address itself must pass the check.
+    const first = addresses[0];
+    if (!first || addresses.some((a) => isPrivateOrReservedIp(a.address))) {
+      return { safe: false, reason: 'URL points to a private or reserved address' };
+    }
+    return { safe: true, address: first.address, family: first.family === 6 ? 6 : 4 };
+  } catch {
+    return { safe: false, reason: 'Could not resolve that URL — check that it is publicly accessible' };
+  }
 }
 
 export interface GuardedFetchResult {
@@ -97,7 +171,7 @@ const MAX_REDIRECT_HOPS = 5;
 // an infinite/hostile redirect chain becoming a hang. Both consumers of
 // user-supplied URLs (repurpose.ts's article fetch, feedMonitorWorker.ts's
 // RSS fetch) should call this instead of fetch()/parseURL() directly.
-// WHY body is rejected outright rather than forwarded across hops: a
+// WHY: body is rejected outright rather than forwarded across hops: a
 // ReadableStream (or any other one-shot body) consumed by hop 0's fetch()
 // would be exhausted by the time a later hop tries to resend the identical
 // `options` object, throwing or hanging depending on the stream
@@ -117,12 +191,13 @@ export async function fetchWithSsrfGuard(
 
   try {
     for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-      const safety = await assertUrlIsPublic(currentUrl);
-      if (!safety.safe) {
-        return { ok: false, reason: safety.reason || 'URL points to a private or reserved address' };
+      const pin = await lookupAndAssertPublic(currentUrl);
+      if (!pin.safe) {
+        return { ok: false, reason: pin.reason };
       }
 
-      const response = await fetch(currentUrl, { ...options, redirect: 'manual' });
+      // SECURITY: connect to the IP we just validated (not a second DNS lookup).
+      const response = await pinnedRequest(new URL(currentUrl), pin.address, pin.family, options);
 
       // A `redirect: 'manual'` response for a 3xx is an "opaqueredirect" type
       // response in browser fetch semantics, but Node's undici implementation
@@ -144,7 +219,7 @@ export async function fetchWithSsrfGuard(
       return { ok: true, response };
     }
 
-    // WHY unreachable in practice, kept as a type-safety backstop: every
+    // WHY: unreachable in practice, kept as a type-safety backstop: every
     // in-loop path returns before falling through, and the loop's own
     // `hop === MAX_REDIRECT_HOPS` guard above returns before the final
     // iteration could ever fall off the end — but TypeScript can't prove
@@ -152,12 +227,12 @@ export async function fetchWithSsrfGuard(
     // return here to type-check as always returning.
     return { ok: false, reason: 'Too many redirects' };
   } catch (err) {
-    // WHY caught here instead of left to propagate: folds a raw network
+    // WHY: caught here instead of left to propagate: folds a raw network
     // error (DNS failure, connection reset, abort) into the same
     // {ok:false, reason} shape every other failure in this function already
     // returns, so callers don't need a second, differently-shaped error path
     // just for network-level failures.
-    // WHY formatFetchError: undici often surfaces only the opaque "fetch failed"
+    // WHY: formatFetchError: undici often surfaces only the opaque "fetch failed"
     // message while the actionable code (ETIMEDOUT, CERT_*, etc.) lives on
     // `error.cause` — without unwrapping, feed-monitor lastError / Repurpose
     // failures look identical and are impossible to diagnose or retry by class.
@@ -165,7 +240,10 @@ export async function fetchWithSsrfGuard(
   }
 }
 
-// WHY exported: feedMonitorWorker retries on transient classes and wants the
+// SECURITY: preferred name for new call sites — DNS-pinned, redirect-revalidated fetch.
+export const fetchPublicUrl = fetchWithSsrfGuard;
+
+// WHY: exported: feedMonitorWorker retries on transient classes and wants the
 // same human-readable string it would store in lastError / return to create.
 export function formatFetchError(err: unknown): string {
   if (!(err instanceof Error)) return String(err) || 'Network request failed';
@@ -212,4 +290,58 @@ export function isRetryableFetchFailure(reason: string): boolean {
     || lower.includes('tls')
     || lower.includes('cert')
   );
+}
+
+/**
+ * Map internal fetch/SSRF failure strings to stable client copy.
+ * SECURITY: formatFetchError() joins undici cause chains (IPs, errno codes,
+ * TLS details) — never return that raw string in HTTP bodies or lastError UI.
+ * Classify with isRetryableFetchFailure(detailed) first; then sanitize here.
+ */
+export function toClientFetchFailureMessage(reason: string): string {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    return 'Could not fetch that URL — make sure it is a public page and try again';
+  }
+  // Already-safe SSRF / validation messages from assertUrlIsPublic / guard hops.
+  if (
+    trimmed.startsWith('Invalid URL')
+    || trimmed.startsWith('URL points to a private')
+    || trimmed.startsWith('Could not resolve that URL')
+    || trimmed === 'Too many redirects'
+    || trimmed.startsWith('Redirect response had no Location')
+  ) {
+    return trimmed;
+  }
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.includes('timeout')
+    || lower.includes('etimedout')
+    || lower.includes('aborted')
+  ) {
+    return 'That URL timed out — try again in a moment';
+  }
+  if (lower.includes('enotfound') || lower.includes('getaddrinfo') || lower.includes('eai_again')) {
+    return 'Could not resolve that URL — check that it is publicly accessible';
+  }
+  if (lower.includes('cert') || lower.includes('ssl') || lower.includes('tls')) {
+    return 'Could not establish a secure connection to that URL';
+  }
+  if (
+    lower.includes('byte cap')
+    || lower.includes('too large')
+    || lower.includes('exceeds')
+  ) {
+    return 'That feed or page is too large to process';
+  }
+  if (
+    lower.includes('econnrefused')
+    || lower.includes('econnreset')
+    || lower.includes('fetch failed')
+    || lower.includes('network request failed')
+    || lower.includes('socket')
+  ) {
+    return 'Could not reach that URL — make sure it is publicly accessible';
+  }
+  return 'Could not fetch that URL — make sure it is a public page and try again';
 }

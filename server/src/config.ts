@@ -14,7 +14,7 @@ import { config as loadDotenv } from 'dotenv';
 import { resolve } from 'path';
 import { z } from 'zod';
 
-// WHY before schema parse: index.ts used to call dotenv AFTER importing this
+// WHY: before schema parse: index.ts used to call dotenv AFTER importing this
 // module, so `npm start` (without Node --env-file) never saw root/server .env
 // values. Platform-injected env (Render/Vercel) already populates process.env
 // before boot — loadDotenv is a no-op for keys that are already set.
@@ -22,31 +22,31 @@ loadDotenv({ path: resolve(process.cwd(), '.env') });
 loadDotenv({ path: resolve(process.cwd(), '../.env') });
 
 const envSchema = z.object({
-  // ── Server ──────────────────────────────────────────────────────────────────
+  // Server
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.string().default('3001'),
 
-  // ── Database ─────────────────────────────────────────────────────────────
+  // Database
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
-  // ── Auth (Clerk) ─────────────────────────────────────────────────────────
+  // Auth (Clerk)
   CLERK_SECRET_KEY: z.string().min(1, 'CLERK_SECRET_KEY is required'),
   CLERK_PUBLISHABLE_KEY: z.string().min(1, 'CLERK_PUBLISHABLE_KEY is required'),
 
-  // ── AI providers ─────────────────────────────────────────────────────────
+  // AI providers
   GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY is required'),
   GROQ_API_KEY: z.string().optional(),
   TAVILY_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   TOGETHER_API_KEY: z.string().optional(),
 
-  // ── Redis / BullMQ ────────────────────────────────────────────────────────
+  // Redis / BullMQ
   UPSTASH_REDIS_URL: z.string().optional(),
   UPSTASH_REDIS_TOKEN: z.string().optional(),
   // Generic Redis URL (provided by some platforms like Railway)
   REDIS_URL: z.string().optional(),
 
-  // ── Security ─────────────────────────────────────────────────────────────
+  // Security
   // TOKEN_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).
   // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
   // SECURITY: required, not optional — without it, social OAuth tokens would
@@ -66,24 +66,24 @@ const envSchema = z.object({
     .min(32, 'OAUTH_STATE_SECRET must be at least 32 characters')
     .default('dev-oauth-state-secret-min-32-chars!!'),
 
-  // ── CORS / URLs ───────────────────────────────────────────────────────────
+  // CORS / URLs
   CORS_ORIGINS: z.string().optional(),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   APP_URL: z.string().url().default('http://localhost:3001'),
 
-  // ── OAuth credentials ─────────────────────────────────────────────────────
+  // OAuth credentials
   LINKEDIN_CLIENT_ID: z.string().optional(),
   LINKEDIN_CLIENT_SECRET: z.string().optional(),
   TWITTER_CLIENT_ID: z.string().optional(),
   TWITTER_CLIENT_SECRET: z.string().optional(),
 
-  // ── Observability ─────────────────────────────────────────────────────────
+  // Observability
   SENTRY_DSN: z.string().url().optional(),
 
-  // ── Rate limiting ─────────────────────────────────────────────────────────
+  // Rate limiting
   RATE_LIMIT_MAX_JOBS: z.string().default('10'),
 
-  // ── Puppeteer / carousel rendering ──────────────────────────────────────
+  // Puppeteer / carousel rendering
   // Explicit path to a system Chrome/Chromium install — takes priority over
   // browserPool.ts's guessed Render-image paths. Set this on any deploy
   // target other than Render (or if Render's known paths ever change).
@@ -95,6 +95,14 @@ const envSchema = z.object({
   // to gate browserPool.ts's Render-specific system-Chrome path guesses so
   // they aren't attempted on other platforms where those paths don't exist.
   RENDER: z.string().optional(),
+
+  // Deploy / worker topology
+  // WHY: optional 'true' only: sseManager / jobsMemory are process-local Maps.
+  // A standalone `npm run worker` process cannot push SSE or memory updates to
+  // the API process — co-host via index.ts startWorker() instead. Set
+  // ALLOW_STANDALONE_WORKER=true only when you knowingly accept that (e.g.
+  // DB-status-only ops) to silence the loud direct-run ERROR (H7 / DEPLOY-002).
+  ALLOW_STANDALONE_WORKER: z.string().optional(),
 });
 
 const DEV_OAUTH_STATE_SECRET = 'dev-oauth-state-secret-min-32-chars!!';
@@ -135,6 +143,18 @@ function parseEnv() {
     throw new Error(
       'Environment configuration invalid:\n  APP_URL: must be set to the public API origin in production (localhost default detected)',
     );
+  }
+
+  // WHY: Redis required in production — without it jobs use direct mode (no
+  // BullMQ retry/stall recovery) and rate limiters fail closed to 503. Local
+  // dev may omit Redis; production must set UPSTASH_REDIS_URL or REDIS_URL.
+  if (result.data.NODE_ENV === 'production') {
+    const hasRedis = Boolean(result.data.UPSTASH_REDIS_URL || result.data.REDIS_URL);
+    if (!hasRedis) {
+      throw new Error(
+        'Environment configuration invalid:\n  UPSTASH_REDIS_URL or REDIS_URL: required in production (direct-mode fallback is dev-only)',
+      );
+    }
   }
 
   return result.data;

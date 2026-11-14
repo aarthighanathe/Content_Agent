@@ -2,7 +2,7 @@
 // modules that need a Redis connection derive from this file instead of each
 // independently reading env vars — see CLAUDE.md §7 finding 1.15.
 //
-// WHY the raw connection-builder lives here (not in queue.ts): BullMQ's Queue/
+// WHY: the raw connection-builder lives here (not in queue.ts): BullMQ's Queue/
 // Worker need their OWN dedicated ioredis connection (blocking commands like
 // BRPOP on a Worker connection would stall any other command sharing it), but
 // a shared connection used for plain get/set (rate limiting, SSE tokens) is
@@ -23,7 +23,7 @@ function redisHostForLog(redisUrl: string): string {
   }
 }
 
-// WHY patient retries: Render cold-start + Upstash TLS often fails the first
+// WHY: patient retries: Render cold-start + Upstash TLS often fails the first
 // handshake(s). The old strategy returned null after 2 tries (~1s), leaving the
 // shared client permanently closed — every RedisStore init then logged
 // "Connection is closed" and BullMQ workers spammed ECONNRESET while the API
@@ -44,7 +44,7 @@ const REDIS_IO_OPTIONS = {
       || msg.includes('EPIPE')
       || msg.includes('Connection is closed')
     ) {
-      // WHY 2: reconnect and resend the failed command when safe.
+      // WHY: 2: reconnect and resend the failed command when safe.
       return 2;
     }
     return false;
@@ -98,7 +98,7 @@ export function getRedisClient(): IORedis | null {
     const conn = buildConnection();
     if (conn) {
       _client = conn;
-      // WHY throttle error logs: during reconnect storms ioredis emits many
+      // WHY: throttle error logs: during reconnect storms ioredis emits many
       // identical errors; logging every one drowned useful startup signal.
       let lastErrLog = 0;
       _client.on('error', (err) => {

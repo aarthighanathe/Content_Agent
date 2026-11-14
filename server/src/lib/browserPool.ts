@@ -1,6 +1,6 @@
 // Puppeteer browser pool: launch, acquire/release, health-replace, and shutdown.
 //
-// WHY split out of carousel.ts: carousel.ts grew past the 400-line file cap
+// WHY: split out of carousel.ts: carousel.ts grew past the 400-line file cap
 // (CLAUDE.md §"Code Style Rules" / "Never Do These") once the carousel template
 // system added templateId/paletteId cache-key handling. The pool machinery below
 // has no dependency on rendering/caching logic — it's a self-contained resource
@@ -15,12 +15,12 @@ import { constants } from 'fs';
 import { logger } from './logger.js';
 import { env } from '../config.js';
 
-// WHY Browser pool: launching a new Chromium process takes ~800ms and ~150MB RAM.
+// WHY: Browser pool: launching a new Chromium process takes ~800ms and ~150MB RAM.
 // Pre-warming POOL_MIN browsers at startup eliminates cold-start latency for the
 // first render requests. The pool auto-scales up to POOL_MAX and then queues.
 // Prevents OOM when many users render carousels concurrently.
 
-// WHY smaller on Render: free-tier RAM can't hold POOL_MIN=2 × ~150MB Chromium
+// WHY: smaller on Render: free-tier RAM can't hold POOL_MIN=2 × ~150MB Chromium
 // plus Express/BullMQ — pool init was logging "No browsers available" after
 // launch failures under memory pressure. Local/dev keeps the warmer pool.
 const onRender = env.RENDER === 'true';
@@ -40,13 +40,12 @@ const LAUNCH_ARGS = [
   '--disable-dev-shm-usage',
   '--disable-gpu',
   '--font-render-hinting=none',
-  '--allow-running-insecure-content',
 ];
 
 export interface PoolEntry {
   browser: Browser | null;
   busy: boolean;
-  // WHY a separate flag from `busy` (not fully redundant, even though every
+  // WHY: a separate flag from `busy` (not fully redundant, even though every
   // current read site also checks `!busy`): `reserved` is what lets
   // `_pool.length` count an in-flight spawnBrowser() reservation *before* the
   // browser itself exists (browser: null). `busy` alone would give the same
@@ -59,17 +58,17 @@ export interface PoolEntry {
 const _pool: PoolEntry[] = [];
 let _poolReady = false;
 
-// WHY a shared helper: acquireBrowser's fast path and its poll loop both need
+// WHY: a shared helper: acquireBrowser's fast path and its poll loop both need
 // the identical "find an unclaimed slot" predicate — inlining it twice already
 // drifted once when `reserved` was added alongside the pre-existing `busy`.
 function findFreeSlot(): PoolEntry | undefined {
   return _pool.find((e) => !e.busy && !e.reserved);
 }
 
-// WHY a shared helper: both spawnBrowser and replaceBrokenBrowser's close() need
+// WHY: a shared helper: both spawnBrowser and replaceBrokenBrowser's close() need
 // the identical "race against a deadline, reject on timeout" behavior — inlining
 // it twice would risk the two timeouts drifting apart later.
-// WHY the onLateResolve hook: Promise.race never cancels the losing side — if
+// WHY: the onLateResolve hook: Promise.race never cancels the losing side — if
 // `promise` resolves after the timeout already rejected the race, the caller
 // treats it as failed and nothing else references the resolved value. For a
 // browser launch specifically, that value is a live Chromium process; without
@@ -98,18 +97,18 @@ export function withTimeout<T>(
   ]);
 }
 
-// WHY resolved once and cached at module scope: spawnBrowser() runs on every pool
+// WHY: resolved once and cached at module scope: spawnBrowser() runs on every pool
 // slot at initPool(), every replaceBrokenBrowser() respawn after a crash, and every
 // pool-growth event under load — re-running existsSync() over the same 3 fixed paths
 // each time is pure repeated filesystem I/O for an answer that can't change within
 // a process's lifetime. null = "not yet resolved", undefined = "resolved, none found".
 let _resolvedSystemChromePath: string | undefined | null = null;
 
-// WHY PUPPETEER_EXECUTABLE_PATH takes priority over the guessed paths below: an
+// WHY: PUPPETEER_EXECUTABLE_PATH takes priority over the guessed paths below: an
 // explicit env var is a verified install contract (set by whoever configured the
 // deploy target), whereas the hardcoded paths are a guess specific to Render's
 // Debian/Ubuntu-based image that silently stops applying on any other platform.
-// WHY async fs.access instead of sync existsSync: avoids blocking the event loop
+// WHY: async fs.access instead of sync existsSync: avoids blocking the event loop
 // on the first call during pool initialization or browser respawn.
 async function resolveSystemChromePath(): Promise<string | undefined> {
   if (_resolvedSystemChromePath !== null) return _resolvedSystemChromePath;
@@ -166,7 +165,7 @@ async function spawnBrowser(): Promise<Browser> {
     launchOptions.executablePath = systemChromePath;
   }
 
-  // WHY closeOrphanedLaunch: if puppeteer.launch() resolves after withTimeout()
+  // WHY: closeOrphanedLaunch: if puppeteer.launch() resolves after withTimeout()
   // already rejected the race, this hook closes the orphaned browser instead of
   // leaking the OS process (see withTimeout's own WHY comment above).
   const closeOrphanedLaunch = (browser: Browser): void => {
@@ -202,9 +201,21 @@ async function spawnBrowser(): Promise<Browser> {
   }
 }
 
-async function initPool(): Promise<void> {
-  if (_poolReady) return;
-  _poolReady = true;
+let _initPromise: Promise<void> | null = null;
+
+// WHY: shared promise: setting _poolReady before the awaited launches made a
+// concurrent caller return immediately and see an empty pool mid-init.
+function initPool(): Promise<void> {
+  if (_poolReady) return Promise.resolve();
+  if (!_initPromise) {
+    _initPromise = doInitPool().finally(() => {
+      _initPromise = null;
+    });
+  }
+  return _initPromise;
+}
+
+async function doInitPool(): Promise<void> {
   // WHY: use allSettled, not all — if one launch rejects, Promise.all's
   // rejection would leave any already-spawned browsers from the other
   // launches unpushed to _pool (leaked, ungoverned Chromium processes) and
@@ -219,6 +230,8 @@ async function initPool(): Promise<void> {
       failures.push(result.reason);
     }
   }
+  // NOTE: stays false when empty so the next acquireBrowser() retries init.
+  _poolReady = _pool.length > 0;
   if (_pool.length > 0) {
     logger.info('[BrowserPool] Ready', { instances: _pool.length, max: POOL_MAX });
   } else {
@@ -236,7 +249,6 @@ async function initPool(): Promise<void> {
     // Allow a retry on the next acquireBrowser() call only if the pool ended
     // up empty — a partial pool (>=1 browser) is still usable, so don't
     // re-trigger POOL_MIN more launches on top of what already succeeded.
-    if (_pool.length === 0) _poolReady = false;
   }
 }
 
@@ -248,7 +260,7 @@ export async function acquireBrowser(): Promise<PoolEntry> {
   const free = findFreeSlot();
   if (free) { free.busy = true; return free; }
 
-  // WHY reserve synchronously before awaiting spawnBrowser(): pushing the
+  // WHY: reserve synchronously before awaiting spawnBrowser(): pushing the
   // placeholder entry (reserved:true) here, before any `await`, makes
   // `_pool.length` reflect the reservation immediately. Without this, two
   // concurrent acquireBrowser() calls could both read `_pool.length <
@@ -287,13 +299,13 @@ export async function replaceBrokenBrowser(
   entry: PoolEntry,
   opts?: { leaveBusy?: boolean },
 ): Promise<void> {
-  // WHY timeout here too: a browser already in a broken state (the reason we're
+  // WHY: timeout here too: a browser already in a broken state (the reason we're
   // replacing it) is exactly the kind of process most likely to hang on close() —
   // without a deadline this would block the pool slot from ever being freed.
   if (entry.browser) {
     try { await withTimeout(entry.browser.close(), BROWSER_LAUNCH_TIMEOUT_MS, 'Browser close'); } catch { /* ignore — treat as failure regardless, we're discarding this entry */ }
   }
-  // WHY re-derive idx only at splice time, not cached across the await below:
+  // WHY: re-derive idx only at splice time, not cached across the await below:
   // spawnBrowser() awaits, during which _pool can be mutated by a concurrent
   // acquireBrowser()/replaceBrokenBrowser() splice — indexOf by reference
   // (entry identity) computed fresh here (not before the await) always finds
@@ -301,7 +313,7 @@ export async function replaceBrokenBrowser(
   entry.reserved = true;
   try {
     entry.browser = await spawnBrowser();
-    // WHY leaveBusy: carousel.ts's catch awaits replace then awaits page.close
+    // WHY: leaveBusy: carousel.ts's catch awaits replace then awaits page.close
     // in finally before releaseBrowser. Clearing busy here let another export
     // acquire the slot mid-finally, after which releaseBrowser freed it under
     // the new holder. When leaveBusy is set, the caller's finally owns the
@@ -318,14 +330,14 @@ export async function replaceBrokenBrowser(
   }
 }
 
-// WHY exposed: renderSlideWithPuppeteer's finally block checks pool membership
+// WHY: exposed: renderSlideWithPuppeteer's finally block checks pool membership
 // before releasing (an entry removed by replaceBrokenBrowser must not be
 // released back into a pool it's no longer part of).
 export function isInPool(entry: PoolEntry): boolean {
   return _pool.includes(entry);
 }
 
-// WHY exposed: renderSlideWithCache needs to fail fast with a clear error when
+// WHY: exposed: renderSlideWithCache needs to fail fast with a clear error when
 // no browser could ever be launched, rather than having every caller reach
 // into pool internals. Awaits initPool() first so this is race-free the same
 // way the pre-extraction inline check was (see the call site's own NOTE).
@@ -334,7 +346,7 @@ export async function isPoolAvailable(): Promise<boolean> {
   return _pool.length > 0;
 }
 
-// WHY wait for in-flight reservations first: a synchronous snapshot of _pool
+// WHY: wait for in-flight reservations first: a synchronous snapshot of _pool
 // taken while acquireBrowser() has reserved a slot (browser: null, reserved:
 // true) but is still awaiting spawnBrowser() would skip that entry — closing
 // only what existed at the instant of the snapshot leaks the browser that

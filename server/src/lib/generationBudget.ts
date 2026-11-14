@@ -1,5 +1,5 @@
 // lib/generationBudget.ts — shared hourly generation-job budget helpers.
-// WHY extracted from middleware/rateLimit.ts: that file owns HTTP limiters +
+// WHY: extracted from middleware/rateLimit.ts: that file owns HTTP limiters +
 // sanitizeGenerationInput and was over the 400-line split threshold once
 // assert/charge helpers grew; callers still import via rateLimit re-exports.
 import { getRedisClient } from './redisClient.js';
@@ -10,7 +10,7 @@ export const AUTH_JOB_MAX = parseInt(env.RATE_LIMIT_MAX_JOBS, 10);
 
 const BUDGET_TTL_SEC = 60 * 60;
 
-// WHY Lua (COST-001): a GET-then-INCRBY race let two parallel batches both see
+// WHY: Lua (COST-001): a GET-then-INCRBY race let two parallel batches both see
 // the same counter and both proceed past AUTH_JOB_MAX. Atomic check+incr
 // closes that window. KEYS[1]=rl key, ARGV[1]=needed, ARGV[2]=max, ARGV[3]=ttl.
 const RESERVE_LUA = `

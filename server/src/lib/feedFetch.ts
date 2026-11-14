@@ -24,7 +24,7 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-// WHY retries: undici occasionally returns opaque "fetch failed" against
+// WHY: retries: undici occasionally returns opaque "fetch failed" against
 // otherwise-healthy public feeds. One-shot Check now / cron then wrote
 // lastError and gave up; short backoffs recover the transient class.
 export async function fetchFeedXml(feedUrl: string): Promise<string> {
@@ -50,7 +50,7 @@ export async function fetchFeedXml(feedUrl: string): Promise<string> {
     if (!fetchResult.response.ok) {
       throw new Error(`Feed URL returned HTTP ${fetchResult.response.status}`);
     }
-    // SECURITY (SEC-015): same class of defense as repurpose's HTML byte cap —
+    // SECURITY: (SEC-015): same class of defense as repurpose's HTML byte cap —
     // an unbounded .text() here can OOM the API process (cron runs in-process).
     const lenHeader = fetchResult.response.headers.get('content-length');
     if (lenHeader) {

@@ -54,6 +54,13 @@ vi.mock('../../src/routes/jobs/index.js', () => ({
   jobsMemory: mockJobsMemory,
   default: {},
 }));
+// WHY: me.ts/account.ts import jobsMemory from lib/jobStore (circular-import fix) —
+// keep the same Map mock so /me stats tests still seed completed jobs.
+vi.mock('../../src/lib/jobStore.js', () => ({
+  jobsMemory: mockJobsMemory,
+  getJobFromStore: vi.fn(),
+  setJobInStore: vi.fn(),
+}));
 vi.mock('../../src/lib/persistJob.js', () => ({ persistJobToDB: vi.fn() }));
 vi.mock('../../src/lib/sse.js', () => ({ sseManager: { sendEvent: vi.fn() } }));
 vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));

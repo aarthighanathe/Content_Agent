@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// WHY brandVoice max 150 (was 50): VoiceCard.tsx sends up to 6 selected tone
+// WHY: brandVoice max 150 (was 50): VoiceCard.tsx sends up to 6 selected tone
 // labels joined with ", " (e.g. "Professional, Casual, Witty, Educational,
 // Direct, Inspirational" = 63 chars) — the old 50-char cap made selecting more
 // than ~3-4 pills fail Save with a generic, undiagnosable error

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// WHY a regex plus a calendar-validity check, not z.string().date(): the
+// WHY: a regex plus a calendar-validity check, not z.string().date(): the
 // client's dateKey format (calendarHelpers.ts) is a plain local-calendar-day
 // string used directly as a Map key — z.string().date() would accept the
 // same YYYY-MM-DD shape but this needs the exact same string round-trip
@@ -24,7 +24,7 @@ export const scheduledPostDateSchema = z
   .regex(DATE_KEY_REGEX, 'scheduledDate must be in YYYY-MM-DD format')
   .refine(isRealCalendarDate, 'scheduledDate must be a real calendar date');
 
-// WHY a loose regex, not z.string().uuid(): zod's built-in UUID validator
+// WHY: a loose regex, not z.string().uuid(): zod's built-in UUID validator
 // enforces the RFC 4122 version/variant nibbles, but this codebase's existing
 // UUID convention (lib/uuid.ts's isValidUUID, the single shared runtime
 // check) is any 8-4-4-4-12 hex string — matching that here keeps this schema
@@ -33,7 +33,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 export const jobIdSchema = z.string().regex(UUID_REGEX, 'jobId must be a valid UUID');
 
-// WHY optional, nullable-via-absence: a job can be scheduled with no publish
+// WHY: optional, nullable-via-absence: a job can be scheduled with no publish
 // platform (stays exactly the old reminder-only behavior) or with one (enters
 // the real auto-publish path — see lib/publishQueue.ts). Only linkedin/twitter
 // are supported, matching social.ts's own postSocialSchema platform enum —
@@ -44,7 +44,7 @@ export const createScheduledPostSchema = z.object({
   jobId: jobIdSchema,
   scheduledDate: scheduledPostDateSchema,
   publishPlatform: publishPlatformSchema.optional(),
-  // WHY optional, in minutes, JS Date.getTimezoneOffset() sign convention
+  // WHY: optional, in minutes, JS Date.getTimezoneOffset() sign convention
   // (minutes to ADD to local time to reach UTC — e.g. UTC-5 is +300): fixes
   // the auto-publish timezone bug where the client built scheduledDate from
   // the browser's LOCAL calendar day but the server's publishDelayMs()
@@ -55,14 +55,14 @@ export const createScheduledPostSchema = z.object({
   // as before this fix. Range matches every real UTC offset (UTC-12 to
   // UTC+14 inclusive).
   timezoneOffsetMinutes: z.number().int().min(-840).max(720).optional(),
-  // WHY optional 0–23 (L10/F12): defaults to 9 (morning slot) when omitted so
+  // WHY: optional 0–23 (L10/F12): defaults to 9 (morning slot) when omitted so
   // older clients keep working. Paired with timezoneOffsetMinutes to fire at
   // that local hour on scheduledDate.
   publishHour: z.number().int().min(0).max(23).optional(),
 });
 
 export const listScheduledPostsQuerySchema = z.object({
-  // WHY optional: GET with no `month` returns all of the user's scheduled
+  // WHY: optional: GET with no `month` returns all of the user's scheduled
   // posts (used by the Dashboard "next scheduled post" card, which needs to
   // look across month boundaries to find the nearest future date).
   month: z

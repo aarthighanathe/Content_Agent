@@ -1,4 +1,4 @@
-// WHY a separate sub-router, not inline in manage.ts: extracted to keep
+// WHY: a separate sub-router, not inline in manage.ts: extracted to keep
 // manage.ts under the 400-line split threshold (same "split when it grows,
 // mirror the routes/jobs/ sub-router pattern" convention as render.ts/
 // stream.ts/insights.ts). Implements FUTURE_FEATURES.md's Library "No
@@ -8,15 +8,44 @@
 import * as Sentry from '@sentry/node';
 import { Router, Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
-import { getJobFromStore, setJobInStore } from '../../workers/contentWorker.js';
+import { getJobFromStore, setJobInStore, jobsMemory } from '../../lib/jobStore.js';
 import { db } from '../../db/index.js';
 import { contentOutputs, jobOutputVersions } from '../../db/schema.js';
-import { eq, and } from 'drizzle-orm';
-import { jobsMemory, requireJobOwnership } from './ownership.js';
+import { eq, and, notInArray, desc } from 'drizzle-orm';
+import { requireJobOwnership, requireAuthUserId } from './ownership.js';
 import { logger } from '../../lib/logger.js';
 import { readOutputs, sanitizeContentDeep } from '../content/shared.js';
+import { isValidUUID } from '../../lib/uuid.js';
+import { isJobInFlightStatus } from '../../lib/jobInFlight.js';
 
 const router = Router({ mergeParams: true });
+
+// WHY (M8): unbounded version rows grow on every regenerate/restore — cap the
+// list API and prune older snapshots after insert so Library history stays bounded.
+const MAX_JOB_VERSIONS = 20;
+
+async function pruneOldVersions(jobId: string): Promise<void> {
+  if (!db) return;
+  try {
+    const keep = await db.select({ id: jobOutputVersions.id })
+      .from(jobOutputVersions)
+      .where(eq(jobOutputVersions.jobId, jobId))
+      .orderBy(desc(jobOutputVersions.createdAt))
+      .limit(MAX_JOB_VERSIONS);
+    if (keep.length < MAX_JOB_VERSIONS) return;
+    const keepIds = keep.map((row) => row.id);
+    await db.delete(jobOutputVersions)
+      .where(and(
+        eq(jobOutputVersions.jobId, jobId),
+        notInArray(jobOutputVersions.id, keepIds),
+      ));
+  } catch (err: unknown) {
+    logger.warn('[DB] Failed to prune old job versions', {
+      jobId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 // GET /:jobId/versions — list this job's snapshotted history, newest first.
 // Only exists when the job has been regenerated or restored at least once
@@ -25,7 +54,8 @@ const router = Router({ mergeParams: true });
 router.get('/:jobId/versions', async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
 
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
@@ -36,6 +66,7 @@ router.get('/:jobId/versions', async (req: AuthRequest, res: Response) => {
       where: eq(jobOutputVersions.jobId, jobId),
       orderBy: (v, { desc: descOrd }) => [descOrd(v.createdAt)],
       columns: { id: true, qualityScore: true, label: true, createdAt: true },
+      limit: MAX_JOB_VERSIONS,
     });
 
     return res.json({ versions });
@@ -53,10 +84,28 @@ router.post('/:jobId/versions/:versionId/restore', async (req: AuthRequest, res:
   try {
     const jobId = req.params.jobId as string;
     const versionId = req.params.versionId as string;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
 
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
+
+    // WHY: also block researching|writing|formatting|critiquing — mid-pipeline
+    // DB statuses from updateJobStageInDb (R2); pending|processing alone missed them.
+    if (isJobInFlightStatus(job.status)) {
+      return res.status(409).json({
+        error: 'Job is still generating — try again when it finishes',
+        code: 'JOB_IN_PROGRESS',
+        retryable: true,
+      });
+    }
+
+    // WHY: 404 (not 400/500): a non-UUID id would make Postgres throw on the
+    // uuid cast and surface as a 500; "not found" is also what a valid-but-
+    // unknown id returns, so the response doesn't leak id-format details.
+    if (!isValidUUID(versionId)) {
+      return res.status(404).json({ error: 'Version not found', code: 'NOT_FOUND', retryable: false });
+    }
 
     if (!db) {
       return res.status(503).json({ error: 'Version history requires a database connection', code: 'DB_UNAVAILABLE', retryable: true });
@@ -80,6 +129,7 @@ router.post('/:jobId/versions/:versionId/restore', async (req: AuthRequest, res:
         await db.insert(jobOutputVersions).values({
           jobId, content: currentFinal.content, qualityScore: currentScore, label: 'Before restore',
         });
+        await pruneOldVersions(jobId);
       } catch (dbErr) {
         logger.error('[DB] Failed to snapshot version before restore', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
         Sentry.captureException(dbErr, { tags: { route: 'POST /:jobId/versions/:versionId/restore', action: 'pre-restore-snapshot' } });
@@ -104,7 +154,7 @@ router.post('/:jobId/versions/:versionId/restore', async (req: AuthRequest, res:
       return res.status(500).json({ error: 'Failed to restore version — please try again', code: 'DB_WRITE_FAILED', retryable: true });
     }
 
-    // WHY update both stores, same cache-aside pattern as PATCH /:jobId/content:
+    // WHY: update both stores, same cache-aside pattern as PATCH /:jobId/content:
     // the in-memory copy (if the job hasn't aged out yet) must reflect the
     // restore too, or a client polling the in-flight job would keep seeing
     // the pre-restore content until the 10-minute eviction TTL passes.
@@ -115,7 +165,7 @@ router.post('/:jobId/versions/:versionId/restore', async (req: AuthRequest, res:
       if (finalOutput) {
         finalOutput.content = sanitizedContent;
       } else {
-        // WHY push rather than skip: mirrors the DB's insert-if-missing branch
+        // WHY: push rather than skip: mirrors the DB's insert-if-missing branch
         // above. Without this, a job whose in-memory copy has no 'final' output
         // yet (e.g. transiently between pipeline stages) silently kept its stale
         // (or absent) content until the 10-minute eviction TTL passed, even

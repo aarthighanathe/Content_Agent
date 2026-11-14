@@ -1,26 +1,31 @@
-// WHY a separate sub-router, not inline in manage.ts: extracted (2026-08-05,
+// WHY: a separate sub-router, not inline in manage.ts: extracted (2026-08-05,
 // alongside versions.ts) to keep manage.ts under the 400-line split threshold
 // — this route's search/filter/sort/score-subquery logic was ~170 lines on
 // its own. Same "split when it grows, mirror the routes/jobs/ sub-router
 // pattern" convention as render.ts/stream.ts/insights.ts/versions.ts.
 import { Router, Response } from 'express';
+import { z } from 'zod';
 import { AuthRequest } from '../../middleware/auth.js';
 import { db } from '../../db/index.js';
 import { contentJobs, contentOutputs } from '../../db/schema.js';
 import { eq, and, sql, ilike, desc, asc, inArray } from 'drizzle-orm';
-import { jobsMemory, assembleJobFromDB, isValidUUID, type MemoryJob, type AssembledJob } from './ownership.js';
+import { jobsMemory, assembleJobFromDB, isValidUUID, type MemoryJob, type AssembledJob, requireAuthUserId } from './ownership.js';
 import { VALID_PLATFORMS } from '../../schemas/index.js';
 import { readOutputs } from '../content/shared.js';
 import { getLatestQualityScore } from '../../lib/qualityScore.js';
 
 const router = Router({ mergeParams: true });
 
-// WHY these two: FUNCTIONAL_AUDIT_2026-07.md finding #4 — Library.tsx's search box,
+// WHY: zod coerce + bounds: `parseInt(page) || 1` accepted NaN/negative/huge
+// offsets that wasted DB work; max 10_000 is far past any real Library UI need.
+const listPageSchema = z.coerce.number().int().min(1).max(10_000);
+
+// WHY: these two: FUNCTIONAL_AUDIT_2026-07.md finding #4 — Library.tsx's search box,
 // platform pills, and sort dropdown previously only filtered/sorted whatever page of
 // jobs happened to already be loaded (10 rows), silently missing everything on other
 // pages. `search`/`platform` now run as real WHERE clauses in the DB query below;
 // `sort` is applied DB-side for date/platform.
-// WHY sort=score was previously a special case: quality score lives on a joined
+// WHY: sort=score was previously a special case: quality score lives on a joined
 // contentOutputs row, not a contentJobs column, so a heavier two-step query was
 // needed. As of 2026-08-04, sort=score is now a true global sort (not page-scoped)
 // implemented via a LEFT JOIN score subquery — see the score branch below.
@@ -29,9 +34,18 @@ type JobSortKey = 'date' | 'score' | 'platform';
 // GET / — paginated, searchable, filterable, sortable job list
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const page = parseInt(req.query.page as string, 10) || 1;
+    const pageParsed = listPageSchema.safeParse(req.query.page ?? 1);
+    if (!pageParsed.success) {
+      return res.status(400).json({
+        error: 'page must be an integer between 1 and 10000',
+        code: 'VALIDATION_ERROR',
+        retryable: false,
+      });
+    }
+    const page = pageParsed.data;
     const limit = 10;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
     const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 500) : '';
     // SECURITY: escape ILIKE wildcards so a user typing % or _ can't broaden the match set.
     const searchPattern = search ? `%${search.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%` : '';
@@ -40,7 +54,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       : undefined;
     const tagFilter = typeof req.query.tag === 'string' ? req.query.tag.trim().slice(0, 30) : '';
     const sort: JobSortKey = req.query.sort === 'score' || req.query.sort === 'platform' ? req.query.sort : 'date';
-    // WHY opt-out (`counts=0`): the platformCounts GROUP BY below costs a second
+    // WHY: opt-out (`counts=0`): the platformCounts GROUP BY below costs a second
     // aggregate scan of the user's jobs on every list fetch, but Calendar (which
     // fetches up to 4 pages to build its month grid) never reads platformCounts —
     // it only consumes jobs/total/totalPages. Library is the only consumer that
@@ -48,7 +62,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // Calendar opts out to drop 4 redundant aggregate queries per page load (perf audit).
     const includePlatformCounts = req.query.counts !== '0';
 
-    // WHY the DB fetch always uses the fixed page `limit`, not a shrunk one:
+    // WHY: the DB fetch always uses the fixed page `limit`, not a shrunk one:
     // an earlier version reserved room on page 1 for prepended in-flight
     // memory jobs by fetching fewer DB rows there (dbLimit = limit - count).
     // But every page's offset is still `(page - 1) * limit` — only page 1's
@@ -58,12 +72,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // page 1 and later pages. Fetching the full `limit` on every page and
     // trimming the combined list down to `limit` after prepending (below)
     // keeps offsets simple and consistent across all pages.
-    const runningMemJobs: MemoryJob[] =
-      page === 1 && !search && !platformFilter && !tagFilter
-        ? Array.from(jobsMemory.values()).filter(
-            (j) => j.userId === userId && j.deleted !== 1 && j.status !== 'done' && j.status !== 'failed',
-          )
-        : [];
+    // WHY: skip the jobsMemory scan when durable in-flight DB rows already
+    // cover pending work (create persists pending before setJobInStore) —
+    // avoids O(all users' jobsMemory) on every Library page-1 fetch.
+    let runningMemJobs: MemoryJob[] = [];
+    const wantMemMerge = page === 1 && !search && !platformFilter && !tagFilter;
 
     if (db && isValidUUID(userId)) {
       try {
@@ -81,7 +94,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         let platformCounts: Record<string, number> | undefined;
         let tagCounts: Record<string, number> | undefined;
         if (includePlatformCounts) {
-          // WHY a separate grouped query, ignoring platformFilter: this backs the
+          // WHY: a separate grouped query, ignoring platformFilter: this backs the
           // toolbar's per-platform pill badges (e.g. "LinkedIn 23"), which need the
           // true count for every platform regardless of which one is currently
           // selected — computing counts from only the already-platform-filtered
@@ -97,7 +110,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           platformCounts = {};
           for (const row of platformCountRows) platformCounts[row.platform] = row.count;
 
-          // WHY ignore the active tagFilter here (same as platformCounts ignoring
+          // WHY: ignore the active tagFilter here (same as platformCounts ignoring
           // platformFilter): pill badges need the full tag vocabulary for the
           // current search/platform scope so users can switch tags without the
           // other pills disappearing.
@@ -115,7 +128,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           }
         }
 
-        // WHY two-step for sort=score: qualityScore lives on contentOutputs
+        // WHY: two-step for sort=score: qualityScore lives on contentOutputs
         // (type='critique'), not on contentJobs — a LEFT JOIN subquery fetches
         // the per-job max score for ordering, then a relational findMany loads
         // the full output data for those specific IDs. This is the fix for
@@ -125,7 +138,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         // subquery's WHERE + GROUP BY — no new migration needed.
         let assembledDbJobs: ReturnType<typeof assembleJobFromDB>[];
         if (sort === 'score') {
-          // WHY the innerJoin on contentJobs + userId WHERE: without it the score
+          // WHY: the innerJoin on contentJobs + userId WHERE: without it the score
           // aggregate scanned EVERY critique row in the shared content_outputs table
           // (all users), then filtered the page later. Joining to the caller's own
           // jobs and filtering by userId + deleted in the subquery itself restricts
@@ -158,11 +171,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
           const orderedIds = scoredRows.map((r) => r.id);
           if (orderedIds.length > 0) {
+            // SECURITY: re-assert userId + deleted=0 even though orderedIds came
+            // from a user-scoped first query — defense-in-depth if that filter
+            // ever regresses (IDOR via crafted score-sort ID list).
             const fullJobs = await db.query.contentJobs.findMany({
-              where: inArray(contentJobs.id, orderedIds),
+              where: and(
+                inArray(contentJobs.id, orderedIds),
+                eq(contentJobs.userId, userId),
+                eq(contentJobs.deleted, 0),
+              ),
               with: { outputs: { columns: { agentName: true, outputType: true, qualityScore: true, partial: true } } },
             });
-            // WHY re-map by orderedIds: findMany doesn't preserve insertion order;
+            // WHY: re-map by orderedIds: findMany doesn't preserve insertion order;
             // re-establishing score order requires a Map lookup keyed on the
             // score-ordered IDs from the first query.
             const jobMap = new Map(fullJobs.map((j) => [j.id, j]));
@@ -186,20 +206,52 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
         let finalJobs: Array<MemoryJob | AssembledJob> = assembledDbJobs;
         let finalTotal = totalCount;
-        // WHY page===1 only, and only when no search/filter is active: in-flight
+        // WHY: page===1 only, and only when no search/filter is active: in-flight
         // memory-only jobs (not yet persisted) have no DB row to match a WHERE
         // clause against, so folding them into a filtered/searched result would be
         // inconsistent — they'd appear regardless of whether they actually match.
         // They still show up in the default (no search/filter) page-1 view, same
         // as before this fix.
-        if (page === 1 && !search && !platformFilter && !tagFilter) {
-          // WHY filter out overlaps here instead of re-scanning jobsMemory: this
-          // reuses the single scan already taken above (runningMemJobs) rather
-          // than iterating the whole cross-user Map a second time with a nearly
-          // identical predicate.
-          const dedupedMemJobs = runningMemJobs.filter((j) => !assembledDbJobs.find((d) => d.id === j.id));
+        if (wantMemMerge) {
+          // WHY: EXISTS-style probe — if any non-terminal DB row exists for this
+          // user, skip jobsMemory entirely (durable pending already appears in
+          // assembledDbJobs). Only scan memory when the DB has no in-flight work.
+          const inFlightStatuses = [
+            'pending',
+            'researching',
+            'writing',
+            'formatting',
+            'critiquing',
+          ] as const;
+          const [inFlight] = await db
+            .select({ id: contentJobs.id })
+            .from(contentJobs)
+            .where(and(
+              eq(contentJobs.userId, userId),
+              eq(contentJobs.deleted, 0),
+              inArray(contentJobs.status, [...inFlightStatuses]),
+            ))
+            .limit(1);
+
+          if (!inFlight) {
+            // WHY: single-pass for…of — never Array.from(values()) which
+            // materializes every user's jobs before filtering.
+            for (const j of jobsMemory.values()) {
+              if (
+                j.userId === userId
+                && j.deleted !== 1
+                && j.status !== 'done'
+                && j.status !== 'failed'
+              ) {
+                runningMemJobs.push(j);
+              }
+            }
+          }
+
+          const assembledIds = new Set(assembledDbJobs.map((d) => d.id));
+          const dedupedMemJobs = runningMemJobs.filter((j) => !assembledIds.has(j.id));
           if (dedupedMemJobs.length > 0) {
-            // WHY slice to `limit`: the DB fetch above always pulls a full page
+            // WHY: slice to `limit`: the DB fetch above always pulls a full page
             // (see the dbLimit removal note), so prepending memory jobs on top
             // can push the combined list past `limit` — trim here rather than
             // shrinking the DB fetch, which desynced offsets on later pages.
@@ -208,7 +260,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           }
         }
 
-        // WHY still sort in-memory for score: in-flight memory jobs (prepended
+        // WHY: still sort in-memory for score: in-flight memory jobs (prepended
         // above) have no qualityScore — they sort last (getJobScore returns -1).
         // The DB jobs are already in score order from the two-step query above;
         // this re-sort just ensures any prepended memory jobs end up after them.
@@ -229,7 +281,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    let allJobs = Array.from(jobsMemory.values()).filter((j) => j.deleted !== 1 && j.userId === userId);
+    // WHY: single-pass collect — memory-only fallback must not allocate an
+    // array of every cross-user job before filtering by userId.
+    let allJobs: MemoryJob[] = [];
+    for (const j of jobsMemory.values()) {
+      if (j.deleted !== 1 && j.userId === userId) allJobs.push(j);
+    }
     if (search) {
       const needle = search.toLowerCase();
       allJobs = allJobs.filter((j) => (j.topic || '').toLowerCase().includes(needle));
@@ -247,7 +304,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (tagFilter) {
       allJobs = allJobs.filter((j) => j.tag === tagFilter);
     }
-    // WHY new Date(j.createdAt ?? 0): a running in-memory job's createdAt is
+    // WHY: new Date(j.createdAt ?? 0): a running in-memory job's createdAt is
     // always set by create.ts (see job construction there), but the field is
     // optional at the type level since jobsMemory can also hold a
     // PersistedJobResult, which doesn't carry createdAt on its own — falling
@@ -276,7 +333,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 function getJobScore(job: MemoryJob | AssembledJob): number {
-  // WHY latest (CORR-004): align list sort with Result / Library score helpers.
+  // WHY: latest (CORR-004): align list sort with Result / Library score helpers.
   const score = getLatestQualityScore(readOutputs(job));
   return typeof score === 'number' ? score : -1;
 }

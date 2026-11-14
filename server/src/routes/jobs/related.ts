@@ -1,4 +1,4 @@
-// WHY a separate sub-router: GET /:jobId/related is Adapt-family lineage —
+// WHY: a separate sub-router: GET /:jobId/related is Adapt-family lineage —
 // ContentMultiplier needs every sibling/ancestor for the same research tree so
 // Open works after navigating between adapted results (session-only multiplyJobs
 // used to lose those links). Kept out of manage.ts to stay under the 400-line cap.
@@ -8,7 +8,7 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { AuthRequest } from '../../middleware/auth.js';
 import { db } from '../../db/index.js';
 import { contentJobs } from '../../db/schema.js';
-import { requireJobOwnership, lookupOwnedJob } from './ownership.js';
+import { requireJobOwnership, lookupOwnedJob, requireAuthUserId } from './ownership.js';
 import type { AssembledJob, MemoryJob } from './ownership.js';
 import { logger } from '../../lib/logger.js';
 
@@ -135,7 +135,8 @@ export function pickVariantForPlatform(
 router.get('/:jobId/related', async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
-    const userId = req.dbUserId || req.userId || 'demo';
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
 
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;

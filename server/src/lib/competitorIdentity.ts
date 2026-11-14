@@ -7,7 +7,7 @@ export interface CompetitorIdentity {
   profileUrl: string;
 }
 
-// WHY parse URLs here (not only strip @): LinkedIn vanity URLs are the reliable
+// WHY: parse URLs here (not only strip @): LinkedIn vanity URLs are the reliable
 // identity key — a bare @handle often isn't how LinkedIn profiles are indexed,
 // and users naturally paste linkedin.com/in/... when username search fails.
 export function resolveCompetitorIdentity(

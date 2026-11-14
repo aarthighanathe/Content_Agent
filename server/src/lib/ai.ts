@@ -3,7 +3,7 @@ import Groq from 'groq-sdk';
 import { env } from '../config.js';
 import { logger } from './logger.js';
 
-// WHY exported here: agents/researcher.ts reads searchTavily's response shape
+// WHY: exported here: agents/researcher.ts reads searchTavily's response shape
 // directly — this type lets that file use the real shape instead of `any`.
 export interface TavilySearchResult {
   url?: string;
@@ -37,7 +37,7 @@ function getGroq(): Groq {
   return groq;
 }
 
-// WHY unknown + a local shape read, not a specific SDK error class: this function
+// WHY: unknown + a local shape read, not a specific SDK error class: this function
 // classifies errors from BOTH Gemini (@google/generative-ai, which embeds status
 // codes in the message text, e.g. "[429 Too Many Requests]") and Groq
 // (groq-sdk's APIError, which has a real numeric .status) — no single imported
@@ -92,7 +92,8 @@ function recordGeminiSuccess() {
   geminiFailCount = 0;
 }
 
-// WHY 5 consecutive failures: low enough to react quickly to a genuine Gemini
+// WHY: 5 consecutive failed *calls* (not attempts — each logical call retries up to 3x
+// and is counted once, see generateWithAI): low enough to react quickly to a genuine Gemini
 // outage (not dozens of failed user requests before failing over), high enough
 // to tolerate a few transient blips (rate limits, brief network errors) without
 // flipping the whole app over to Groq on noise.
@@ -118,7 +119,7 @@ export async function generateWithAI(
   options: GenerateOptions = {}
 ): Promise<string> {
   const { temperature = 0.9, timeoutMs = 90_000 } = options;
-  // WHY 3 retries with a 1s/2s/4s exponential backoff: enough attempts to ride
+  // WHY: 3 retries with a 1s/2s/4s exponential backoff: enough attempts to ride
   // out a transient Gemini hiccup (rate limit, brief 5xx) without the request
   // hanging so long the caller's own timeout budget gets eaten — three tries
   // at these intervals adds at most ~7s before giving up and falling through
@@ -143,7 +144,7 @@ export async function generateWithAI(
       // in the system role and the user prompt as the creative brief — this
       // prevents long system prompts from drowning out shorter user prompts.
       const model = ai.getGenerativeModel({
-        // WHY 3.6 Flash: gemini-2.0-flash was shut down (June 2026), so Ideate
+        // WHY: 3.6 Flash: gemini-2.0-flash was shut down (June 2026), so Ideate
         // and the pipeline 500 on any deploy still pinned to it. 3.5 Flash is
         // deprecated and Google routes it to 3.6; call 3.6 directly.
         model: 'gemini-3.6-flash',
@@ -160,14 +161,18 @@ export async function generateWithAI(
       // socket/fd pressure across retries and concurrent jobs).
       const abortController = new AbortController();
       const geminiCall = model.generateContent(prompt, { signal: abortController.signal });
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
           abortController.abort();
           reject(new Error(`Gemini timed out after ${timeoutMs / 1000}s`));
-        }, timeoutMs)
-      );
+        }, timeoutMs);
+      });
 
-      const result = await Promise.race([geminiCall, timeoutPromise]);
+      // WHY: finally: an uncleared timer fires abort() on an already-finished call.
+      const result = await Promise.race([geminiCall, timeoutPromise]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
       const text = result.response.text();
 
       // Treat empty or near-empty responses as failures so retry/fallback fires
@@ -180,7 +185,6 @@ export async function generateWithAI(
     } catch (error: unknown) {
       if (isAuthError(error)) {
         console.error('Gemini auth/key error — check GEMINI_API_KEY in .env:', getErrorMessage(error));
-        recordGeminiFailure();
         break; // no point retrying an invalid key
       }
 
@@ -192,12 +196,10 @@ export async function generateWithAI(
           continue;
         }
         logger.warn('Gemini rate limit exhausted after retries, falling back to Groq');
-        recordGeminiFailure();
         break;
       }
 
       logger.warn('Gemini error', { attempt: attempt + 1, maxRetries, error: getErrorMessage(error) });
-      recordGeminiFailure();
       if (attempt < maxRetries - 1) {
         await sleep(backoffs[attempt]);
         continue;
@@ -205,6 +207,10 @@ export async function generateWithAI(
       break;
     }
   }
+
+  // WHY: here: reaching this point means every Gemini attempt failed (success returns
+  // early), so count the logical call once toward the circuit breaker.
+  recordGeminiFailure();
 
   if (!env.GROQ_API_KEY) {
     throw new Error('Gemini unavailable and GROQ_API_KEY is not configured — no fallback provider');
@@ -237,7 +243,7 @@ async function generateWithGroq(
       // AbortController is what actually cancels the outbound HTTP request
       // on timeout, not just the local wait for it.
       const abortController = new AbortController();
-      // WHY openai/gpt-oss-120b: Groq retired llama-3.3-70b-versatile for free/
+      // WHY: openai/gpt-oss-120b: Groq retired llama-3.3-70b-versatile for free/
       // developer tiers on 2026-08-16 (model_not_found). Their recommended
       // replacement for that slot — see console.groq.com/docs/deprecations.
       const groqCall = client.chat.completions.create({
@@ -247,14 +253,17 @@ async function generateWithGroq(
         max_tokens: 8192,
       }, { signal: abortController.signal });
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
           abortController.abort();
           reject(new Error(`Groq timed out after ${timeoutMs / 1000}s`));
-        }, timeoutMs)
-      );
+        }, timeoutMs);
+      });
 
-      const completion = await Promise.race([groqCall, timeoutPromise]);
+      const completion = await Promise.race([groqCall, timeoutPromise]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
       const text = completion.choices[0]?.message?.content || '';
 
       if (!text || text.trim().length < 10) {
@@ -279,7 +288,7 @@ export interface TavilySearchOptions {
   searchDepth?: 'basic' | 'advanced';
   maxResults?: number;
   includeDomains?: string[];
-  // WHY prefer vs restrict: LinkedIn profile pages are often sparsely indexed;
+  // WHY: prefer vs restrict: LinkedIn profile pages are often sparsely indexed;
   // prefer still biases to linkedin.com but lets secondary mentions through
   // when the profile itself isn't crawlable (login wall).
   includeDomainsMode?: 'restrict' | 'prefer';
@@ -332,7 +341,7 @@ export async function searchTavily(
       return { results: [] };
     }
 
-    // WHY a shape check here (not a cast): response.json() is typed
+    // WHY: a shape check here (not a cast): response.json() is typed
     // Promise<unknown> (Node's global fetch typings, not the DOM lib's looser
     // Promise<any>) — an honest boundary to an external API response, same class
     // as the LLM-response parsing this pass has been adding runtime checks to

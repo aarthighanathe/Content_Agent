@@ -1,4 +1,4 @@
-// WHY extracted from routes/social.ts: that file grew past the 400-line cap
+// WHY: extracted from routes/social.ts: that file grew past the 400-line cap
 // (CLAUDE.md "Code Style Rules" / "Never Do These"). This module owns the
 // social-token storage layer (DB + in-memory fallback) shared by
 // routes/social.ts's handlers, workers/publishWorker.ts, and
@@ -11,11 +11,15 @@ import { eq, and } from 'drizzle-orm';
 import { encryptTokenOptional, decryptTokenOptional } from './tokenEncryption.js';
 import { env } from '../config.js';
 import { logger } from './logger.js';
+import {
+  tryAcquireSocialTokenLock,
+  waitForSocialTokenLockRetry,
+} from './socialTokenLock.js';
 
-// WHY this shape: mirrors exactly what dbUpsertToken already accepted as its
+// WHY: this shape: mirrors exactly what dbUpsertToken already accepted as its
 // `data` parameter before this fix — extracting it as a named type replaces the
 // Record<string, any> the token map/fallback store used to carry.
-// WHY `| null` alongside `?:` on every optional field: dbGetTokens populates
+// WHY: `| null` alongside `?:` on every optional field: dbGetTokens populates
 // this straight from Drizzle's nullable columns (`T | null`, not `T | undefined`)
 // — both mean "absent" here, so this accepts either rather than forcing an
 // unnecessary `?? undefined` coercion at every read site.
@@ -29,9 +33,25 @@ export interface SocialTokenData {
 
 // Fallback in-memory store used only when DB is unavailable
 const _fallback = new Map<string, Record<string, SocialTokenData>>();
-function fbGet(uid: string) {
-  if (!_fallback.has(uid)) _fallback.set(uid, {});
-  return _fallback.get(uid)!;
+function fbGet(uid: string): Record<string, SocialTokenData> {
+  let entry = _fallback.get(uid);
+  if (!entry) {
+    entry = {};
+    _fallback.set(uid, entry);
+  }
+  return entry;
+}
+
+// SECURITY: the fallback Map only ever holds ciphertext (written by dbUpsertToken),
+// so reads must decrypt — otherwise callers would get encrypted blobs as bearer tokens.
+function fbRead(uid: string): Record<string, SocialTokenData> {
+  const out: Record<string, SocialTokenData> = {};
+  for (const [platform, row] of Object.entries(fbGet(uid))) {
+    const accessToken = decryptTokenOptional(row.accessToken);
+    if (!accessToken) continue;
+    out[platform] = { ...row, accessToken, refreshToken: decryptTokenOptional(row.refreshToken) };
+  }
+  return out;
 }
 
 export const PLATFORM_LABELS: Record<string, string> = {
@@ -41,7 +61,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
 };
 
 export async function dbGetTokens(userId: string): Promise<Record<string, SocialTokenData>> {
-  if (!db) return fbGet(userId);
+  if (!db) return fbRead(userId);
   try {
     const rows = await db.select().from(socialTokens).where(eq(socialTokens.userId, userId));
     const map: Record<string, SocialTokenData> = {};
@@ -63,7 +83,7 @@ export async function dbGetTokens(userId: string): Promise<Record<string, Social
     }
     return map;
   } catch {
-    return fbGet(userId);
+    return fbRead(userId);
   }
 }
 
@@ -72,10 +92,6 @@ export async function dbUpsertToken(
   platform: string,
   data: { accessToken: string; refreshToken?: string; expiresAt?: number; displayName?: string; platformUserId?: string },
 ): Promise<void> {
-  if (!db) {
-    fbGet(userId)[platform] = data;
-    return;
-  }
   // SECURITY: encryption must happen outside the DB try/catch below — if it
   // throws (a malformed TOKEN_ENCRYPTION_KEY), that error must propagate and
   // fail the connect request, never be swallowed into the "DB unavailable,
@@ -86,8 +102,12 @@ export async function dbUpsertToken(
     accessToken: encryptTokenOptional(data.accessToken) ?? data.accessToken,
     refreshToken: encryptTokenOptional(data.refreshToken),
   };
+  if (!db) {
+    fbGet(userId)[platform] = encryptedData;
+    return;
+  }
   try {
-    // WHY a single onConflictDoUpdate instead of select-then-insert/update:
+    // WHY: a single onConflictDoUpdate instead of select-then-insert/update:
     // the previous select-then-branch shape raced two concurrent upserts for
     // the same (userId, platform) — e.g. a double-clicked "Connect LinkedIn",
     // or an OAuth callback retry — both could see no existing row and both
@@ -101,14 +121,13 @@ export async function dbUpsertToken(
         set: { ...encryptedData, updatedAt: new Date() },
       });
   } catch (err) {
-    console.error('[social] DB upsert failed, writing to memory fallback:', err);
-    // NOTE: stores the raw (unencrypted) `data` here, matching dbGetTokens'
-    // fallback branch which returns fbGet() rows without ever decrypting them
-    // — the in-memory Map is only ever a same-process DB-outage escape hatch,
-    // never persisted to disk, so this is the existing accepted risk for that
-    // specific failure mode (unlike an encryption-key failure, which now
-    // throws before reaching this catch instead of landing here).
-    fbGet(userId)[platform] = data;
+    console.error('[social] DB upsert failed:', err);
+    // SECURITY: never keep a token only in process memory in production — it would
+    // silently vanish on restart while the user sees "connected"; fail the request instead.
+    if (env.NODE_ENV === 'production') throw err;
+    // NOTE: dev/test-only escape hatch; stores the ENCRYPTED payload (fbRead decrypts),
+    // so plaintext access/refresh tokens never land in the Map.
+    fbGet(userId)[platform] = encryptedData;
   }
 }
 
@@ -133,6 +152,18 @@ export async function dbGetToken(userId: string, platform: string): Promise<Soci
 
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
+function tokenNeedsRefresh(conn: SocialTokenData): boolean {
+  const expiresAt = conn.expiresAt ?? null;
+  return expiresAt !== null && expiresAt - Date.now() < TOKEN_REFRESH_BUFFER_MS;
+}
+
+function tokenStillUsable(conn: SocialTokenData): boolean {
+  const expiresAt = conn.expiresAt ?? null;
+  // WHY: absolute expiry — if another refresher already rotated, or the token
+  // still has life left, prefer that over a second concurrent refresh.
+  return expiresAt === null || expiresAt > Date.now();
+}
+
 async function refreshTwitterToken(userId: string, conn: SocialTokenData): Promise<SocialTokenData | null> {
   if (!conn.refreshToken) return null;
   const clientId = env.TWITTER_CLIENT_ID;
@@ -143,7 +174,11 @@ async function refreshTwitterToken(userId: string, conn: SocialTokenData): Promi
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        ...(clientSecret ? { Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}` } : {}),
+        ...(clientSecret
+          ? {
+              Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+            }
+          : {}),
       },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
@@ -153,13 +188,19 @@ async function refreshTwitterToken(userId: string, conn: SocialTokenData): Promi
       signal: AbortSignal.timeout(15_000),
     });
     if (!tokenRes.ok) return null;
-    const tokenData = await tokenRes.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
+    const tokenData = await tokenRes.json() as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
     if (!tokenData.access_token) return null;
     const refreshed: SocialTokenData = {
       ...conn,
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token ?? conn.refreshToken,
-      expiresAt: tokenData.expires_in ? Date.now() + tokenData.expires_in * 1000 : conn.expiresAt,
+      expiresAt: tokenData.expires_in
+        ? Date.now() + tokenData.expires_in * 1000
+        : conn.expiresAt,
     };
     await dbUpsertToken(userId, 'twitter', {
       accessToken: refreshed.accessToken,
@@ -170,7 +211,10 @@ async function refreshTwitterToken(userId: string, conn: SocialTokenData): Promi
     });
     return refreshed;
   } catch (err: unknown) {
-    logger.warn('Twitter token refresh failed', { userId, error: err instanceof Error ? err.message : String(err) });
+    logger.warn('Twitter token refresh failed', {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
@@ -181,12 +225,28 @@ export async function ensureFreshSocialToken(
   platform: string,
   conn: SocialTokenData,
 ): Promise<SocialTokenData> {
-  const expiresAt = conn.expiresAt ?? null;
-  const needsRefresh = expiresAt !== null && expiresAt - Date.now() < TOKEN_REFRESH_BUFFER_MS;
-  if (!needsRefresh) return conn;
-  if (platform === 'twitter') {
-    const refreshed = await refreshTwitterToken(userId, conn);
-    return refreshed ?? conn;
+  if (!tokenNeedsRefresh(conn)) return conn;
+  if (platform !== 'twitter') return conn;
+
+  // SECURITY: serialize Twitter refresh (refresh tokens are typically single-use).
+  const lock = await tryAcquireSocialTokenLock(userId, platform);
+  if (!lock) {
+    await waitForSocialTokenLockRetry();
+    const fresh = await dbGetToken(userId, platform);
+    if (fresh && !tokenNeedsRefresh(fresh)) return fresh;
+    if (fresh && tokenStillUsable(fresh)) return fresh;
+    if (tokenStillUsable(conn)) return conn;
+    return fresh ?? conn;
   }
-  return conn;
+
+  try {
+    // WHY: re-read under the lock — a prior holder may have already refreshed.
+    const latest = await dbGetToken(userId, platform);
+    const base = latest ?? conn;
+    if (!tokenNeedsRefresh(base)) return base;
+    const refreshed = await refreshTwitterToken(userId, base);
+    return refreshed ?? base;
+  } finally {
+    await lock.release();
+  }
 }

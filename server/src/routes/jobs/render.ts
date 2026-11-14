@@ -1,9 +1,11 @@
 import { Router, Response, NextFunction } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
 import { exportRateLimit } from '../../middleware/rateLimit.js';
-import { requireJobOwnership } from './ownership.js';
+import { requireJobOwnership, requireAuthUserId } from './ownership.js';
 import type { ThemeKey } from '../../lib/carousel.js';
+import { tryAcquireExportSlot, releaseExportSlot } from '../../lib/exportSemaphore.js';
 import { parseBody, exportCarouselSsrSchema } from '../../schemas/index.js';
+import { resolveExportSlides } from './exportSlides.js';
 
 const router = Router({ mergeParams: true });
 
@@ -23,13 +25,35 @@ router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequ
     // stream path. auth.ts's fail-closed guarantee means req.dbUserId is always
     // populated here, so `req.userId`/'demo' are unreachable dead branches, kept
     // only for defensive-copy consistency with the pattern used elsewhere.
-    const userId = req.dbUserId || req.userId || 'demo';
-    const ownership = await requireJobOwnership(jobId, userId, res);
-    if (!ownership) return;
+    const userId = requireAuthUserId(req, res);
+    if (!userId) return;
+    const job = await requireJobOwnership(jobId, userId, res);
+    if (!job) return;
 
     const parsedExportBody = parseBody(exportCarouselSsrSchema, req.body, res);
     if (!parsedExportBody) return;
-    const { theme, slides, colors, brandName, handle, designPreset, templateId, paletteId } = parsedExportBody;
+    const { theme, slides: clientSlides, colors, brandName, handle, designPreset, templateId, paletteId } = parsedExportBody;
+
+    // SECURITY: (SEC-003): render stored final carousel (+ optional image overlays),
+    // not a fully client-authored slide deck under this job id.
+    const slides = resolveExportSlides(job, clientSlides);
+    if (!slides) {
+      return res.status(400).json({
+        error: 'No saved carousel content to export',
+        code: 'NO_CAROUSEL',
+        retryable: false,
+      });
+    }
+
+    // WHY: acquire after validation so bad requests do not consume a pool slot;
+    // max 2 process-wide (see exportSemaphore.ts) — fail-fast when full.
+    if (!tryAcquireExportSlot()) {
+      return res.status(429).json({
+        error: 'Export is busy — please retry shortly',
+        code: 'EXPORT_BUSY',
+        retryable: true,
+      });
+    }
 
     try {
       // FLOW: renders the same IGSlide component the client preview uses, so the
@@ -69,7 +93,7 @@ router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequ
         successCount++;
       }
 
-      // WHY refuse partial ZIPs: a 200 with only some slides used to download
+      // WHY: refuse partial ZIPs: a 200 with only some slides used to download
       // silently — CORS never exposed X-Export-Warning, so the client could not
       // tell the set was incomplete. Users got 2–3 PNGs from an 8-slide carousel.
       if (failedSlides.length > 0 || successCount !== slides.length) {
@@ -105,6 +129,8 @@ router.post('/:jobId/export/carousel-png', exportRateLimit, async (req: AuthRequ
       console.error('[export-png] Failed:', err instanceof Error ? err.message : err);
       res.status(500).json({ error: 'Export failed', code: 'EXPORT_FAILED', retryable: true });
       return;
+    } finally {
+      releaseExportSlot();
     }
   } catch (error) {
     next(error);

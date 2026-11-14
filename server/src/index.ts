@@ -2,6 +2,7 @@
 import * as Sentry from '@sentry/node';
 
 import express from 'express';
+import type { RequestHandler } from 'express';
 import cors from 'cors';
 import { config } from 'dotenv';
 import { resolve } from 'path';
@@ -113,11 +114,16 @@ app.use(helmet.frameguard({ action: 'deny' }));
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
-  // WHY expose: exportPNG reads X-Export-Warning; browsers hide custom headers
+  // WHY: expose: exportPNG reads X-Export-Warning; browsers hide custom headers
   // from JS unless listed here, which used to make incomplete ZIPs look fine.
   exposedHeaders: ['X-Export-Warning'],
 }));
-app.use(express.json({ limit: '10mb' }));
+// WHY: a larger parser mounted first on only this route: PATCH /:jobId/content
+// carries edited slide JSON (schema cap 200kB serialized, plus JSON overhead).
+// express.json skips a request whose body is already parsed, so the global
+// 256kb parser below never re-reads it — every other route gets the tight cap.
+app.use(/^\/api\/jobs\/[^/]+\/content$/, express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '256kb' }));
 app.use(clerkMiddleware({
   publishableKey: env.CLERK_PUBLISHABLE_KEY,
   secretKey: env.CLERK_SECRET_KEY,
@@ -147,7 +153,15 @@ async function pingWithTimeout(fn: () => Promise<void>, ms: number): Promise<{ o
   }
 }
 
-app.get('/api/ready', async (_req, res) => {
+// WHY: a short TTL cache: load balancers/uptime monitors can probe every second
+// or so; each uncached probe costs a Neon round-trip + Redis PING. 3s keeps the
+// signal fresh while capping dependency load.
+const READY_CACHE_TTL_MS = 3000;
+interface ReadySnapshot { ready: boolean; database: boolean; redis: boolean; at: number }
+let readyCache: ReadySnapshot | null = null;
+let readyInFlight: Promise<ReadySnapshot> | null = null;
+
+async function computeReady(): Promise<ReadySnapshot> {
   const [dbCheck, redisCheck] = await Promise.all([
     pingWithTimeout(async () => {
       const { db } = await import('./db/index.js');
@@ -157,12 +171,20 @@ app.get('/api/ready', async (_req, res) => {
     pingWithTimeout(async () => {
       const { getRedisClient } = await import('./lib/redisClient.js');
       const client = getRedisClient();
-      if (!client) throw new Error('Redis not configured');
+      // WHY: production requires Redis (config.ts) — a null singleton must fail
+      // ready so Render does not keep a process that 503s every rate-limited
+      // route. Local/dev may omit Redis; null still counts as ready there.
+      if (!client) {
+        if (env.NODE_ENV === 'production') {
+          throw new Error('Redis client not configured');
+        }
+        return;
+      }
       await client.ping();
     }, 3000),
   ]);
 
-  // SECURITY (SEC-016): this probe is unauthenticated — never echo err.message
+  // SECURITY: (SEC-016): this probe is unauthenticated — never echo err.message
   // (may contain hostnames / driver text). Operators use server logs + status.
   if (!dbCheck.ok) {
     logger.warn('/api/ready database check failed', { error: dbCheck.error });
@@ -170,16 +192,35 @@ app.get('/api/ready', async (_req, res) => {
   if (!redisCheck.ok) {
     logger.warn('/api/ready redis check failed', { error: redisCheck.error });
   }
+  return {
+    ready: dbCheck.ok && redisCheck.ok,
+    database: dbCheck.ok,
+    redis: redisCheck.ok,
+    at: Date.now(),
+  };
+}
 
-  const ready = dbCheck.ok && redisCheck.ok;
-  res.status(ready ? 200 : 503).json({
-    status: ready ? 'ready' : 'not_ready',
-    checks: {
-      database: { ok: dbCheck.ok },
-      redis: { ok: redisCheck.ok },
-    },
-    timestamp: new Date().toISOString(),
-  });
+app.get('/api/ready', async (_req, res, next) => {
+  try {
+    let snap = readyCache;
+    if (!snap || Date.now() - snap.at > READY_CACHE_TTL_MS) {
+      // WHY: share one in-flight promise: concurrent probes coalesce instead of
+      // each launching their own DB/Redis pings.
+      readyInFlight ??= computeReady().finally(() => { readyInFlight = null; });
+      snap = await readyInFlight;
+      readyCache = snap;
+    }
+    return res.status(snap.ready ? 200 : 503).json({
+      status: snap.ready ? 'ready' : 'not_ready',
+      checks: {
+        database: { ok: snap.database },
+        redis: { ok: snap.redis },
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 // Routes — all job routes go through authMiddleware.
@@ -188,9 +229,17 @@ app.get('/api/ready', async (_req, res) => {
 // JWT — EventSource cannot send Authorization headers. jobs/index.ts exempts
 // only the exact SSE path from authMiddleware; stream-token still requires auth.
 app.use('/api/jobs', sanitizeGenerationInput, jobRoutes);
-app.use('/api/content', authMiddleware, sanitizeGenerationInput, contentRateLimit, contentRoutes);
+// WHY: DELETE (e.g. competitor history cleanup) calls no external API, so it
+// shouldn't burn the generation quota.
+const contentLimitRouter = express.Router();
+contentLimitRouter.use(contentRateLimit);
+const skipRateLimitForDelete: RequestHandler = (req, res, next) => {
+  if (req.method === 'DELETE') return next();
+  return contentLimitRouter(req, res, next);
+};
+app.use('/api/content', authMiddleware, sanitizeGenerationInput, skipRateLimitForDelete, contentRoutes);
 app.use('/api/users', authMiddleware, sanitizeGenerationInput, userRoutes);
-// WHY /callback/:platform is exempted (exact-path match, never substring —
+// WHY: /callback/:platform is exempted (exact-path match, never substring —
 // same discipline as jobs/index.ts's SSE_STREAM_PATH): this route is a
 // top-level browser redirect from LinkedIn/Twitter back to the API's own
 // domain, a different origin than the Vercel-hosted frontend where the Clerk
@@ -209,7 +258,7 @@ app.use('/api/social', (req, res, next) => {
 }, socialRoutes);
 app.use('/api/scheduled-posts', authMiddleware, scheduledPostsRoutes);
 app.use('/api/collections', authMiddleware, collectionsRoutes);
-// WHY sanitizeGenerationInput: POST/PATCH bodies carry targetAudience / tone
+// WHY: sanitizeGenerationInput: POST/PATCH bodies carry targetAudience / tone
 // fields that reach the writer via feed-monitor job creation — same LLM-facing
 // surface as /api/content and /api/jobs.
 app.use('/api/feed-monitors', authMiddleware, sanitizeGenerationInput, feedMonitorsRoutes);
@@ -222,7 +271,7 @@ if (env.SENTRY_DSN) {
 }
 
 // Error handling
-// WHY the ErrorRequestHandler type, not a plain 4-arg arrow function: Express
+// WHY: the ErrorRequestHandler type, not a plain 4-arg arrow function: Express
 // dispatches error middleware by counting the handler's declared parameters
 // (exactly 4 marks it as an error handler, not a route handler) — the `err`
 // parameter must stay structurally `any` at the express.d.ts boundary for
@@ -231,8 +280,29 @@ if (env.SENTRY_DSN) {
 // inside the body, so this file's own code never treats `err` as `any`.
 const errorHandler: express.ErrorRequestHandler = (err, _req, res, _next) => {
   const unknownErr: unknown = err;
+  // WHY: map body-parser errors to 4xx: malformed JSON / oversized bodies are
+  // client mistakes; reporting 500 + retryable:true made clients retry forever
+  // and polluted error alerts.
+  if (typeof unknownErr === 'object' && unknownErr !== null) {
+    const e = unknownErr as { status?: unknown; type?: unknown };
+    const status = typeof e.status === 'number' ? e.status : undefined;
+    if (e.type === 'entity.too.large' || status === 413) {
+      return res.status(413).json({
+        error: 'Request body too large',
+        code: 'PAYLOAD_TOO_LARGE',
+        retryable: false,
+      });
+    }
+    if (e.type === 'entity.parse.failed' || status === 400) {
+      return res.status(400).json({
+        error: 'Invalid request body',
+        code: 'VALIDATION_ERROR',
+        retryable: false,
+      });
+    }
+  }
   console.error('Unhandled error:', unknownErr);
-  res.status(500).json({
+  return res.status(500).json({
     error: 'Internal server error',
     code: 'SERVER_ERROR',
     retryable: true,
@@ -323,7 +393,7 @@ async function shutdown(signal: string) {
     console.error('Error closing DB pool:', err);
   }
 
-  // WHY here even though the interval is unref()'d (so it wouldn't block exit on its
+  // WHY: here even though the interval is unref()'d (so it wouldn't block exit on its
   // own): explicit cleanup during the coordinated shutdown sequence, consistent with
   // how the browser pool above is closed rather than left to the 'exit' handler.
   stopPngCacheSweep();

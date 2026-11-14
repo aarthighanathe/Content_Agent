@@ -12,10 +12,10 @@
  * late persist.
  *
  * WHY the real jobsMemory Map, not a separate mock: isSoftDeleted() reads
- * directly from jobsMemory (routes/jobs/ownership.js) — flipping a real entry
- * in that same Map, from inside the critic mock's implementation, reproduces
- * the actual race (a DELETE request landing between retry iterations) instead
- * of a synthetic stand-in for the check itself.
+ * directly from jobsMemory (lib/jobStore.js) — flipping a real entry in that
+ * same Map, from inside the critic mock's implementation, reproduces the
+ * actual race (a DELETE request landing between retry iterations) instead of
+ * a synthetic stand-in for the check itself.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -45,19 +45,17 @@ vi.mock('../../src/agents/writer.js', () => ({ runWriter: (...args: any[]) => ru
 vi.mock('../../src/agents/formatter.js', () => ({ runFormatter: (...args: any[]) => runFormatter(...args) }));
 vi.mock('../../src/agents/critic.js', () => ({ runCritic: (...args: any[]) => runCritic(...args) }));
 vi.mock('../../src/agents/performancePredictor.js', () => ({ runPerformancePredictor: (...args: any[]) => runPerformancePredictor(...args) }));
-vi.mock('../../src/workers/contentWorker.js', () => ({ getJobFromStore: () => undefined }));
 vi.mock('../../src/lib/persistJob.js', () => ({ persistJobToDB: (...args: any[]) => persistJobToDB(...args) }));
-vi.mock('../../src/lib/sse.js', () => ({ sseManager: { sendEvent: vi.fn() } }));
-// WHY mocked: routes/jobs/ownership.js (imported for the real jobsMemory Map
-// isSoftDeleted() reads from) transitively imports db/index.js, which
-// validates the full env schema at module load — none of that is exercised
-// by this test's own logic.
+const sendEvent = vi.fn();
+vi.mock('../../src/lib/sse.js', () => ({ sseManager: { sendEvent: (...args: unknown[]) => sendEvent(...args) } }));
+// WHY mocked: lib/jobStore is pure Maps, but ownership/pipeline still pull
+// config/db at import for other helpers — keep those stubs.
 vi.mock('../../src/config.js', () => ({
   env: { DATABASE_URL: 'postgres://test', NODE_ENV: 'test' },
 }));
 vi.mock('../../src/db/index.js', () => ({ db: null }));
 
-const { jobsMemory } = await import('../../src/routes/jobs/ownership.js');
+const { jobsMemory } = await import('../../src/lib/jobStore.js');
 const { runContentPipeline, runAndPersistPipeline } = await import('../../src/lib/pipeline.js');
 
 describe('runContentPipeline — mid-loop soft-delete race', () => {
@@ -125,6 +123,12 @@ describe('runContentPipeline — mid-loop soft-delete race', () => {
     expect(store.evict).toHaveBeenCalledWith(mockJob.id);
     expect(store.set).not.toHaveBeenCalled();
     expect(persistJobToDB).not.toHaveBeenCalled();
+    // H2: terminal SSE must fire before eviction so Result stops spinning.
+    expect(sendEvent).toHaveBeenCalledWith(mockJob.id, expect.objectContaining({
+      type: 'progress',
+      stage: 'failed',
+      message: expect.stringContaining('deleted'),
+    }));
   });
 
   it('a job that is never marked deleted runs the full retry budget when the critic keeps rejecting', async () => {

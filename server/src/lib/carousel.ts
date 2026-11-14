@@ -16,7 +16,7 @@ import {
   addPngCacheEntry,
   stopPngCacheSweep,
 } from './pngCache.js';
-// WHY imported from browserPool.ts, not defined here: the pool machinery (launch,
+// WHY: imported from browserPool.ts, not defined here: the pool machinery (launch,
 // acquire/release, health-replace) was extracted to keep this file under the
 // 400-line cap once the carousel template system added templateId/paletteId
 // cache-key handling below. closeBrowserPool is re-exported so index.ts's
@@ -60,7 +60,7 @@ export type NewTemplateKey =
   | 'storyteller'
   | 'social-media';
 
-// WHY still a flat union, not kept fully separate: renderSlideWithCache's cache
+// WHY: still a flat union, not kept fully separate: renderSlideWithCache's cache
 // key picks between the two schemes at runtime via `templateId || paletteId`
 // (see below) — a caller passing a legacy `theme` alongside a stray
 // `templateId`/`paletteId` gets routed to the template branch and `theme` is
@@ -73,7 +73,7 @@ export type ThemeKey = LegacyThemeKey | NewTemplateKey;
 // setJavaScriptEnabled(false) in the renderer is the primary defense; this is a
 // defense-in-depth layer that removes JS before the page is even parsed.
 //
-// WHY <\/script\s*> not <\/script>: whitespace between a tag name and its
+// WHY: <\/script\s*> not <\/script>: whitespace between a tag name and its
 // closing `>` is valid in an HTML end tag per the WHATWG tokenizer spec (e.g.
 // `</script >` or `</script\n>` both parse as a real closing </script> tag in
 // any conformant browser, including headless Chromium) — the original literal
@@ -136,14 +136,18 @@ export async function renderSlideWithPuppeteer(
     await page.setRequestInterception(true);
     page.on('request', (interceptedReq) => {
       const type = interceptedReq.resourceType();
-      if (['script', 'xhr', 'fetch', 'websocket', 'other'].includes(type)) {
+      const reqUrl = interceptedReq.url();
+      // SECURITY: network allowlist — fonts/images are inlined, so only data:/about:
+      // are legitimate. Blocks SSRF-style loads (e.g. an <img src="http://169.254...">).
+      const isLocalScheme = reqUrl.startsWith('data:') || reqUrl.startsWith('about:');
+      if (!isLocalScheme || ['script', 'xhr', 'fetch', 'websocket', 'other'].includes(type)) {
         interceptedReq.abort();
       } else {
         interceptedReq.continue();
       }
     });
 
-    // WHY 'load', not networkidle: the slide document is self-contained. Fonts are
+    // WHY: 'load', not networkidle: the slide document is self-contained. Fonts are
     // inlined as data-URL @font-face, so nothing is fetched. setContent does not
     // emit network-idle lifecycle events when no request ever starts — Puppeteer
     // excludes networkidle* from SetContentWaitForOptions for that reason — and
@@ -167,7 +171,7 @@ export async function renderSlideWithPuppeteer(
 
     return `data:image/png;base64,${buffer.toString('base64')}`;
   } catch (err) {
-    // WHY track ownership: replaceBrokenBrowser sets busy=false before
+    // WHY: track ownership: replaceBrokenBrowser sets busy=false before
     // returning. If we then releaseBrowser in finally after awaiting
     // page.close(), another export can acquire this slot in between and have
     // its busy flag cleared underneath it — then a later timeout closes the
@@ -202,7 +206,7 @@ export async function renderSlideWithCache(
   }
 
   const contentHash = createHash('sha256').update(html).digest('hex').slice(0, 12);
-  // WHY the viewport is part of the key: the same HTML rendered at 1080x1080 and at
+  // WHY: the viewport is part of the key: the same HTML rendered at 1080x1080 and at
   // 1080x1350 produces different PNGs. Without it, entries cached by one size would be
   // served for the other.
   const size = `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}`;
