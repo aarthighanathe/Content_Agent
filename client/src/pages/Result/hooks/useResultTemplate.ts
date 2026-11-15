@@ -1,6 +1,7 @@
 // WHY: extracted from Result.tsx: template override + brand identity resolution
 // (~70 lines) kept the page over the 400-line hard cap.
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { setCarouselTemplate, getProfile } from '../../../api';
 import { deriveColorSystem, THEME_ACCENTS } from '../../../lib/colorSystem';
@@ -60,12 +61,16 @@ export function useResultTemplate(
     }
   }
 
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+
   // brandName/handle are ONLY populated from the user's real Brand Voice settings
   // — never fabricated from the topic text.
   const { data: profile } = useQuery({
     queryKey: ['dashboard', 'profile'],
     queryFn: getProfile,
     staleTime: 5 * 60 * 1000,
+    // WHY: gate like Brand/Dashboard — skip before Clerk JWT exists after account switch.
+    enabled: authLoaded && isSignedIn,
   });
   const brandName = profile?.brandName?.trim() || '';
   const handle = brandName ? `@${brandName.toLowerCase().replace(/[^a-z0-9]/g, '')}` : '';

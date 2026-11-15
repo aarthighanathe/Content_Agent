@@ -72,6 +72,8 @@ export async function collectRelatedVariants(
   add(root.id, root.platform, root.status, jobSourceId(root));
 
   // BFS descendants via source_job_id (Adapt trees are shallow — typically 1–3 hops).
+  // WHY: fail closed on query errors — returning a partial family under the
+  // multiply lock let Adapt miss a done sibling and insert a duplicate platform.
   if (db) {
     try {
       let frontier = [root.id];
@@ -101,10 +103,15 @@ export async function collectRelatedVariants(
         frontier = nextFrontier;
       }
     } catch (err: unknown) {
-      logger.error('collectRelatedVariants DB walk failed', {
+      logger.error('collectRelatedVariants DB walk failed — refusing incomplete family', {
         rootId: root.id,
         error: err instanceof Error ? err.message : String(err),
       });
+      Sentry.captureException(err, {
+        tags: { fn: 'collectRelatedVariants' },
+        extra: { rootId: root.id, userId },
+      });
+      return null;
     }
   }
 

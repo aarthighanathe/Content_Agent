@@ -36,7 +36,10 @@ export function SchedulePicker({
   useFocusTrap(pickerRef, true);
 
   useEffect(() => {
-    const firstBtn = gridRef.current?.querySelector<HTMLButtonElement>('button[data-day]');
+    // WHY: skip :disabled past days — focusing a non-selectable cell is a dead end.
+    const firstBtn = gridRef.current?.querySelector<HTMLButtonElement>(
+      'button[data-day]:not(:disabled)',
+    );
     firstBtn?.focus();
   }, []);
 
@@ -44,7 +47,9 @@ export function SchedulePicker({
     if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
     e.preventDefault();
-    const buttons = Array.from(gridRef.current?.querySelectorAll<HTMLButtonElement>('button[data-day]') ?? []);
+    const buttons = Array.from(
+      gridRef.current?.querySelectorAll<HTMLButtonElement>('button[data-day]:not(:disabled)') ?? [],
+    );
     const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (idx === -1) return;
     const delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowDown' ? 7 : -7;
@@ -91,9 +96,19 @@ export function SchedulePicker({
             <button
               key={cellIdx}
               data-day={dayNum}
+              type="button"
+              disabled={isPast}
               className={`sc-picker-day${isToday ? ' is-today' : ''}${hasContent ? ' has-content' : ''}${isPast ? ' is-past' : ''}`}
-              onClick={() => { onPick(dateKey); onClose(); }}
-              aria-label={`Schedule on ${new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${hasContent ? ' — already has content' : ''}`}
+              onClick={() => {
+                if (isPast) return;
+                onPick(dateKey);
+                onClose();
+              }}
+              aria-label={
+                isPast
+                  ? `${new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — past date, unavailable`
+                  : `Schedule on ${new Date(dateKey + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${hasContent ? ' — already has content' : ''}`
+              }
               aria-pressed={false}
             >
               {dayNum}

@@ -127,13 +127,18 @@ export function ThemeSwitcher({ collapsed = false, align = 'down' }: ThemeSwitch
           background: 'transparent',
           border: '1px solid var(--rule)',
           borderRadius: 8,
-          padding: collapsed ? 6 : '6px 10px',
+          // WHY: collapsed was 30×26 — under 44px on mobile nav / sidebar rail.
+          padding: collapsed ? 0 : '6px 10px',
           cursor: 'pointer',
           color: 'var(--text-secondary)',
           fontSize: 12.5,
           fontFamily: 'var(--font-sans)',
           justifyContent: collapsed ? 'center' : undefined,
-          width: collapsed ? 30 : undefined,
+          width: collapsed ? 44 : undefined,
+          height: collapsed ? 44 : undefined,
+          minWidth: collapsed ? 44 : undefined,
+          minHeight: collapsed ? 44 : undefined,
+          boxSizing: 'border-box',
         }}
       >
         <span

@@ -86,8 +86,12 @@ export async function repurposeBatchUrls(items: Array<{
 }
 
 // ── Image Generation ──────────────────────────────────────────────────────────
-export async function generateSlideImage(prompt: string, mode?: 'background' | 'full_slide'): Promise<{ image: string }> {
-  const response = await api.post('/image/generate', { prompt, mode });
+export async function generateSlideImage(
+  prompt: string,
+  mode?: 'background' | 'full_slide',
+  signal?: AbortSignal,
+): Promise<{ image: string }> {
+  const response = await api.post('/image/generate', { prompt, mode }, { signal });
   return response.data;
 }
 

@@ -151,6 +151,7 @@ describe('runCritic — malformed AI response fallback (real module)', () => {
 
     expect(result.totalScore).toBe(50);
     expect(result.approved).toBe(false);
+    expect(result.usedFallback).toBe(true);
     expect(result.scores).toEqual({
       hookStrength: 10,
       platformCompliance: 10,
@@ -169,24 +170,270 @@ describe('runCritic — malformed AI response fallback (real module)', () => {
 
     expect(result.totalScore).toBe(50);
     expect(result.approved).toBe(false);
+    expect(result.usedFallback).toBe(true);
   });
 
-  it('AI response with no scored dimensions at all (every field optional, all absent) scores 0 rather than hitting the parse-failure fallback', async () => {
-    // WHY this is NOT the FALLBACK_CRITIC_RESPONSE path: criticResponseSchema
-    // makes every dimension `.optional()` (see schemas/agentResponses.ts's own
-    // WHY — a missing/invalid single field shouldn't invalidate the whole
-    // response), so `{ unrelated: true }` parses as valid JSON *and* passes
-    // schema validation with every field undefined — clampScore's `Number(n)
-    // || 0` then produces an honest 0 per dimension, distinct from the
-    // conservative-but-nonzero 10-per-dimension fallback the two tests above
-    // exercise for a genuinely unparseable/invalid-shape response.
+  it('skips a useless leading scorecard and uses a later complete one', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(
+      '{}\n' +
+        JSON.stringify({
+          hookStrength: 14,
+          platformCompliance: 13,
+          brandVoiceMatch: 12,
+          valueDelivery: 15,
+          ctaClarity: 11,
+          feedback: 'Tighten the CTA to name a specific next step.',
+        }),
+    );
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.usedFallback).toBeUndefined();
+    expect(result.totalScore).toBe(65);
+    expect(result.feedback).toContain('Tighten the CTA');
+  });
+
+  it('parses multi-sentence feedback with raw newlines via sanitizeAiJson', async () => {
+    // WHY: without sanitizeAiJson, literal newlines inside the feedback string
+    // break JSON.parse and used to force FALLBACK even when scores were present.
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(
+      '{\n' +
+        '  "hookStrength": 14,\n' +
+        '  "platformCompliance": 13,\n' +
+        '  "brandVoiceMatch": 12,\n' +
+        '  "valueDelivery": 15,\n' +
+        '  "ctaClarity": 11,\n' +
+        '  "feedback": "First fix: sharpen the hook.\nSecond fix: name a concrete CTA."\n' +
+        '}',
+    );
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.usedFallback).toBeUndefined();
+    expect(result.totalScore).toBe(65);
+    expect(result.feedback).toContain('First fix');
+    expect(result.feedback).toContain('Second fix');
+  });
+
+  it('AI response with no scored dimensions and no feedback uses FALLBACK', async () => {
+    // WHY: criticResponseSchema is coerce-friendly (optional+.catch), so
+    // `{ unrelated: true }` still safeParse-succeeds — isUselessCriticScorecard
+    // detects all score keys absent + empty feedback and substitutes FALLBACK.
     const { generateWithAI } = await import('../../src/lib/ai.js');
     vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({ unrelated: true }));
 
     const { runCritic } = await import('../../src/agents/critic.js');
     const result = await runCritic(baseJob, content, 'professional');
 
-    expect(result.totalScore).toBe(0);
+    expect(result.totalScore).toBe(50);
     expect(result.approved).toBe(false);
+    expect(result.usedFallback).toBe(true);
+    expect(result.scores).toEqual({
+      hookStrength: 10,
+      platformCompliance: 10,
+      brandVoiceMatch: 10,
+      valueDelivery: 10,
+      ctaClarity: 10,
+    });
+    expect(result.feedback.length).toBeGreaterThan(0);
+  });
+
+  it('dimensions absent but non-empty feedback is kept (not FALLBACK)', async () => {
+    // WHY: feedback-only cards used to trip allAbsentFromRaw → usedFallback,
+    // which skipped Writer revision on real actionable feedback.
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      feedback: 'Rewrite the hook to lead with a concrete number.',
+      totalScore: 48,
+    }));
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.usedFallback).toBeUndefined();
+    expect(result.feedback).toContain('Rewrite the hook');
+    expect(result.totalScore).toBe(48);
+    expect(result.approved).toBe(false);
+    // WHY: omit coerced-zero dimensions so dashboard/predictor skip them.
+    expect(result.scores).toBeUndefined();
+  });
+
+  it('feedback-only high totalScore does not approve (no free-pass)', async () => {
+    // WHY: keeping totalScore for display/revision must not skip Writer←Critic
+    // when every dimension was omitted from the LLM card.
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      feedback: 'Sharpen the CTA to name a specific next step.',
+      totalScore: 92,
+    }));
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.usedFallback).toBeUndefined();
+    expect(result.totalScore).toBe(92);
+    expect(result.feedback).toContain('Sharpen the CTA');
+    expect(result.approved).toBe(false);
+    // WHY: omit coerced-zero dimensions so dashboard/predictor skip them.
+    expect(result.scores).toBeUndefined();
+  });
+
+  it('all-zero dimensions with empty feedback use FALLBACK', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      hookStrength: 0,
+      platformCompliance: 0,
+      brandVoiceMatch: 0,
+      valueDelivery: 0,
+      ctaClarity: 0,
+      feedback: '   ',
+    }));
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.totalScore).toBe(50);
+    expect(result.approved).toBe(false);
+    expect(result.usedFallback).toBe(true);
+  });
+
+  it('all-zero dimensions with real feedback are kept (not FALLBACK)', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      hookStrength: 0,
+      platformCompliance: 0,
+      brandVoiceMatch: 0,
+      valueDelivery: 0,
+      ctaClarity: 0,
+      feedback: 'Rewrite the hook to lead with a concrete number.',
+    }));
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(baseJob, content, 'professional');
+
+    expect(result.totalScore).toBe(0);
+    expect(result.feedback).toContain('Rewrite the hook');
+    expect(result.usedFallback).toBeUndefined();
+  });
+});
+
+describe('runCritic — carousel body length by type (Pass-6 M3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('does not dock features at slide_number 2 for a short list-intro body', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      hookStrength: 16,
+      platformCompliance: 16,
+      brandVoiceMatch: 16,
+      valueDelivery: 16,
+      ctaClarity: 16,
+      feedback: 'ok',
+    }));
+
+    const shortIntro = Array.from({ length: 25 }, (_, i) => `w${i}`).join(' ');
+    const longBody = Array.from({ length: 50 }, (_, i) => `w${i}`).join(' ');
+    const slides = [
+      { slide_number: 1, type: 'cover', body: longBody },
+      // WHY: renumbered to 2 after a hollow drop — index map would demand 45–60.
+      { slide_number: 2, type: 'features', body: shortIntro },
+      { slide_number: 3, type: 'cta', body: Array.from({ length: 45 }, (_, i) => `w${i}`).join(' ') },
+    ];
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(
+      { ...baseJob, platform: 'instagram_carousel' },
+      slides,
+      'professional',
+    );
+
+    expect(result.scores.platformCompliance).toBe(16);
+    expect(result.feedback).not.toMatch(/out of range/i);
+  });
+
+  it('docks a features slide whose body exceeds the short band', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      hookStrength: 16,
+      platformCompliance: 16,
+      brandVoiceMatch: 16,
+      valueDelivery: 16,
+      ctaClarity: 16,
+      feedback: 'ok',
+    }));
+
+    const tooLong = Array.from({ length: 40 }, (_, i) => `w${i}`).join(' ');
+    const slides = [
+      { slide_number: 1, type: 'cover', body: Array.from({ length: 50 }, (_, i) => `w${i}`).join(' ') },
+      { slide_number: 2, type: 'features', body: tooLong },
+      { slide_number: 3, type: 'cta', body: Array.from({ length: 45 }, (_, i) => `w${i}`).join(' ') },
+    ];
+
+    const { runCritic } = await import('../../src/agents/critic.js');
+    const result = await runCritic(
+      { ...baseJob, platform: 'instagram_carousel' },
+      slides,
+      'professional',
+    );
+
+    expect(result.scores.platformCompliance).toBe(12);
+    expect(result.feedback).toMatch(/features #2/);
+  });
+});
+
+describe('isUselessCriticScorecard', () => {
+  it('flags raw objects with every score key absent and empty feedback', async () => {
+    const { isUselessCriticScorecard } = await import('../../src/agents/critic.js');
+    expect(
+      isUselessCriticScorecard({ unrelated: true }, {
+        hookStrength: undefined,
+        platformCompliance: undefined,
+        brandVoiceMatch: undefined,
+        valueDelivery: undefined,
+        ctaClarity: undefined,
+        feedback: '',
+      }),
+    ).toBe(true);
+  });
+
+  it('keeps dimension-absent cards when feedback is non-empty', async () => {
+    const { isUselessCriticScorecard } = await import('../../src/agents/critic.js');
+    expect(
+      isUselessCriticScorecard({
+        feedback: 'Sharpen the CTA to name a specific next step.',
+        totalScore: 55,
+      }, {
+        hookStrength: undefined,
+        platformCompliance: undefined,
+        brandVoiceMatch: undefined,
+        valueDelivery: undefined,
+        ctaClarity: undefined,
+        feedback: 'Sharpen the CTA to name a specific next step.',
+        totalScore: 55,
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps a partial scorecard with at least one real score', async () => {
+    const { isUselessCriticScorecard } = await import('../../src/agents/critic.js');
+    expect(
+      isUselessCriticScorecard({
+        hookStrength: 12,
+        feedback: '',
+      }, {
+        hookStrength: 12,
+        platformCompliance: undefined,
+        brandVoiceMatch: undefined,
+        valueDelivery: undefined,
+        ctaClarity: undefined,
+        feedback: '',
+      }),
+    ).toBe(false);
   });
 });

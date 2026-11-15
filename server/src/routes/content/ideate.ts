@@ -167,12 +167,14 @@ Return ONLY this JSON (no markdown, no extra text):
     const result = await generateWithAI(prompt, 'You are a content strategist. Respond with valid JSON only.');
 
     const parsed = parseAIJson(ideateResponseSchema, result);
-    if (!parsed) {
+    // WHY: schema requires ideas.length >= 1 with non-empty title — empty or
+    // title-less payloads used to return 200 with [] and strand the Ideate UI.
+    if (!parsed || !parsed.ideas || parsed.ideas.length < 1) {
       res.status(500).json({ error: 'Failed to parse ideas', code: 'AI_PARSE_ERROR', retryable: true });
       return;
     }
 
-    res.json({ ideas: parsed.ideas || [] });
+    res.json({ ideas: parsed.ideas });
     return;
   } catch (error: unknown) {
     console.error('Ideation failed:', error);
@@ -234,7 +236,8 @@ ${IDEA_JSON_SHAPE}`;
     const result = await generateWithAI(prompt, 'You are a content strategist. Respond with valid JSON only.');
 
     const parsed = parseAIJson(regenerateIdeaResponseSchema, result);
-    if (!parsed) {
+    // WHY: non-empty title required — empty title used to 200 and confuse UI.
+    if (!parsed || !parsed.title?.trim()) {
       res.status(500).json({ error: 'Failed to regenerate idea', code: 'AI_PARSE_ERROR', retryable: true });
       return;
     }

@@ -1,15 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
 import { Sparkles, Timer, CalendarDays, AlertTriangle } from 'lucide-react';
 import { getJobStatus } from '../api';
 import { platformMeta } from '../lib/platformMeta';
-
-interface BatchJobRef {
-  jobId: string;
-  topic: string;
-  platform: string;
-}
+import { readBatchResult, type BatchJobRef } from '../lib/batchResultStorage';
 
 interface BatchItem extends BatchJobRef {
   status: 'pending' | 'processing' | 'done' | 'failed';
@@ -17,68 +13,82 @@ interface BatchItem extends BatchJobRef {
   score?: number;
 }
 
-interface PersistedBatch {
-  jobs: BatchJobRef[];
+interface BatchNavState {
+  jobs?: BatchJobRef[];
   creationFailedCount?: number;
-  savedAt?: number;
+  submitterUserId?: string | null;
 }
 
-const BATCH_STORAGE_KEY = 'ca_batch_result_v1';
-const BATCH_TTL_MS = 24 * 60 * 60 * 1000;
 const BATCH_MAX_POLL_MS = 20 * 60 * 1000;
 
-function isBatchJobRef(value: unknown): value is BatchJobRef {
-  if (!value || typeof value !== 'object') return false;
-  const o = value as Record<string, unknown>;
-  return typeof o.jobId === 'string' && typeof o.topic === 'string' && typeof o.platform === 'string';
+function pendingItems(jobs: BatchJobRef[]): BatchItem[] {
+  return jobs.map((j) => ({ ...j, status: 'pending', progress: 0 }));
 }
 
-function readPersistedBatch(): PersistedBatch | null {
-  try {
-    const raw = sessionStorage.getItem(BATCH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    const obj = parsed as Record<string, unknown>;
-    if (!Array.isArray(obj.jobs) || obj.jobs.length === 0 || !obj.jobs.every(isBatchJobRef)) {
-      return null;
-    }
-    const savedAt = typeof obj.savedAt === 'number' ? obj.savedAt : 0;
-    if (savedAt > 0 && Date.now() - savedAt > BATCH_TTL_MS) {
-      sessionStorage.removeItem(BATCH_STORAGE_KEY);
-      return null;
-    }
-    return {
-      jobs: obj.jobs,
-      creationFailedCount: typeof obj.creationFailedCount === 'number' ? obj.creationFailedCount : 0,
-      savedAt,
-    };
-  } catch {
-    return null;
-  }
+function httpStatusOf(err: unknown): number | undefined {
+  if (typeof err !== 'object' || err === null || !('response' in err)) return undefined;
+  const response = (err as { response?: { status?: unknown } }).response;
+  return typeof response?.status === 'number' ? response.status : undefined;
 }
 
-// WHY: router state + sessionStorage (L12): Create/Repurpose navigate with
-// location.state for the job list. Hard refresh used to wipe that and show
-// "No batch found" — sessionStorage recovers within the same tab for 24h.
+// WHY: router state + user-scoped sessionStorage (L12): Create/Repurpose
+// navigate with location.state. Hard refresh used to wipe that and show
+// "No batch found". The stored list is per Clerk user so a shared browser
+// doesn't restore someone else's batch.
 export default function BatchResultPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const navState = location.state as { jobs?: BatchJobRef[]; creationFailedCount?: number } | null;
-  const persisted = (!navState?.jobs || navState.jobs.length === 0) ? readPersistedBatch() : null;
-  const initialJobs = (navState?.jobs && navState.jobs.length > 0)
-    ? navState.jobs
-    : (persisted?.jobs ?? []);
+  const { isLoaded, userId } = useAuth();
+  const navState = location.state as BatchNavState | null;
+  const scopeKey = userId ?? '';
+  const navSubmitter = navState?.submitterUserId ?? null;
+  const navJobs = navState?.jobs;
+  const hasNavJobs = (navJobs?.length ?? 0) > 0;
+  // WHY: bind nav jobs to the first Clerk user that sees them — location.state
+  // survives account switch, so a later userId must not keep the same list.
+  const [navOwnerId, setNavOwnerId] = useState<string | null>(null);
+
   // WHY: a distinct name from the `failedCount` computed below: that one means
   // "jobs that were created but whose generation pipeline later failed" —
   // this is a different concept (items the server rejected before a job was
   // ever created, e.g. an empty-after-trim topic or a queueing error) and
   // previously vanished from the response with zero signal to the user.
-  const creationFailedCount = navState?.creationFailedCount ?? persisted?.creationFailedCount ?? 0;
-  const [items, setItems] = useState<BatchItem[]>(() =>
-    initialJobs.map((j) => ({ ...j, status: 'pending', progress: 0 })),
-  );
+  const [creationFailedCount, setCreationFailedCount] = useState(0);
+  const [items, setItems] = useState<BatchItem[]>([]);
+  const [restoredScope, setRestoredScope] = useState<string | null>(null);
+
+  // WHY: copy during render (before paint) so a refresh doesn't flash empty.
+  if (isLoaded && restoredScope !== scopeKey) {
+    if (
+      hasNavJobs
+      && userId
+      && (navSubmitter == null || navSubmitter === userId)
+      && (navOwnerId == null || navOwnerId === userId)
+    ) {
+      if (navOwnerId == null) setNavOwnerId(navSubmitter ?? userId);
+      setRestoredScope(scopeKey);
+      setItems(pendingItems(navJobs ?? []));
+      setCreationFailedCount(navState?.creationFailedCount ?? 0);
+    } else {
+      const persisted = readBatchResult(userId);
+      if (navOwnerId != null && navOwnerId !== userId) setNavOwnerId(null);
+      setRestoredScope(scopeKey);
+      setItems(pendingItems(persisted?.jobs ?? []));
+      setCreationFailedCount(persisted?.creationFailedCount ?? 0);
+    }
+  }
+  const storageReady = isLoaded && restoredScope === scopeKey;
+
+  // WHY: drop stale router state when the signed-in user is not the submitter.
+  useEffect(() => {
+    if (!isLoaded || !hasNavJobs) return;
+    const ownerMismatch = (navSubmitter != null && userId != null && navSubmitter !== userId)
+      || (navOwnerId != null && userId != null && navOwnerId !== userId);
+    if (ownerMismatch) {
+      navigate('.', { replace: true, state: null });
+    }
+  }, [isLoaded, userId, navSubmitter, navOwnerId, hasNavJobs, navigate]);
 
   // WHY: a ref, not `items` in the dependency array: the interval callback needs
   // the latest items to poll, but calling setItems() every tick changes the
@@ -90,6 +100,10 @@ export default function BatchResultPage() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+  // WHY: poll callbacks close over render-time scopeKey — a ref keeps the live
+  // account so late ticks after a switch do not write into the new user's list.
+  const scopeKeyRef = useRef(scopeKey);
+  scopeKeyRef.current = scopeKey;
   const allDone = items.length > 0 && items.every((i) => i.status === 'done' || i.status === 'failed');
 
   // WHY: invalidate when the batch settles (QA-LIB-001): Library may already
@@ -105,21 +119,26 @@ export default function BatchResultPage() {
   }, [allDone, queryClient]);
 
   useEffect(() => {
-    if (items.length === 0 || allDone) return undefined;
+    if (!storageReady || items.length === 0 || allDone) return undefined;
 
     let cancelled = false;
+    // WHY: capture poll scope at start — a late tick after account switch must
+    // not write the previous user's job statuses onto the new user's list.
+    const pollScope = scopeKey;
     // WHY: inFlight: 7 parallel status calls can outlast the 2.5s tick; overlapping
     // ticks would apply results out of order.
     let inFlight = false;
     const startedAt = Date.now();
+    // WHY: const after setInterval — prefer-const; cleanup closes over this handle.
+    let clearPoll: (() => void) | undefined;
 
-    const interval = setInterval(() => {
+    function poll(): void {
       if (inFlight) return;
       // WHY: max duration: a job that never reaches a terminal state would keep
       // this page polling forever — mark stragglers failed after 20 min.
       if (Date.now() - startedAt > BATCH_MAX_POLL_MS) {
-        clearInterval(interval);
-        if (!cancelled) {
+        clearPoll?.();
+        if (!cancelled && scopeKeyRef.current === pollScope) {
           setItems((prev) => prev.map((i) => (
             i.status === 'done' || i.status === 'failed' ? i : { ...i, status: 'failed' }
           )));
@@ -150,30 +169,55 @@ export default function BatchResultPage() {
               progress: isSuccess ? 100 : s.progress ?? (item.progress < 80 ? item.progress + 8 : item.progress),
               score: s.score,
             } as BatchItem;
-          } catch {
+          } catch (err: unknown) {
+            // WHY: a deleted job 404s on every tick. Leaving it pending means
+            // the batch spinner never settles.
+            if (httpStatusOf(err) === 404) {
+              return { ...item, status: 'failed', progress: 0 } as BatchItem;
+            }
             return item;
           }
         }),
       ).then((results) => {
         const fulfilled = results.filter((r): r is PromiseFulfilledResult<BatchItem> => r.status === 'fulfilled');
-        if (cancelled) return;
+        // WHY: drop results when scope ≠ request scope (account switched mid-poll).
+        if (cancelled || scopeKeyRef.current !== pollScope) return;
         setItems(fulfilled.map((r) => r.value));
       }).catch(() => {}).finally(() => {
         inFlight = false;
       });
-    }, 2500);
+    }
+
+    // WHY: poll once immediately — waiting 2.5s for the first tick left every
+    // card stuck on "pending" even when jobs were already processing/done.
+    poll();
+    const interval = setInterval(poll, 2500);
+    clearPoll = () => {
+      clearInterval(interval);
+      clearPoll = undefined;
+    };
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearPoll?.();
     };
-  }, [items.length, allDone]);
+  }, [items.length, allDone, storageReady, scopeKey, userId]);
 
   const doneCount = items.filter((i) => i.status === 'done').length;
   const failedCount = items.filter((i) => i.status === 'failed').length;
   const totalDone = doneCount + failedCount;
   const allComplete = totalDone === items.length && items.length > 0;
   const overallPct = items.length ? Math.round((totalDone / items.length) * 100) : 0;
+
+  if (!storageReady) {
+    return (
+      <div style={{
+        padding: '64px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13,
+      }}>
+        Loading batch…
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (

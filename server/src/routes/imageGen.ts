@@ -1,5 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
-import { parseBody, imageGenSchema } from '../schemas/index.js';
+import { parseBody, imageGenSchema, inspectSlideImageDataUrl } from '../schemas/index.js';
 import { env } from '../config.js';
 import { logger } from '../lib/logger.js';
 
@@ -122,6 +122,20 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
     if (!body) return;
     const { prompt, mode } = body;
 
+    // WHY: no sharp in this package — do not return a data URL slide PATCH
+    // and export will reject. Skip that provider and keep falling back; if
+    // every image is over the cap, 413 before the client can preview it.
+    let rejectedOversized = false;
+    const acceptProviderImage = (mime: string, base64: string): string | null => {
+      const inspected = inspectSlideImageDataUrl(mime, base64);
+      if (inspected.ok) return inspected.image;
+      if (inspected.reason === 'too_large') {
+        rejectedOversized = true;
+        logger.warn('[imageGen] skipped image over slide save limit', { mime });
+      }
+      return null;
+    };
+
     const openaiKey   = env.OPENAI_API_KEY;
     const togetherKey = env.TOGETHER_API_KEY;
     const geminiKey   = env.GEMINI_API_KEY;
@@ -153,8 +167,11 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
           const data = await r.json() as OpenAIImageResponse;
           const b64 = data.data?.[0]?.b64_json;
           if (b64) {
-            logger.info('[imageGen] gpt-image-1 succeeded');
-            return res.json({ image: `data:image/png;base64,${b64}`, source: 'gpt-image-1' });
+            const image = acceptProviderImage('image/png', b64);
+            if (image) {
+              logger.info('[imageGen] gpt-image-1 succeeded');
+              return res.json({ image, source: 'gpt-image-1' });
+            }
           }
         } else {
           const err = await r.json().catch(() => ({})) as ProviderErrorResponse;
@@ -195,9 +212,11 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
             clearTimeout(dlTimer);
             const contentType = normalizeImageContentType(dl.headers.get('content-type'));
             const buffer = await readCappedArrayBuffer(dl);
-            const base64 = Buffer.from(buffer).toString('base64');
-            logger.info('[imageGen] DALL-E 3 succeeded');
-            return res.json({ image: `data:${contentType};base64,${base64}`, source: 'dalle3' });
+            const image = acceptProviderImage(contentType, Buffer.from(buffer).toString('base64'));
+            if (image) {
+              logger.info('[imageGen] DALL-E 3 succeeded');
+              return res.json({ image, source: 'dalle3' });
+            }
           }
         } else {
           const err = await r.json().catch(() => ({})) as ProviderErrorResponse;
@@ -229,8 +248,11 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
           const data = await r.json() as TogetherImageResponse;
           const b64 = data.data?.[0]?.b64_json;
           if (b64) {
-            logger.info('[imageGen] Together AI FLUX succeeded');
-            return res.json({ image: `data:image/jpeg;base64,${b64}`, source: 'together' });
+            const image = acceptProviderImage('image/jpeg', b64);
+            if (image) {
+              logger.info('[imageGen] Together AI FLUX succeeded');
+              return res.json({ image, source: 'together' });
+            }
           }
         } else {
           console.warn('[imageGen] Together AI non-ok:', r.status);
@@ -270,11 +292,14 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
             const parts = data.candidates?.[0]?.content?.parts ?? [];
             for (const part of parts) {
               if (part.inlineData?.data) {
-                logger.info('[imageGen] Gemini model succeeded', { modelId });
-                return res.json({
-                  image: `data:${normalizeGeminiMime(part.inlineData.mimeType)};base64,${part.inlineData.data}`,
-                  source: 'gemini',
-                });
+                const image = acceptProviderImage(
+                  normalizeGeminiMime(part.inlineData.mimeType),
+                  part.inlineData.data,
+                );
+                if (image) {
+                  logger.info('[imageGen] Gemini model succeeded', { modelId });
+                  return res.json({ image, source: 'gemini' });
+                }
               }
             }
           } else {
@@ -301,13 +326,24 @@ router.post('/generate', async (req, res: Response, next: NextFunction) => {
       if (r.ok) {
         const contentType = normalizeImageContentType(r.headers.get('content-type'));
         const buffer = await readCappedArrayBuffer(r);
-        const base64 = Buffer.from(buffer).toString('base64');
-        logger.info('[imageGen] Pollinations.AI succeeded');
-        return res.json({ image: `data:${contentType};base64,${base64}`, source: 'pollinations' });
+        const image = acceptProviderImage(contentType, Buffer.from(buffer).toString('base64'));
+        if (image) {
+          logger.info('[imageGen] Pollinations.AI succeeded');
+          return res.json({ image, source: 'pollinations' });
+        }
       }
       console.warn('[imageGen] Pollinations non-ok:', r.status);
     } catch (e: unknown) {
       console.warn('[imageGen] Pollinations error:', errorMessage(e).slice(0, 120));
+    }
+
+    if (rejectedOversized) {
+      return res.status(413).json({
+        error:
+          'Generated image is too large to save on a slide. Try again or use a simpler prompt.',
+        code: 'IMAGE_TOO_LARGE',
+        retryable: true,
+      });
     }
 
     res.status(500).json({

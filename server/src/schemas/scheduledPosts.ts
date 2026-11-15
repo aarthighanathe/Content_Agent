@@ -33,17 +33,17 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 export const jobIdSchema = z.string().regex(UUID_REGEX, 'jobId must be a valid UUID');
 
-// WHY: optional, nullable-via-absence: a job can be scheduled with no publish
-// platform (stays exactly the old reminder-only behavior) or with one (enters
-// the real auto-publish path — see lib/publishQueue.ts). Only linkedin/twitter
-// are supported, matching social.ts's own postSocialSchema platform enum —
-// posting to instagram isn't implemented anywhere in this codebase yet.
+// WHY: optional, and null is distinct from omitted. Only linkedin/twitter are
+// supported (same enum as social post). Omitted on update keeps the stored
+// platform — a calendar drag that doesn't know the row must not clear
+// auto-publish. Explicit null is the reminder-only clear (day-panel Cancel).
+// Omitted on insert still stores null.
 export const publishPlatformSchema = z.enum(['linkedin', 'twitter']);
 
 export const createScheduledPostSchema = z.object({
   jobId: jobIdSchema,
   scheduledDate: scheduledPostDateSchema,
-  publishPlatform: publishPlatformSchema.optional(),
+  publishPlatform: publishPlatformSchema.nullable().optional(),
   // WHY: optional, in minutes, JS Date.getTimezoneOffset() sign convention
   // (minutes to ADD to local time to reach UTC — e.g. UTC-5 is +300): fixes
   // the auto-publish timezone bug where the client built scheduledDate from

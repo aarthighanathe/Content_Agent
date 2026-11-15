@@ -20,7 +20,7 @@ vi.mock('../../src/config.js', () => ({
 vi.mock('../../src/db/index.js', () => ({ db: null }));
 vi.mock('../../src/workers/contentWorker.js', () => ({ getJobFromStore: () => undefined }));
 
-const { assembleJobFromDB } = await import('../../src/routes/jobs/ownership.js');
+const { assembleJobFromDB, toClientJob } = await import('../../src/routes/jobs/ownership.js');
 
 // WHY derived via Parameters<>, not a hand-declared interface or `as any`:
 // assembleJobFromDB's real parameter type (DBJobWithRelations) isn't exported
@@ -105,6 +105,35 @@ describe('assembleJobFromDB (real module) — happy path', () => {
     expect(assembled.criticResult).toMatchObject({ totalScore: 82, approved: true });
   });
 
+  it('prefers the critique matching final.qualityScore when multiple exist', () => {
+    const assembled = assembleJobFromDB(makeDbJob({
+      outputs: [
+        {
+          agentName: 'critic',
+          outputType: 'critique',
+          content: { totalScore: 68, feedback: 'best' },
+          qualityScore: 68,
+          partial: 0,
+        },
+        {
+          agentName: 'critic',
+          outputType: 'critique',
+          content: { totalScore: 55, feedback: 'worse' },
+          qualityScore: 55,
+          partial: 0,
+        },
+        {
+          agentName: 'writer',
+          outputType: 'final',
+          content: { hook: 'H', body: 'B', cta: 'C' },
+          qualityScore: 68,
+          partial: 0,
+        },
+      ],
+    }));
+    expect(assembled.criticResult).toMatchObject({ totalScore: 68, feedback: 'best' });
+  });
+
   it('maps logs, defaulting nullable inputSummary/outputSummary/durationMs to empty/zero', () => {
     const dbJob = makeDbJob({
       logs: [{ agentName: 'critic', action: 'Content APPROVED', inputSummary: null, outputSummary: null, durationMs: null }],
@@ -146,5 +175,20 @@ describe('assembleJobFromDB (real module) — happy path', () => {
     expect(assembled.sourceCompetitorAnalysisId).toBeNull();
     expect(assembled.sourceUrl).toBeNull();
     expect(assembled.templateId).toBeNull();
+  });
+
+  it('keeps sourceMaterial for server callers and toClientJob strips it', () => {
+    const assembled = assembleJobFromDB({
+      ...makeDbJob(),
+      sourceMaterial: 'secret article',
+      competitorContext: 'gap text',
+    });
+    expect(assembled.sourceMaterial).toBe('secret article');
+    expect(assembled.competitorContext).toBe('gap text');
+    const client = toClientJob(assembled);
+    expect(client).not.toHaveProperty('sourceMaterial');
+    expect(client).not.toHaveProperty('competitorContext');
+    expect(client.id).toBe('job-1');
+    expect(assembled.sourceMaterial).toBe('secret article');
   });
 });

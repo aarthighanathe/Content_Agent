@@ -28,6 +28,11 @@ export function getInjectionTestPatterns(): RegExp[] {
   return INJECTION_PATTERN_SOURCES.map((source) => new RegExp(source, 'i'));
 }
 
+/** True when `value` matches any shared injection pattern (reject/neutralize path). */
+export function containsInjection(value: string): boolean {
+  return getInjectionTestPatterns().some((re) => re.test(value));
+}
+
 /**
  * Global, case-insensitive replacements for neutralizing the same shapes
  * inside untrusted fetched/third-party text that cannot be rejected wholesale.

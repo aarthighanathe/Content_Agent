@@ -53,6 +53,53 @@ describe('runOrchestrator — response parsing', () => {
     expect(result.taskPlan).toContain('AI marketing tools');
   });
 
+  it('rejects template-echo taskPlan/queries and uses buildFallbackSearchQueries', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      taskPlan: '<2 sentences: the angle, structure, and voice to use for this content>',
+      searchQueries: [
+        '<current trends or data query>',
+        '<platform best practices query>',
+        '<audience pain points or motivations query>',
+      ],
+    }));
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
+    expect(result.taskPlan).toContain('AI marketing tools');
+    expect(result.searchQueries).toHaveLength(3);
+    expect(result.searchQueries.join(' ')).toContain('latest');
+    result.searchQueries.forEach((q) => {
+      expect(q).not.toMatch(/</);
+    });
+  });
+
+  it('walks past a template-echo candidate to a later real plan', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(
+      JSON.stringify({
+        taskPlan: '<2 sentences: the angle>',
+        searchQueries: ['<current trends or data query>'],
+      }) +
+        '\n' +
+        JSON.stringify({
+          taskPlan: 'Lead with a contrarian AI-tools claim for marketers',
+          searchQueries: [
+            'AI marketing tools latest adoption stats',
+            'Instagram carousel best practices for B2B',
+            'digital marketers content pain points',
+          ],
+        }),
+    );
+
+    const { runOrchestrator } = await import('../../src/agents/orchestrator.js');
+    const result = await runOrchestrator(MOCK_JOB);
+
+    expect(result.taskPlan).toBe('Lead with a contrarian AI-tools claim for marketers');
+    expect(result.searchQueries[0]).toContain('AI marketing tools');
+  });
+
   it('falls back to the same default when JSON parses but the shape is invalid (schema-validation fix)', async () => {
     // WHY this test matters: before this pass's fix, a parseable-but-malformed
     // response (searchQueries sent as a single string instead of an array)

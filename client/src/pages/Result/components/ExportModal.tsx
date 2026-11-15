@@ -85,6 +85,9 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
   // burning Puppeteer/export quota.
   const isMountedRef = useRef(true);
   const exportAbortRef = useRef<AbortController | null>(null);
+  // WHY: sync gate: exportState updates only after paint, so a second click on
+  // another format (or the same one) before re-render would start a parallel export.
+  const exportingRef = useRef(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -117,23 +120,24 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
     };
   }, [isOpen]);
 
-  // WHY: this effect's cleanup runs on isOpen leaving true, not just on
-  // unmount: this component stays mounted across opens/closes (Result.tsx
-  // toggles `isOpen`, it doesn't remount the modal), so a plain unmount-only
-  // cleanup would miss the close→reopen-within-3s case this fix exists for.
-  // An effect that only "runs" while isOpen is true has its cleanup fire
-  // exactly when isOpen flips to false (or the component unmounts) — either
-  // way, pending timers from the session that's ending are cleared before a
-  // fresh session (reopen, or unmount) begins.
+  // WHY: stays mounted across opens (Result toggles isOpen) — cleanup on
+  // isOpen→false clears timers from the ending session before reopen.
+  // WHY: also reset exportState/errors/exportingRef — abort early-returns used
+  // to leave a format at 'exporting', so anyExporting disabled every Download.
   useEffect(() => {
-    if (!isOpen) {
+    const resetExportSession = (): void => {
       exportAbortRef.current?.abort();
       exportAbortRef.current = null;
+      exportingRef.current = false;
+      setExportState({});
+      setExportErrors({});
+    };
+    if (!isOpen) {
+      resetExportSession();
       return undefined;
     }
     return () => {
-      exportAbortRef.current?.abort();
-      exportAbortRef.current = null;
+      resetExportSession();
       pendingTimers.current.forEach(clearTimeout);
       pendingTimers.current.clear();
     };
@@ -153,7 +157,8 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
   }
 
   async function handleExport(formatId: string) {
-    if (getState(formatId) === 'exporting') return;
+    if (exportingRef.current) return;
+    exportingRef.current = true;
     setExportState((s) => ({ ...s, [formatId]: 'exporting' }));
     setExportErrors((s) => {
       const next = { ...s };
@@ -164,6 +169,7 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
     const ctx = {
       content, jobData, colorTheme, brandName, handle, colorSystem, designPreset, templateId, paletteId,
     };
+    exportAbortRef.current?.abort();
     const abort = new AbortController();
     exportAbortRef.current = abort;
     try {
@@ -176,7 +182,14 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
       } else if (formatId === 'html') {
         exportHTML(ctx);
       }
-      if (!isMountedRef.current || abort.signal.aborted) return;
+      if (!isMountedRef.current || abort.signal.aborted) {
+        // WHY: ownership gate — close nulls the ref; a superseded attempt must
+        // not clear a newer format's 'exporting' flag.
+        if (isMountedRef.current && exportAbortRef.current === abort) {
+          setExportState((s) => ({ ...s, [formatId]: 'idle' }));
+        }
+        return;
+      }
       setExportState((s) => ({ ...s, [formatId]: 'done' }));
       posthog?.capture?.('export_downloaded', { format: formatId, platform });
       const timer = setTimeout(() => {
@@ -186,7 +199,12 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
       }, 3000);
       pendingTimers.current.add(timer);
     } catch (err: unknown) {
-      if (!isMountedRef.current || isExportAbortError(err) || abort.signal.aborted) return;
+      if (!isMountedRef.current || isExportAbortError(err) || abort.signal.aborted) {
+        if (isMountedRef.current && exportAbortRef.current === abort) {
+          setExportState((s) => ({ ...s, [formatId]: 'idle' }));
+        }
+        return;
+      }
       const message = err instanceof Error && err.message.trim().length > 0
         ? err.message
         : 'Export failed. Try again.';
@@ -205,8 +223,11 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
       pendingTimers.current.add(timer);
     } finally {
       if (exportAbortRef.current === abort) exportAbortRef.current = null;
+      exportingRef.current = false;
     }
   }
+
+  const anyExporting = Object.values(exportState).some((s) => s === 'exporting');
 
   const visibleFormats = FORMATS.filter((f) => {
     if (f.id === 'png' && !isCarousel) return false;
@@ -327,14 +348,14 @@ export function ExportModal({ isOpen, onClose, jobData, content, colorTheme, isC
 
                 {/* Download button */}
                 <button
-                  onClick={() => handleExport(fmt.id)}
-                  disabled={state === 'exporting'}
+                  onClick={() => { void handleExport(fmt.id); }}
+                  disabled={anyExporting}
                   style={{
                     flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
                     background: state === 'done' ? 'rgba(16,185,129,0.12)' : state === 'error' ? 'rgba(239,68,68,0.1)' : recommended ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
                     border: `1px solid ${state === 'done' ? 'rgba(16,185,129,0.35)' : state === 'error' ? 'rgba(239,68,68,0.3)' : recommended ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'var(--rule)'}`,
                     color: state === 'done' ? 'var(--color-success)' : state === 'error' ? 'var(--color-error)' : recommended ? 'var(--accent)' : 'var(--text-secondary)',
-                    borderRadius: 8, padding: '6px 10px', cursor: state === 'exporting' ? 'wait' : 'pointer',
+                    borderRadius: 8, padding: '6px 10px', cursor: anyExporting ? 'wait' : 'pointer',
                     fontSize: 12, fontWeight: 600, transition: 'all .18s',
                     boxSizing: 'border-box', width: 124, minWidth: 124, maxWidth: 124,
                     justifyContent: 'center', whiteSpace: 'nowrap', overflow: 'hidden',

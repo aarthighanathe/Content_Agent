@@ -12,15 +12,22 @@ interface EvictionEntry {
 
 const evictionByJobId = new Map<string, EvictionEntry>();
 const generationByJobId = new Map<string, number>();
+// WHY: monotonic so a cleared timer's callback cannot match a later schedule
+// that would otherwise reuse generation 0 after the map entry was deleted.
+let nextEvictionGeneration = 1;
 
-/** Bump/cancel any pending eviction when a job re-enters a non-terminal run. */
+/** Cancel any pending eviction when a job re-enters a non-terminal run. */
 export function cancelJobEviction(jobId: string): void {
   const existing = evictionByJobId.get(jobId);
   if (existing) {
     clearTimeout(existing.timer);
     evictionByJobId.delete(jobId);
   }
-  generationByJobId.set(jobId, (generationByJobId.get(jobId) ?? 0) + 1);
+  // WHY: drop the token with the timer. Only the matching generation — a newer
+  // schedule's token must survive if this cancel lost the race.
+  if (!existing || generationByJobId.get(jobId) === existing.generation) {
+    generationByJobId.delete(jobId);
+  }
 }
 
 /**
@@ -33,12 +40,28 @@ export function scheduleJobEviction(
   ttlMs: number = EVICT_TTL_MS,
 ): void {
   cancelJobEviction(jobId);
-  const generation = generationByJobId.get(jobId) ?? 0;
+  const generation = nextEvictionGeneration;
+  nextEvictionGeneration += 1;
   const timer = setTimeout(() => {
     const current = evictionByJobId.get(jobId);
     if (!current || current.generation !== generation) return;
     evictionByJobId.delete(jobId);
+    if (generationByJobId.get(jobId) === generation) {
+      generationByJobId.delete(jobId);
+    }
     evict(jobId);
   }, ttlMs);
+  // WHY: unref so pending 10-min evictions don't keep the process alive on exit.
+  timer.unref?.();
+  generationByJobId.set(jobId, generation);
   evictionByJobId.set(jobId, { timer, generation });
+}
+
+/** Clear all pending eviction timers — called from graceful shutdown in index.ts. */
+export function stopJobEvictions(): void {
+  for (const entry of evictionByJobId.values()) {
+    clearTimeout(entry.timer);
+  }
+  evictionByJobId.clear();
+  generationByJobId.clear();
 }

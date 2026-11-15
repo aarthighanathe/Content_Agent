@@ -64,10 +64,11 @@ export function ContentDnaCard({
         </p>
       )}
 
-      <label style={label}>
+      <label htmlFor="brand-dna-samples" style={label}>
         {contentDna ? 'Update fingerprint — paste new sample posts' : 'Paste 3–5 of your best-performing posts'}
       </label>
       <textarea
+        id="brand-dna-samples"
         className="input"
         placeholder={'Post 1:\n...\n\nPost 2:\n...\n\nPost 3:\n...'}
         value={dnaSamples}
@@ -85,11 +86,16 @@ export function ContentDnaCard({
       }}>
         {dnaSamples.length}/50 minimum
       </div>
-      {dnaError && <div style={{ fontSize: 11.5, color: 'var(--color-error)', marginBottom: 10 }}>{dnaError}</div>}
+      {dnaError && (
+        <div role="alert" style={{ fontSize: 11.5, color: 'var(--color-error)', marginBottom: 10 }}>
+          {dnaError}
+        </div>
+      )}
       <button
+        type="button"
         onClick={onAnalyze}
         disabled={analyzingDna || !dnaSamples.trim()}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: analyzingDna ? 'color-mix(in srgb, var(--accent-2) 8%, transparent)' : 'color-mix(in srgb, var(--accent-2) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 30%, transparent)', borderRadius: 8, padding: '9px 18px', cursor: analyzingDna ? 'not-allowed' : 'pointer', fontSize: 12.5, color: 'var(--accent-2)', fontWeight: 600, transition: 'all .18s' }}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: analyzingDna ? 'color-mix(in srgb, var(--accent-2) 8%, transparent)' : 'color-mix(in srgb, var(--accent-2) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent-2) 30%, transparent)', borderRadius: 8, padding: '9px 18px', minHeight: 44, boxSizing: 'border-box', cursor: analyzingDna ? 'not-allowed' : 'pointer', fontSize: 12.5, color: 'var(--accent-2)', fontWeight: 600, transition: 'all .18s' }}
       >
         {analyzingDna ? (
           <><div style={{ width: 14, height: 14, border: '1.5px solid color-mix(in srgb, var(--accent-2) 30%, transparent)', borderTopColor: 'var(--accent-2)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Analyzing style…</>

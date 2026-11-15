@@ -11,9 +11,15 @@ vi.mock('../../src/lib/ai.js', () => ({
   generateWithAI: vi.fn(),
   searchTavily: vi.fn().mockResolvedValue({ results: [] }),
 }));
-// WHY: demo consumeDemoBudget uses shared Redis — exhausted counters flake as 429.
+// WHY: under-cap Redis stub — consumeDemoBudget fails closed on null (429).
+const demoRedis = vi.hoisted(() => ({
+  client: {
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+  },
+}));
 vi.mock('../../src/lib/redisClient.js', () => ({
-  getRedisClient: () => null,
+  getRedisClient: () => demoRedis.client,
 }));
 
 // ─── demo route (BUG-002 regression tests) ───────────────────────────────────
@@ -31,6 +37,8 @@ describe('BUG-002 regression — topic type guard', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    demoRedis.client.incr.mockResolvedValue(1);
+    demoRedis.client.expire.mockResolvedValue(1);
     const aiModule = await import('../../src/lib/ai.js');
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(
       JSON.stringify({ hook: 'H', body: 'B.' })
@@ -157,6 +165,7 @@ describe('BUG-006 regression — SSRF protection in repurpose route', () => {
 // ─── BUG-004 regression — tweet numbering ────────────────────────────────────
 
 describe('BUG-004 regression — first tweet gets 1/ prefix', () => {
+  // WHY: mirror formatter — strip thread index via `(?!\d)`, not bare `/^\d+\//`.
   function formatTwitterThread(thread: any): any {
     if (!thread || !thread.tweets) return thread;
     const formatted = { ...thread };
@@ -164,10 +173,9 @@ describe('BUG-004 regression — first tweet gets 1/ prefix', () => {
       const t = { ...tweet };
       const n = index + 1;
       const prefix = `${n}/`;
-      const alreadyNumbered = /^\d+\/\s/.test(String(t.text));
-      if (!alreadyNumbered) {
-        t.text = `${prefix} ${t.text}`;
-      }
+      const text = String(t.text ?? '');
+      const stripped = text.replace(/^\d+\/(?!\d)\s*/, '');
+      t.text = stripped.length > 0 ? `${prefix} ${stripped}` : prefix;
       if (t.text.length > 280) {
         t.text = t.text.slice(0, 277) + '...';
       }
@@ -197,5 +205,12 @@ describe('BUG-004 regression — first tweet gets 1/ prefix', () => {
     result.tweets.forEach((t: any, i: number) => {
       expect(t.text).toMatch(new RegExp(`^${i + 1}/`));
     });
+  });
+
+  it('fractions like 3/5 are preserved under the thread index', () => {
+    const result = formatTwitterThread({
+      tweets: [{ text: '3/5 of teams ship weekly' }],
+    });
+    expect(result.tweets[0].text).toBe('1/ 3/5 of teams ship weekly');
   });
 });

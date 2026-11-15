@@ -34,8 +34,15 @@ export const ideaSchema = z.object({
   prediction: ideaPredictionSchema.optional(),
 });
 
+// WHY: min(1) + non-empty title — an empty `ideas: []` used to parse successfully
+// and return HTTP 200; callers treat that as success and show a blank Ideate
+// board. Fail the schema so the route returns AI_PARSE_ERROR / retryable.
+const ideaWithTitleSchema = ideaSchema.extend({
+  title: z.string().trim().min(1),
+});
+
 export const ideateResponseSchema = z.object({
-  ideas: z.array(ideaSchema).catch([]).optional(),
+  ideas: z.array(ideaWithTitleSchema).min(1),
 });
 
 export type IdeateResponse = z.infer<typeof ideateResponseSchema>;
@@ -44,7 +51,8 @@ export type IdeateResponse = z.infer<typeof ideateResponseSchema>;
 // I1's regenerate-one route returns one bare idea object, not an `ideas`
 // array wrapper — keeping the response shape distinct from the batch
 // endpoint's makes the client-side contract explicit (one idea in, one back).
-export const regenerateIdeaResponseSchema = ideaSchema;
+// WHY: non-empty title required — same empty-success bug as the batch path.
+export const regenerateIdeaResponseSchema = ideaWithTitleSchema;
 
 export type RegenerateIdeaResponse = z.infer<typeof regenerateIdeaResponseSchema>;
 

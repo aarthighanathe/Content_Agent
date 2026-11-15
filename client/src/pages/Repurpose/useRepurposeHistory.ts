@@ -50,7 +50,10 @@ function writeHistory(userId: string | null, entries: RepurposeHistoryEntry[]): 
 
 export function useRepurposeHistory(): {
   history: RepurposeHistoryEntry[];
-  addEntry: (entry: Omit<RepurposeHistoryEntry, 'id' | 'createdAt'>) => void;
+  addEntry: (
+    entry: Omit<RepurposeHistoryEntry, 'id' | 'createdAt'>,
+    forUserId?: string | null,
+  ) => void;
   removeEntry: (id: string) => void;
   clearHistory: () => void;
 } {
@@ -58,6 +61,10 @@ export function useRepurposeHistory(): {
   const scopeId = userId ?? null;
   const [history, setHistory] = useState<RepurposeHistoryEntry[]>(() => readHistory(scopeId));
   const loadedFor = useRef<string | null>(scopeId);
+  // WHY: ref tracks live scope so a late addEntry after account switch can compare
+  // against the submit-time userId without writing into the new account's list.
+  const scopeIdRef = useRef(scopeId);
+  scopeIdRef.current = scopeId;
 
   // WHY: reload when the signed-in user changes so the previous user's list never lingers
   useEffect(() => {
@@ -69,13 +76,19 @@ export function useRepurposeHistory(): {
   // WHY: prepend + cap, not append: most-recent-first matches how the list is
   // displayed, and capping at MAX_ENTRIES keeps localStorage from growing
   // unbounded for a user who repurposes frequently.
-  function addEntry(entry: Omit<RepurposeHistoryEntry, 'id' | 'createdAt'>): void {
+  function addEntry(
+    entry: Omit<RepurposeHistoryEntry, 'id' | 'createdAt'>,
+    forUserId?: string | null,
+  ): void {
+    // WHY: submit captures userId at click — ignore if Clerk switched before settle.
+    if (forUserId !== undefined && forUserId !== scopeIdRef.current) return;
+    const writeScope = scopeIdRef.current;
     setHistory((prev) => {
       const next = [
         { ...entry, id: crypto.randomUUID(), createdAt: new Date().toISOString() },
         ...prev,
       ].slice(0, MAX_ENTRIES);
-      writeHistory(scopeId, next);
+      writeHistory(writeScope, next);
       return next;
     });
   }

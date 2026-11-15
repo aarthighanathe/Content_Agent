@@ -46,7 +46,26 @@ vi.mock('../../src/config.js', () => ({
 }));
 
 vi.mock('../../src/db/schema.js', () => ({
-  scheduledPosts: { userId: 'userId', jobId: 'jobId', scheduledDate: 'scheduledDate' },
+  scheduledPosts: {
+    userId: 'userId',
+    jobId: 'jobId',
+    scheduledDate: 'scheduledDate',
+    id: 'id',
+    publishStatus: 'publishStatus',
+  },
+  contentJobs: { id: 'id', userId: 'userId', deleted: 'deleted', topic: 'topic', platform: 'platform' },
+}));
+
+// WHY: POST uses jobMutationRateLimit — without Redis the fail-closed limiter
+// returns 503 and none of the route logic under test runs.
+const passThrough = (_req: unknown, _res: unknown, next: () => void): void => next();
+vi.mock('../../src/middleware/rateLimit.js', () => ({
+  jobMutationRateLimit: passThrough,
+}));
+
+vi.mock('../../src/lib/publishQueue.js', () => ({
+  queuePublishJob: vi.fn(async () => ({ ok: true })),
+  cancelPublishJob: vi.fn(async () => undefined),
 }));
 
 // WHY getJobFromStore returns undefined: ownership resolution falls through
@@ -76,6 +95,7 @@ interface FakeRow {
 
 const rows = vi.hoisted(() => [] as FakeRow[]);
 let idCounter = 0;
+const LIST_MAX_FOR_FAKE = 200;
 
 function resetFakeDb() {
   rows.length = 0;
@@ -96,17 +116,43 @@ const fakeDb = {
       },
     },
   },
-  // WHY select: POST now reads the existing row before upsert so hour-only
-  // tweaks on posted schedules do not re-arm publish (CORR-006).
+  // WHY select: POST reads existing before upsert; DELETE checks publishing;
+  // GET uses select+innerJoin (join ignored — filter already scopes rows).
   select: () => ({
-    from: () => ({
-      where: () => ({
-        limit: async (n: number) => {
-          void n;
-          return rows.filter((r) => currentFilter(r)).slice(0, 1);
-        },
-      }),
-    }),
+    from: () => {
+      const terminal = {
+        where: () => ({
+          limit: async (n: number) => {
+            void n;
+            return rows.filter((r) => currentFilter(r)).slice(0, 1);
+          },
+          orderBy: () => ({
+            limit: async (n: number) => {
+              void n;
+              return rows
+                .filter((r) => currentFilter(r))
+                .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))
+                .slice(0, LIST_MAX_FOR_FAKE)
+                .map((r) => ({
+                  ...r,
+                  topic: 'test-topic',
+                  platform: 'linkedin',
+                  publishPlatform: r.publishPlatform ?? null,
+                  publishHour: r.publishHour ?? 9,
+                  publishStatus: r.publishStatus ?? 'pending',
+                  publishedAt: null,
+                  postUrl: null,
+                  publishError: null,
+                }));
+            },
+          }),
+        }),
+      };
+      return {
+        ...terminal,
+        innerJoin: () => terminal,
+      };
+    },
   }),
   update: () => ({
     set: (vals: Partial<FakeRow>) => ({
@@ -126,15 +172,23 @@ const fakeDb = {
         returning: async () => {
           const existingIdx = rows.findIndex((r) => r.jobId === val.jobId);
           if (existingIdx >= 0) {
+            // WHY: mirror onConflict WHERE ≠ publishing — empty returning → 409.
+            if (rows[existingIdx].publishStatus === 'publishing') return [];
             rows[existingIdx] = {
               ...rows[existingIdx],
               scheduledDate: val.scheduledDate,
               publishPlatform: val.publishPlatform ?? rows[existingIdx].publishPlatform,
               publishHour: val.publishHour ?? rows[existingIdx].publishHour,
+              publishStatus: 'pending',
             };
             return [rows[existingIdx]];
           }
-          const row: FakeRow = { id: `row-${++idCounter}`, ...val, createdAt: new Date() };
+          const row: FakeRow = {
+            id: `row-${++idCounter}`,
+            ...val,
+            createdAt: new Date(),
+            publishStatus: 'pending',
+          };
           rows.push(row);
           return [row];
         },
@@ -144,7 +198,11 @@ const fakeDb = {
   delete: (_table: unknown) => ({
     where: (_cond: unknown) => ({
       returning: async () => {
-        const idx = rows.findIndex((r) => r.jobId === currentDeleteJobId && r.userId === currentDeleteUserId);
+        const idx = rows.findIndex((r) => (
+          r.jobId === currentDeleteJobId
+          && r.userId === currentDeleteUserId
+          && r.publishStatus !== 'publishing'
+        ));
         if (idx === -1) return [];
         const [removed] = rows.splice(idx, 1);
         return [removed];
@@ -389,5 +447,18 @@ describe('DELETE /api/scheduled-posts/:jobId', () => {
 
     const listRes = await supertest(ownerApp).get('/api/scheduled-posts');
     expect(listRes.body.scheduledPosts).toHaveLength(1);
+  });
+
+  it('returns 409 while publishStatus is publishing', async () => {
+    const app = await buildApp(OWNER);
+    await supertest(app).post('/api/scheduled-posts').send({ jobId: JOB_ID, scheduledDate: '2026-08-05' });
+    const row = rows.find((r) => r.jobId === JOB_ID);
+    expect(row).toBeDefined();
+    if (row) row.publishStatus = 'publishing';
+
+    const res = await supertest(app).delete(`/api/scheduled-posts/${JOB_ID}`);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('PUBLISH_IN_PROGRESS');
+    expect(rows.some((r) => r.jobId === JOB_ID)).toBe(true);
   });
 });

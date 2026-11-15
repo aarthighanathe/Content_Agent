@@ -1,23 +1,16 @@
 import { searchTavily, type TavilySearchResult } from '../lib/ai.js';
 import { sseManager } from '../lib/sse.js';
-import { ContentJob } from '../db/schema.js';
+import type { RuntimeJob } from '../lib/pipelineTypes.js';
 import { sanitizeSearchText } from '../lib/sanitizeSearchText.js';
 
-// WHY: exported: writer.ts's WriterInput.researchReport reads this shape directly
-// (trendingAngles/keyFacts/suggestedHashtags/competitorHooks) — exporting it lets
-// writer.ts use the real type instead of a second, possibly-drifting copy of the
-// same shape.
-export interface ResearchResult {
-  trendingAngles: string[];
-  keyFacts: string[];
-  suggestedHashtags: string[];
-  competitorHooks: string[];
-  sourceUrls: string[];
-  rawResults: TavilySearchResult[];
-}
+import type { ResearchResult } from './agentTypes.js';
+
+// WHY: re-exported so existing `from './researcher.js'` imports keep working; the
+// definition lives in agentTypes.ts to avoid a cycle with pipelineTypes.ts.
+export type { ResearchResult };
 
 export async function runResearcher(
-  job: ContentJob,
+  job: RuntimeJob,
   searchQueries: string[]
 ): Promise<ResearchResult> {
   sseManager.sendEvent(job.id, {
@@ -102,6 +95,8 @@ export async function runResearcher(
     suggestedHashtags: [...new Set(suggestedHashtags)].slice(0, 15),
     competitorHooks: competitorHooks.slice(0, 5),
     sourceUrls: [...new Set(sourceUrls)].slice(0, 5),
-    rawResults: allResults,
+    // SECURITY: omit unsanitized Tavily payloads from persisted/API research —
+    // clients only need angles/facts/hashtags/hooks/urls (no rawResults consumers).
+    rawResults: [],
   };
 }

@@ -107,6 +107,7 @@ export function InfoSidebar() {
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 5,
             fontSize: 12, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none',
+            minHeight: 44, boxSizing: 'border-box',
           }}
         >
           Set up Brand Voice <ArrowRight size={12} />

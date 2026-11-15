@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, PenLine, Send, Hash, History, ChevronLeft } from 'lucide-react';
 import { FeedbackPanel } from './panels/FeedbackPanel';
 import { PostPanel } from './panels/PostPanel';
@@ -36,6 +36,7 @@ interface ActionDrawerProps {
   feedbackPrefill?: string;
   social: {
     socialConnections: SocialConnection[];
+    connectionsPending: boolean;
     postingTo: string | null;
     postResult: Record<string, 'ok' | 'error'>;
     // WHY: required here: without it PostPanel gets an empty default and "View post"
@@ -118,17 +119,16 @@ export function ActionDrawer({
   const [activeTab, setActiveTab] = useState<ActionTab | null>(defaultTab ?? null);
   const drawerRef = useRef<HTMLDivElement>(null);
 
-  // WHY: setTimeout(0): react-hooks/set-state-in-effect flags synchronous setState in
-  // an effect body; deferring moves the update into a callback.
-  const syncTab = useCallback((tab: ActionTab | null) => {
-    setActiveTab(tab);
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const t = setTimeout(() => syncTab(defaultTab ?? null), 0);
-    return () => clearTimeout(t);
-  }, [isOpen, defaultTab, syncTab]);
+  // WHY: adjust state during render (not in an effect/timeout) so the correct panel is
+  // already committed when useFocusTrap runs on open and focuses inside it.
+  const [syncedOpen, setSyncedOpen] = useState(isOpen);
+  const [syncedDefault, setSyncedDefault] = useState<ActionTab | null>(defaultTab ?? null);
+  const nextDefault = defaultTab ?? null;
+  if (isOpen !== syncedOpen || (isOpen && nextDefault !== syncedDefault)) {
+    setSyncedOpen(isOpen);
+    setSyncedDefault(nextDefault);
+    if (isOpen) setActiveTab(nextDefault);
+  }
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -237,7 +237,10 @@ export function ActionDrawer({
           )}
 
           {activeTab === 'feedback' && (
+            // WHY: remount when prefill changes — useState(initialText) alone kept
+            // the prior Insights “Fix with AI” text after opening blank Rewrite.
             <FeedbackPanel
+              key={feedbackPrefill}
               initialText={feedbackPrefill}
               onSubmit={(fb) => {
                 onRegenerate(fb);
@@ -246,8 +249,11 @@ export function ActionDrawer({
             />
           )}
           {activeTab === 'post' && (
+            // WHY: remount on job id — schedule/post UI from job A must not linger on B.
             <PostPanel
+              key={jobData?.id}
               connections={social.socialConnections}
+              connectionsPending={social.connectionsPending}
               content={content}
               // WHY: required for Schedule: without jobId, handleSchedule early-returns
               // and the Schedule button appears to do nothing.
@@ -271,6 +277,9 @@ export function ActionDrawer({
           {activeTab === 'history' && (
             <HistoryPanel
               jobId={jobData?.id}
+              // WHY: wait for ownership revalidation — jobId from the route alone
+              // is not enough after an account switch while jobData is still null.
+              jobReady={Boolean(jobData?.id)}
               onClose={onClose}
               onRestoreBegin={onRestoreBegin}
               onRestored={onRestored}

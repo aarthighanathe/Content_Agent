@@ -4,6 +4,7 @@
 // jobOutputVersions WHY comment for why the snapshot is taken only at
 // regenerate/restore time, not on every save.
 import { useState } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { RotateCcw, Loader2, History } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getJobVersions, restoreJobVersion } from '../../../../api';
@@ -13,6 +14,8 @@ import { SkeletonBlock } from '../../../../components/SkeletonCard';
 
 interface Props {
   jobId: string | undefined;
+  /** False until Result revalidated ownership for the current user. */
+  jobReady?: boolean;
   onClose: () => void;
   onRestoreBegin?: () => boolean;
   onRestored: () => void;
@@ -22,25 +25,31 @@ interface Props {
 
 export function HistoryPanel({
   jobId,
+  jobReady = false,
   onClose,
   onRestoreBegin,
   onRestored,
   onRestoreEnd,
   restoreDisabled = false,
 }: Props) {
+  const { isLoaded: authLoaded, isSignedIn, userId } = useAuth();
   const queryClient = useQueryClient();
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const versionsQuery = useQuery({
-    queryKey: ['jobVersions', jobId],
+    queryKey: ['jobVersions', userId ?? 'anon', jobId],
     queryFn: () => getJobVersions(jobId as string),
-    enabled: !!jobId,
+    enabled: authLoaded && isSignedIn && Boolean(jobId) && jobReady,
   });
 
   const restoreMutation = useMutation({
     mutationFn: (versionId: string) => restoreJobVersion(jobId as string, versionId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['jobVersions', jobId] });
+      // WHY: must match the queryKey above (includes userId) — bare ['jobVersions', jobId]
+      // never invalidated the active cache entry after restore.
+      queryClient.invalidateQueries({
+        queryKey: ['jobVersions', userId ?? 'anon', jobId],
+      });
       // WHY: restore changes the job's final content/score shown in list cards.
       Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
@@ -65,7 +74,9 @@ export function HistoryPanel({
 
   return (
     <div className="rp-history-panel">
-      {versionsQuery.isLoading && (
+      {/* WHY: isPending, not isLoading: while Clerk hydrates / jobReady is false the
+          query is disabled and isLoading is false — that flashed empty history. */}
+      {versionsQuery.isPending && (
         <ul className="rp-history-list" aria-busy="true" aria-label="Loading history">
           {['a', 'b', 'c'].map((id) => (
             <li key={id} className="rp-history-row">
@@ -85,7 +96,7 @@ export function HistoryPanel({
         </div>
       )}
 
-      {!versionsQuery.isLoading && !versionsQuery.isError && versions.length === 0 && (
+      {!versionsQuery.isPending && !versionsQuery.isError && versions.length === 0 && (
         <div className="rp-panel-empty">
           <span className="rp-panel-empty-icon" aria-hidden>
             <History size={22} />

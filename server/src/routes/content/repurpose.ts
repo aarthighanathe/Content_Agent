@@ -2,9 +2,9 @@ import * as Sentry from '@sentry/node';
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../../middleware/auth.js';
-import { runPipelineDirect } from '../jobs/index.js';
+import { runPipelineDirect } from '../../lib/pipelineDirect.js';
 import { setJobInStore, requireAuthUserId } from '../jobs/ownership.js';
-import { getUserProfile } from '../users.js';
+import { getUserProfile } from '../../lib/profileStore.js';
 import { addJobToQueue } from '../../lib/queue.js';
 import { CLIENT_BATCH_URL_FAILURE } from '../../lib/clientErrors.js';
 import { parseBody, repurposeSchema, repurposeBatchSchema, TOPIC_MAX_LENGTH } from '../../schemas/index.js';
@@ -18,8 +18,9 @@ import { insertPendingJobRow } from '../../lib/persistJob.js';
 import {
   fetchAndExtractArticle,
   buildSourceMaterial,
-  type ExtractedArticle,
-} from './articleExtract.js';
+} from '../../lib/articleExtract.js';
+import { createJobsForPlatforms } from '../../lib/repurposeJobs.js';
+export { createJobsForPlatforms };
 
 const router = Router();
 
@@ -30,12 +31,6 @@ router.post('/repurpose', async (req: AuthRequest, res: Response) => {
     const body = parseBody(repurposeSchema, req.body, res);
     if (!body) return;
     const { url, platform, platforms, tone, targetAudience } = body;
-
-    const extracted = await fetchAndExtractArticle(url);
-    if (!extracted.ok) {
-      return res.status(extracted.status).json({ error: extracted.error, code: extracted.code, retryable: extracted.retryable });
-    }
-    const { text, topicSentence } = extracted.article;
 
     const userId = requireAuthUserId(req, res);
     if (!userId) return;
@@ -50,9 +45,9 @@ router.post('/repurpose', async (req: AuthRequest, res: Response) => {
     // platform, one job, same response shape below).
     const targetPlatforms = platforms ?? [platform];
 
-    // WHY: reserve before create (COST-001): contentRateLimit does not touch the
-    // generation-hour key — without a pre-check, over-cap users still burned
-    // Gemini. alreadyCounted:false reserves the full platform count.
+    // WHY: reserve BEFORE fetchAndExtractArticle (COST): extract calls Gemini
+    // for the topic summary — charging after extract let over-cap users burn
+    // quota on failed/blocked extracts. Refund on extract failure below.
     const budget = await reserveGenerationBudget(budgetKey, targetPlatforms.length, {
       alreadyCounted: false,
     });
@@ -65,6 +60,19 @@ router.post('/repurpose', async (req: AuthRequest, res: Response) => {
     }
     budgetKeyForRefund = budgetKey;
     reservedForRefund = budget.reserved;
+
+    const extracted = await fetchAndExtractArticle(url);
+    if (!extracted.ok) {
+      await releaseGenerationBudget(budgetKey, reservedForRefund);
+      budgetKeyForRefund = null;
+      reservedForRefund = 0;
+      return res.status(extracted.status).json({
+        error: extracted.error,
+        code: extracted.code,
+        retryable: extracted.retryable,
+      });
+    }
+    const { text, topicSentence } = extracted.article;
 
     // WHY: Promise.allSettled, not sequential creation: each platform's job
     // creation is independent (own jobId, own queue/direct-pipeline kickoff)
@@ -96,8 +104,16 @@ router.post('/repurpose', async (req: AuthRequest, res: Response) => {
         };
 
         // WHY: persist first so a failed insert never leaves a phantom job in memory.
-
-        await insertPendingJobRow(job);
+        // WHY: check the boolean: insertPendingJobRow swallows DB errors —
+        // enqueueing anyway would burn Gemini with no durable row to update.
+        const inserted = await insertPendingJobRow(job);
+        if (!inserted) {
+          logger.error('Repurpose pending row insert failed; not enqueueing', {
+            jobId,
+            platform: targetPlatform,
+          });
+          throw new Error('Pending job row insert failed');
+        }
         setJobInStore(jobId, job);
 
         const queued = await addJobToQueue(jobId, { ...job });
@@ -156,62 +172,8 @@ router.post('/repurpose', async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ error: 'Failed to start repurpose job', code: 'SERVER_ERROR', retryable: true });
   }
 });
-export type UserProfile = Awaited<ReturnType<typeof getUserProfile>>;
 
-// WHY: extracted from the single-URL handler: POST /repurpose/batch reuses the
-// exact same job-creation fan-out so a batch of N URLs gets identical behavior.
-export async function createJobsForPlatforms(
-  userId: string,
-  userProfile: UserProfile,
-  url: string,
-  article: ExtractedArticle,
-  targetPlatforms: string[],
-  tone: string,
-  targetAudience: string,
-): Promise<Array<{ jobId: string; platform: string; topic: string }>> {
-  const settled = await Promise.allSettled(
-    targetPlatforms.map(async (targetPlatform) => {
-      const jobId = uuidv4();
-      const sourceMaterial = buildSourceMaterial(url, targetPlatform, article.text);
-      const topic = article.topicSentence.slice(0, TOPIC_MAX_LENGTH);
-
-      const job: PipelineJob = {
-        id: jobId,
-        userId,
-        topic,
-        platform: targetPlatform,
-        tone,
-        targetAudience,
-        brandVoice: userProfile.brandVoice || 'professional',
-        phrasesUse: userProfile.phrasesUse || '',
-        phrasesAvoid: userProfile.phrasesAvoid || '',
-        contentDna: userProfile.contentDna || null,
-        sourceUrl: url,
-        sourceMaterial,
-        status: 'pending',
-        retryCount: 0,
-        deleted: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      // WHY: persist first so a failed insert never leaves a phantom job in memory.
-
-      await insertPendingJobRow(job);
-      setJobInStore(jobId, job);
-      const queued = await addJobToQueue(jobId, { ...job });
-      if (!queued) {
-        runPipelineDirect(jobId, job).catch((err: unknown) => {
-          logger.error('Repurpose direct pipeline failed', { jobId, platform: targetPlatform, error: err instanceof Error ? err.message : String(err) });
-        });
-      }
-      return { jobId, platform: targetPlatform, topic };
-    }),
-  );
-  return settled
-    .filter((r): r is PromiseFulfilledResult<{ jobId: string; platform: string; topic: string }> => r.status === 'fulfilled')
-    .map((r) => r.value);
-}
+export type { UserProfile } from '../../lib/profileStore.js';
 
 // POST /api/content/repurpose/batch — N different URLs, each to its own
 // platform list, processed concurrently. Each URL is independently
@@ -324,5 +286,6 @@ router.post('/repurpose/batch', async (req: AuthRequest, res: Response) => {
   }
 });
 
-export { fetchAndExtractArticle };
+// WHY: re-export for any legacy import sites; workers should use lib/* directly.
+export { fetchAndExtractArticle } from '../../lib/articleExtract.js';
 export default router;

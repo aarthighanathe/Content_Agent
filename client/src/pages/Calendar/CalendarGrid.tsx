@@ -29,12 +29,15 @@ interface CalendarGridProps {
   dragJobId: string | null;
   onDrop: (dateKey: string) => void;
   scheduledOnDay: (dateKey: string) => CalendarJob[];
+  /** Ignore drops while a schedule mutation is in flight. */
+  isMutating?: boolean;
 }
 
 export function CalendarGrid({
   onToggleSidebar, year, month, totalCells, firstDayOfWeek, daysInMonth, today,
   allScheduledCount, thisMonthScheduledCount, unscheduledCount, onPrevMonth, onNextMonth, onToday,
-  isError, loading, onRetry, selectedDay, onSelectDay, dragOver, onDragOver, dragJobId,   onDrop, scheduledOnDay,
+  isError, loading, onRetry, selectedDay, onSelectDay, dragOver, onDragOver, dragJobId, onDrop, scheduledOnDay,
+  isMutating = false,
 }: CalendarGridProps) {
   return (
     <div className="sc-cal">
@@ -78,12 +81,30 @@ export function CalendarGrid({
         </div>
 
         <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
-          <button className="sc-nav-btn" onClick={onPrevMonth}><ChevronLeft size={15} /></button>
+          {/* WHY: aria-label: icon-only chevrons announced as unnamed buttons. */}
           <button
+            type="button"
+            className="sc-nav-btn"
+            onClick={onPrevMonth}
+            aria-label="Previous month"
+          >
+            <ChevronLeft size={15} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="sc-today-btn"
             onClick={onToday}
+            aria-label="Go to current month"
             style={{ fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:0.5, background:'color-mix(in srgb, var(--accent) 8%, transparent)', border:'1px solid color-mix(in srgb, var(--accent) 20%, transparent)', color:'var(--accent)', borderRadius:7, padding:'6px 12px', cursor:'pointer', transition:'all .15s' }}
           >Today</button>
-          <button className="sc-nav-btn" onClick={onNextMonth}><ChevronRight size={15} /></button>
+          <button
+            type="button"
+            className="sc-nav-btn"
+            onClick={onNextMonth}
+            aria-label="Next month"
+          >
+            <ChevronRight size={15} aria-hidden />
+          </button>
         </div>
       </div>
 
@@ -113,17 +134,28 @@ export function CalendarGrid({
             return (
               <div
                 key={cellIdx}
-                className={`sc-cell${isToday?' today':''}${isSelected?' selected':''}${isDragOver?' drag-over':''}`}
+                className={`sc-cell${isToday?' today':''}${isSelected?' selected':''}${isDragOver && !isPast?' drag-over':''}`}
                 role="button"
                 tabIndex={0}
+                // WHY: date + count in aria-label — bare day numbers ("8") are opaque
+                // when many cells share the grid.
+                aria-label={`${isToday ? 'Today, ' : ''}${isPast ? 'Past day, ' : ''}${new Date(`${dateKey}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}${dayJobs.length > 0 ? `, ${dayJobs.length} scheduled` : ', no content'}${isSelected ? ', selected' : ''}${isPast ? ', view only' : ''}`}
+                aria-pressed={isSelected}
                 style={{ opacity: isPast && !isToday ? 0.55 : 1 }}
+                // WHY: past days stay clickable to view existing scheduled items;
+                // only pick/drop is blocked (SchedulePicker + allocate guard).
                 onClick={() => onSelectDay(isSelected ? null : dateKey)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectDay(isSelected ? null : dateKey); } }}
-                onDragOver={e => { e.preventDefault(); onDragOver(dateKey); }}
+                onDragOver={e => {
+                  if (isMutating || isPast) return;
+                  e.preventDefault();
+                  onDragOver(dateKey);
+                }}
                 onDragLeave={() => onDragOver(null)}
                 onDrop={e => {
                   e.preventDefault();
                   onDragOver(null);
+                  if (isMutating || isPast) return;
                   if (dragJobId) onDrop(dateKey);
                 }}
               >
@@ -162,7 +194,7 @@ export function CalendarGrid({
                   </button>
                 )}
                 <div className="sc-drop-hint">
-                  {dragJobId ? '+ Schedule here' : ''}
+                  {dragJobId && !isPast ? '+ Schedule here' : ''}
                 </div>
               </div>
             );

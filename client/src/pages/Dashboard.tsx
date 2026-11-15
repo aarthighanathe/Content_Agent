@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { Sparkles } from 'lucide-react';
 import { getJobs, getProfile, deleteJob, getFeedMonitors } from '../api';
-import { fetchScheduledPostsCurrentAndNext } from './Calendar/calendarHelpers';
+import { fetchScheduledPostsCurrentAndNext, SCHEDULE_QUERY_KEY } from './Calendar/calendarHelpers';
 import { ErrorState } from '../components/ErrorState';
 import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { RecentGenerations } from './Dashboard/RecentGenerations';
@@ -106,6 +106,8 @@ export default function Dashboard() {
         queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] }),
         queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
         queryClient.invalidateQueries({ queryKey: ['calendar', 'jobs'] }),
+        queryClient.invalidateQueries({ queryKey: SCHEDULE_QUERY_KEY }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard', 'nextScheduled'] }),
       ]).catch(() => {});
       setDeleteConfirm(null);
       setDeleteError('');

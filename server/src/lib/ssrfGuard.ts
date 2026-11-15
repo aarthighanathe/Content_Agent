@@ -39,13 +39,21 @@ const RESERVED_V4: Array<[string, number]> = [
   ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24],
   ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24],
   ['203.0.113.0', 24], ['224.0.0.0', 3],
+  // WHY: 6to4 relay anycast (deprecated); can relay to embedded/private targets.
+  ['192.88.99.0', 24],
 ];
 // WHY: no ::ffff:0:0/96: Node's BlockList treats that mapped range as matching
 // EVERY IPv4 address when check(..., 'ipv4') runs — Cloudflare/public A records
 // were rejected as "private". IPv4-mapped forms are unwrapped below instead.
 const RESERVED_V6: Array<[string, number]> = [
   ['::', 128], ['::1', 128], ['64:ff9b::', 96],
+  // SECURITY: RFC 8215 local-use NAT64 (64:ff9b:1::/48). Distinct from the
+  // well-known 64:ff9b::/96 prefix above; translators embed IPv4 targets here.
+  ['64:ff9b:1::', 48],
   ['2001:db8::', 32], ['2002::', 16], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8],
+  // SECURITY: deprecated site-local (fec0::/10) and Teredo (2001::/32, embeds a
+  // tunnel-server IPv4 + client address) — never legitimate public fetch targets.
+  ['fec0::', 10], ['2001::', 32],
 ];
 for (const [net, prefix] of RESERVED_V4) reservedBlockList.addSubnet(net, prefix, 'ipv4');
 for (const [net, prefix] of RESERVED_V6) reservedBlockList.addSubnet(net, prefix, 'ipv6');
@@ -99,6 +107,14 @@ export async function assertUrlIsPublic(url: string): Promise<UrlSafetyResult> {
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('protocol');
   } catch {
     return { safe: false, reason: 'Invalid URL — must start with http:// or https://' };
+  }
+
+  // SECURITY: URL.port is '' for the protocol default (80/443, also normalized when
+  // written explicitly), so any non-empty value is a non-standard port — blocks
+  // probing internal-style services (Redis, SMTP, admin UIs) on public hosts.
+  // Applies to every redirect hop too, since fetchWithSsrfGuard re-runs this check.
+  if (parsedUrl.port !== '') {
+    return { safe: false, reason: 'URL must use the default http/https port' };
   }
 
   const hostname = unwrapHostnameIp(parsedUrl.hostname);

@@ -15,6 +15,1290 @@
 
 ---
 
+## 2026-11-16 — CI-green verification fixes (lint / tests / Zod 4.6 build)
+
+- **client eslint:** downgrade `react-hooks/refs` + `react-hooks/immutability` to
+  warn (same rationale as `set-state-in-effect` after the react-hooks@7 bump);
+  ignore `coverage/`; fix `preserve-caught-error` / `no-control-regex` /
+  prefer-const on BatchResult + useMultiplier.
+- **server lint:** drop useless `appHost`/`host` initializers; `const`
+  `runningMemJobs`.
+- **tests:** XSS suite uses a valid 12-hex UUID suffix; formatter expects
+  missing `tweets[]` to throw; writer carousel floor tests match EXACTLY 8.
+- **build:** `ParseSchema` accepts Zod 4.6 optional-error `data`; narrow
+  twitter `tweets` array in `writerCompleteness`; Create submit guards
+  `TemplateId`; `EditSlideModal` returns `ReactElement`.
+
+## 2026-11-15 — npm audit high CVEs cleared (body-parser, follow-redirects, zod)
+
+- **server:** `express` → `^5.3.0`; `overrides.body-parser` → `^2.4.0`
+  (express still ranges `^2.3.0`, which resolved to vulnerable 2.3.0).
+- **client:** `npm audit fix` bumped `follow-redirects` 1.16.1→1.16.3 and
+  `zod` 4.4.3→4.6.7 (via `eslint-plugin-react-hooks`).
+- **Gate:** both packages now pass `npm audit --audit-level=high` with no
+  unallowlisted highs (moderate / tooling noise remains).
+
+## 2026-11-15 — Pass-9 backend correctness (failed-repersist / Adapt BFS / H1)
+
+- **Failed-repersist vs terminal UI (H):** pipeline failure now uses
+  `persistWithRetries` before failed SSE (same shape as success). If durable
+  write still fails, `backgroundFailedRepersist` retries; on exhaust it
+  status-flips via `markJobFailedIfInFlight`. `claimJobForRegenerate` syncs
+  memory-failed → DB before reclaim; Adapt uses `isSiblingActivelyGenerating`
+  (memory-failed is not “generating”); Library overlays memory-failed onto
+  DB in-flight rows so list/Result stay aligned.
+- **`collectRelatedVariants` BFS fail-open (M):** descendant walk errors return
+  `null` (fail closed). Adapt refuses with `family_incomplete` → 503 instead of
+  inserting a duplicate platform variant from a partial family.
+- **contentWorker H1 fail-open (H):** durable terminal lookup extracted to
+  `contentJobTerminalCheck`; on query throw the worker `moveToDelayed`/requeues
+  (never continues into the pipeline / overwrites `content_outputs`).
+- **Tests:** `contentJobTerminalCheck.test.ts`, `relatedVariants.test.ts`,
+  `regenerateClaim-failedRepersist.test.ts`, `isLiveFailedResult` in
+  `isLiveDoneResult.test.ts`.
+
+## 2026-11-15 — Pass-9 AI pipeline (feedback-only store, CTA summary, Twitter tweets[])
+
+- **Feedback-only critique store (H):** `pipelineWriteLoop` still skips
+  `bestScore` ranking on feedback-only cards (`scores==null`), but now appends a
+  critique row, sets `lastCriticResult`, and advances `bestDraft` when no scored
+  best exists yet — so all-feedback-only runs ship a revised draft with a quality
+  card. `sawRealCritique` is set only after a critique is stored, so FALLBACK can
+  still seed a card when nothing was stored. Writer revision via `criticFeedback`
+  unchanged.
+- **Appended 9th CTA visible to critic (M):** `buildContentSummary` no longer
+  `slice(0, 8)`-drops a formatter-appended CTA; when length > 8 it keeps the first
+  7 slides plus the trailing slide so `ctaClarity` scores the real CTA.
+- **Twitter missing tweets[] (M):** `enforceWriterCompleteness` throws Incomplete
+  when `tweets` is missing or not an array (no more early return as complete).
+- **Tests:** `pipelineWriteLoop-fallback.test.ts`, `critic-buildContentSummary.test.ts`,
+  `writerCompleteness-prune.test.ts`.
+
+## 2026-11-15 — Pass-8 backend bugs (batch 1: list / sweep / persist / status)
+
+- **Library DB failure (H):** `GET /jobs` returns `503 DB_UNAVAILABLE` on Neon
+  errors instead of silently serving process-local `jobsMemory` as the full list.
+  Memory path remains only when `db` is unset (local no-DB).
+- **`isQueuedInBullMq` fail-open (M):** Redis/`getJobState` errors now return
+  `true` (assume still queued), matching `isPersistPending` — a blip must not
+  let the stale sweep mark a live queued job failed. No-queue still returns
+  `false`. Unit tests in `persistJobSweeps.test.ts`.
+- **Failed persist after failed SSE (M):** when `persistJobToDB(failedResult)`
+  throws, pipeline still emits terminal failed SSE, then
+  `backgroundFailedRepersist` + `content:persist-pending` retries so the durable
+  row does not stay non-terminal.
+- **GET `/:jobId/status` score (M):** DB path uses `getLatestQualityScore`
+  over final+critique rows (prefer final), not latest critique alone.
+- **Library `sort=score` (M):** score subquery prefers latest
+  `final.qualityScore`, else latest critique — same contract as
+  `getLatestQualityScore` (no more `MAX(critique)` only).
+
+## 2026-11-15 — Pass-8 backend bugs (batch 2 — writer/adapt)
+
+- **Formatter prune + floors (M):** `enforceWriterCompleteness` always prunes
+  hollow tweets/segments when any remain (even with `requireMinCounts: false`)
+  and throws when remaining counts fall below minima. Post-format carousel
+  re-checks the writer floor after hollow drops.
+- **Carousel EXACTLY 8 (M):** writer/completeness floor raised from 6 → 8;
+  error text stays `expected 8`.
+- **Adapt target taskPlan (M):** `multiplyAdapt` + `pipelineRun` skipResearch
+  build target-platform `taskPlan`/`platformRules` via
+  `buildTargetPlatformTaskPlan` / `getPlatformRules` — never reuse the source
+  job’s orchestrator plan.
+- **Thin skipResearch parity (M):** shared `isUsableSkipResearch` in
+  `contentJobPayload`; Adapt omits `skipResearch` when research is thin so
+  BullMQ and direct both re-research.
+- **Multiply lock held jobId (M):** on Redis/local lock held, look up the
+  generating sibling and return `jobId` when known (409 can deep-link).
+- **Tests:** `writerCompleteness-prune.test.ts`,
+  `contentJobPayload-skipResearch.test.ts`, formatter carousel pads to 8.
+
+## 2026-11-15 — Pass-8 AI pipeline (feedback-only rank, predictor hollow, CTA append)
+
+- **Feedback-only bestDraft rank (H):** `pipelineWriteLoop` no longer ranks
+  `bestScore`/`bestDraft`/`lastCriticResult` on feedback-only cards (`!scores`).
+  Inflated totals without dimensions can no longer beat real scorecards. On
+  `criticResult.approved`, always adopt the current draft/critique and append a
+  matching critique row so Result score/feedback match the delivered final.
+- **Performance predictor hollow first-span (M):** walk all balanced JSON
+  candidates; reject hollow shapes (require raw `tier` + non-empty `topReason`);
+  only then use the score-derived fallback.
+- **Carousel hollow CTA (M):** after completeness filter, renumber; if no
+  `type===cta` remains, append a minimal CTA slide instead of overwriting the
+  prior slide’s type to `cta`.
+- **Tests:** `pipelineWriteLoop-fallback.test.ts`, `performancePredictor.test.ts`,
+  `formatter.test.ts`.
+
+## 2026-11-15 — Pass-8 frontend bugs (PostPanel / Calendar / Library)
+
+- **PostPanel schedule IDs (H):** Result schedule now calls shared
+  `invalidateScheduleViews` (month grid + `SCHEDULED_JOB_IDS_QUERY_KEY` +
+  Dashboard next-up). Previously skipped the IDs query so Calendar still
+  treated the job as unscheduled after a Result schedule.
+- **Past-day allocate (M):** `allocate` still rejects *new* past-day schedules,
+  but allows upsert when `jobId` is already on that `dateKey` so Cancel / hour /
+  platform controls work on existing past rows. `DayDetailPanel` hides "Add
+  content" when `selectedDay < todayDateKey()`.
+- **Scheduled IDs total failure (M):** `fetchAllScheduledJobIds` throws when
+  zero months fulfill (no more silent `[]`). `useSchedule.isError` includes
+  `idsQuery.isError` like the month schedule query.
+- **Library loading (M):** `useLibraryData` uses `isPending` (not `isLoading`)
+  for jobs and collections so Clerk-gated queries do not flash empty UI.
+
+## 2026-11-15 — Pass-7 backend (Twitter fractions, version scores, critic dims)
+
+- **Twitter strip fractions (H):** `formatTwitterThread` strips only a thread
+  index via `/^\d+\/(?!\d)/` (not bare `/^\d+\//`), so `3/5 of marketers…`
+  becomes `1/ 3/5 of marketers…` instead of destroying the fraction. Wrong
+  writer indices still re-prefix. Tests updated in `formatter.test.ts` and
+  `content-routes.test.ts`.
+- **Version snapshot scores (M):** `snapshotBeforeRegenerate` and restore’s
+  pre-snapshot use `getLatestQualityScore` (not `.find()` first critique) so
+  `jobOutputVersions.qualityScore` matches the final / Result score.
+- **Feedback-only critic dims (M):** when all five dimensions are absent,
+  `runCritic` omits `scores` (keeps `totalScore` + `feedback` only). Dashboard
+  aggregation already skips missing scores; predictor prompt notes dimensions
+  unavailable instead of `0/20`. Insights sidebar shows ring + feedback
+  without fake bars. Tests in `critic-score-clamp.test.ts`,
+  `qualityScore-critique.test.ts`, `performancePredictor.test.ts`.
+
+## 2026-11-15 — Pass-7 frontend bugs (Calendar / Brand / Library)
+
+- **Calendar far-future unscheduled (H):** `useSchedule` keeps the viewed-month
+  grid map + ±1 `postsByJobId` for drag platform/hour, and adds a separate
+  `scheduledJobIds` query (`fetchAllScheduledJobIds`, ±24 months from today)
+  so jobs scheduled further out no longer reappear as unscheduled / get
+  overwrite-dragged. `Calendar.tsx` filters unscheduled from that set.
+- **Past-day schedule (M):** `SchedulePicker` disables past days; `CalendarGrid`
+  still opens past cells for viewing but rejects drag-over/drop; `allocate`
+  rejects `dateKey < todayDateKey()` before mutate.
+- **Brand disconnect reset (M):** account-switch effect calls
+  `disconnectSocialMutation.reset()`; per-call `onSettled` gates on
+  `mutateUserId` like `onSuccess`/`onError`.
+- **Library bulk-delete confirm (M):** clearing selection on filter/folder
+  change or Manage exit also `setBulkDeleteConfirm(false)`.
+
+## 2026-11-15 — Security CI stack (TruffleHog, Semgrep, Trivy, Claude PR review)
+
+- **CI gates:** split the old single `security-scan` job into `npm-audit`,
+  `secrets-scan` (TruffleHog `--only-verified`), `sast` (Semgrep
+  typescript/javascript/nodejs/owasp/react on `server/src` + `client/src`),
+  and `vuln-scan` (Trivy fs CRITICAL vulns only + config CRITICAL/HIGH).
+- **Trivy tuning (first live run):** `--scanners vuln` so local gitignored
+  `.env` secrets are not CI findings (TruffleHog owns secrets); `.trivyignore`
+  accepts `DS002` (not `DS-0002`) on local-dev-only Dockerfiles.
+- **PR review:** `.github/workflows/claude-security-review.yml` runs Anthropic
+  Claude Code Security Review on non-draft same-repo PRs when
+  `CLAUDE_API_KEY` is set; Pensieve-specific focus in
+  `.github/security/claude-scan-instructions.md`.
+- **Periodic LLM red-team:** `.github/security/llm-redteam.md` documents
+  staging-only PyRIT (+ optional Nuclei) — not wired into every-PR CI.
+- **Docs:** `CONTRIBUTING.md` security CI table; `CLAUDE.md` §4/§6 updated.
+- **Live local scan (2026-11-15):** TruffleHog PASS (0 verified); Trivy CRITICAL
+  lockfile vulns PASS; npm audit FAIL on high `body-parser` /
+  `follow-redirects` / `zod` (fixable); Semgrep registry blocked locally —
+  offline rule run mostly i18n/template false positives + low-risk
+  `unsafe-formatstring` console templates.
+
+## 2026-11-15 — Pass-7 AI pipeline (critic free-pass + validation note cap)
+
+- **Critic approval gate (H):** `runCritic` no longer approves when all five
+  score dimensions are absent even if `totalScore >= 70`. Feedback and
+  `totalScore` are still kept for revision/display; approval requires at least
+  one present dimension (`approved = totalScore >= 70 && !dimensionsAbsent`).
+- **Validation note vs 600-char cap (M):** `pipelineWriteLoop` reserves trailing
+  budget for the fixed JSON/completeness validation note before capping, so a
+  saturated prior critic feedback slice cannot drop those instructions.
+- **Tests:** `critic-score-clamp.test.ts` covers feedback-only `totalScore: 92`
+  staying unapproved.
+- **Follow-up:** Twitter fraction strip + omitting absent `scores` landed in
+  the Pass-7 backend entry above (this entry’s earlier “skipped Twitter” note
+  is superseded).
+
+## 2026-11-15 — LOW: provider err.message in client-visible agent logs
+
+- **Writer catch (`pipelineWriteLoop.ts`):** non-fatal draft rejection logs use
+  `CLIENT_WRITER_DRAFT_REJECTED` for `action` (LoadingView); raw `err.message`
+  goes to `logger.warn` only. Validation note fed back to the writer no longer
+  embeds provider text (would leak via next-round `inputSummary`).
+- **Formatter/critic catch:** `outputSummary` uses `CLIENT_CRITIC_REVIEW_FAILED`
+  instead of `err.message.slice(0,200)` (persisted on GET `/:jobId`); raw error
+  stays in `logger.warn`.
+- **Constants:** `CLIENT_WRITER_DRAFT_REJECTED` / `CLIENT_CRITIC_REVIEW_FAILED`
+  in `clientErrors.ts` (same pattern as `CLIENT_PIPELINE_FAILURE`).
+- **Scan:** `pipelineRun` / other pipeline helpers only log `err.message`
+  server-side (or already use fixed client strings) — no further client leaks.
+
+## 2026-11-15 — Pass-6 HIGH/MEDIUM/LOW frontend bugs
+
+- **PostPanel wrong job (H1):** capture `startedForJobId` on schedule; ignore
+  UI updates unless props `jobId` still matches; remount `PostPanel` with
+  `key={jobData?.id}`; close drawer + reset on `jobId`/account switch via
+  `useResultAccountSwitch`.
+- **Library folder CSV (H2):** `exportCSV` in a collection exports
+  `jobsForPaging` (filtered folder membership), not `fetchAllMatchingJobs`.
+- **Selection survives filters (H3):** clear `selectedIds` when
+  search/platform/tag/sort/`activeCollectionId` changes, and when leaving
+  Manage mode — prevents bulk-delete of hidden jobs.
+- **Calendar unscheduled (M):** derive scheduled IDs from `postsByJobId` keys
+  (includes adjacent months), not the viewed-month schedule map alone.
+- **HistoryPanel invalidate (M):** restore invalidates
+  `['jobVersions', userId ?? 'anon', jobId]` to match the query key.
+- **Brand OAuth toast (M):** capture `callbackUserId`; deferred toast/refetch
+  no-ops after an account switch.
+- **Onboarding status error (M):** fail-open + error banner with Retry when
+  status GET fails (no longer silently skips).
+- **Brand inputs / Reset (M):** unlock inputs on terminal profile error;
+  disable Reset while `savePending`.
+- **LOW:** `handleComplete`/`handleSkip` ref-gate; folder `platformCounts`
+  from collection jobs; carousel template/palette localStorage keys
+  user-scoped with legacy migrate.
+
+## 2026-11-15 — Pass-6 medium: critic feedback-only FALLBACK + fake bestScore 0
+
+- **isUselessCriticScorecard (M1):** `allAbsentFromRaw` now also requires empty
+  feedback, so dimension-less cards with real revision text are kept (not
+  `usedFallback`). When dimensions are absent but `totalScore` is finite,
+  `runCritic` uses the clamped total instead of summing coerced zeros.
+- **Write-loop bestScore seed (M2):** formatter success seeds `bestDraft` only;
+  `bestScore` stays `-1` until a real/FALLBACK critique. Partial finals in
+  `pipelineRun` omit `qualityScore` when unscored (no fake 0/100).
+- **Tests:** `critic-score-clamp.test.ts` (feedback-only keep + totalScore),
+  `pipelineWriteLoop-fallback.test.ts` (critic-throw keeps `-1`; scored path).
+
+## 2026-11-15 — Pass-6 AI pipeline (critique sync, Twitter N/, carousel ranges)
+
+- **Critique/best-draft desync (M1):** `pipelineWriteLoop.ts` only sets
+  `lastCriticResult` and appends a display critique when adopting a new best
+  draft (same gate as `bestScore`/`bestDraft`), including the FALLBACK path.
+  `getLatestCritique` prefers the critique matching `final.qualityScore`;
+  `assembleJobFromDB` uses that helper so feedback matches the shown score.
+- **Twitter N/ false positives (M2):** `formatTwitterThread` always strips one
+  leading `\d+/` then re-prefixes with `${index + 1}/`, so fractions/dates
+  (`3/5 of…`) no longer skip thread numbering and wrong writer indices are
+  corrected.
+- **Carousel word-count by type (M3):** shared `carouselBodyLimits.ts` gates
+  critic min/max and formatter truncate by `slide.type` / points narrative
+  role, not renumbered `slide_number` after hollow drops.
+
+## 2026-11-15 — Pass-5 AI pipeline (sanitize, FALLBACK, formatter, orchestrator)
+
+- **Critic JSON sanitize (H1):** shared `sanitizeAiJson` lives in
+  `contentHelpers.ts` (writer imports it; critic walk + `parseAIJson` sanitize
+  hook use it) so multi-sentence feedback with raw newlines no longer forces
+  FALLBACK.
+- **FALLBACK score 50 (H2):** `pipelineWriteLoop.ts` — when `usedFallback` after
+  a real critique, keep prior `bestDraft`/`bestScore`/`lastCriticResult` and do
+  not append FALLBACK as a display critique.
+- **Twitter numbering (M3):** `alreadyNumbered` is `/^\d+\//` so `1/Hook` is not
+  double-prefixed as `1/ 1/Hook`.
+- **Video scrub + CTA (M4):** `formatVideoScript` scrubs nested coerce junk;
+  `enforceWriterCompleteness` requires non-junk `cta.text` for `video_script`.
+- **Orchestrator template echo (M5):** walk balanced candidates; reject
+  angle-bracket placeholder taskPlan/queries; fall back to
+  `buildFallbackSearchQueries()`.
+- **Separate retry budgets (M6):** `writerValidationAttempts` vs
+  `criticRevisionAttempts` so validation-only continues do not burn critic
+  revision slots. Write loop extracted to `pipelineWriteLoop.ts` under the
+  400-line cap.
+
+## 2026-11-15 — HIGH: isLiveDoneResult import + DELETE /me publishing order
+
+- **pipeline.ts failure catch:** `isLiveDoneResult` was called but only defined
+  private in `pipelineRepersist.ts`, so a pipeline exception hit
+  `ReferenceError` before failed persist/SSE and left jobs non-terminal.
+  Helper is now exported from `pipelineRepersist.ts` and imported (and
+  re-exported) by `pipeline.ts`. Unit coverage in
+  `tests/unit/isLiveDoneResult.test.ts`.
+- **DELETE /me publishing race:** soft-delete of all `content_jobs` + queue
+  cancel ran *before* the txn `FOR UPDATE` publishing guard. A mid-delete
+  `PublishInProgressError` returned 409 while the library stayed
+  irreversibly soft-deleted. Soft-delete now runs inside the same txn
+  *after* `FOR UPDATE` shows no publishing rows (rolls back on conflict);
+  BullMQ cancel + memory wipe run only after commit. Integration coverage
+  in `users-account-deletion.test.ts`.
+
+## 2026-11-15 — Pass-5 remaining account-switch frontend races
+
+- **Brand social disconnect:** `disconnectSocialMutation` captures Clerk id in
+  `onMutate`; skips `setQueryData` + toast on mismatch.
+- **Brand social connect:** capture userId at click; only `window.location.assign`
+  when still the same user; otherwise clear `connectingPlatform`.
+- **Brand reset:** capture Clerk id before profile refetch; `applyProfileToForm`
+  / error toast only if still the same user.
+- **Brand save/delete:** `updateBrandVoice` + `deleteMyAccount` mutations gated
+  via `onMutate` user id; `signOut` only for the deleting user. Toast helper
+  extracted to `Brand/useBrandToast.ts` (Brand.tsx under 400-line cap).
+- **Onboarding skip:** route Escape/backdrop/"Skip for now" through the gated
+  `completeMutation` (no fire-and-forget `completeOnboarding({})`); dismiss only
+  in `onSuccess` when live user matches.
+- **Feed monitors:** reset add form, close add panel, clear delete confirm on
+  `userId` change (`FeedMonitorPanel.tsx`).
+- **Repurpose history:** persist history/batch whenever `stillSameUser()`; gate
+  only navigate (and in-page error UI) on `stillOnRepurpose`/mounted.
+- **Result regenerate:** capture `userId` at start of `handleRegenerate`; ignore
+  success/error UI + SSE reconnect when live user ≠ request user.
+
+## 2026-11-15 — Pass-4 AI pipeline (candidate walk, coerce junk, DNA, topic)
+
+- **Writer/critic first-span hollow:** walk every balanced JSON candidate;
+  accept the first that passes schema **and** completeness /
+  `!isUselessCriticScorecard`. FALLBACK / throw only when all candidates fail
+  (optional+.catch no longer lets a leading `{}` or decoy win). Shared walker:
+  `walkBalancedJsonCandidates` in `contentHelpers.ts`.
+- **Completeness shared:** `writerCompleteness.ts` (`enforceWriterCompleteness`)
+  treats literal `"undefined"`/`"null"` as empty on all platforms; formatter
+  scrubs Instagram caption the same way and re-checks completeness after format.
+- **articleExtract topic gate:** injection check runs only on post-sanitize
+  text (no longer forces "Article insights" when sanitize already redacted
+  benign "act as a mentor…" phrasing).
+- **Content DNA:** `isMeaningfulContentDna` + `parseAIJson(..., { accept })`
+  reject empty/`{}` DNA and walk until ≥1 meaningful field before DB write.
+
+## 2026-11-15 — Remaining account-switch frontend races
+
+- **Create submit:** capture `submitUserId` at click; skip navigate / recent-topic
+  writes / error banner when Clerk user changed mid-request; clear loading +
+  submitting ref on `userId` change. Submit logic extracted to
+  `Create/useCreateSubmit.ts` (Create.tsx under 400-line cap).
+- **Batch create:** reset batch rows/tone/audience/loading on `userId`; gate
+  `writeBatchResult` + navigate on `submitUserId ===` live user.
+- **Repurpose submit:** clear form + pending flags on `userId`; navigate / history
+  writes only when `submitUserId` still matches after await.
+- **BatchResult poll:** poll effect depends on `scopeKey`/`userId`/`storageReady`;
+  drop settled status results when live scope ≠ poll-start scope.
+- **Brand DNA/export:** `onMutate` captures Clerk id; ignore `onSuccess`/`onError`
+  (and skip export download) on mismatch; reset DNA/export/save mutations on
+  account switch via `useBrandAccountReset`. Export blob download extracted to
+  `Brand/downloadExport.ts`.
+- **Brand social:** clear `connectingPlatform` / `disconnectConfirm` /
+  `disconnectingPlatform` on `userId` change.
+- **Ideate:** clear competitor-gap toggle, `competitorAnalysisId`, and focus
+  topic on `activeUserId` change.
+- **Onboarding:** reset step/brand/tone on `userId`; gate dismiss/complete with
+  request-time user id so a late complete does not dismiss the new account's modal.
+
+## 2026-11-15 — sanitizeGenerationInput structured content cap
+
+- **PATCH carousel image saves:** `sanitizeGenerationInput` no longer applies the
+  8k stringify gate to object/array `content`. Structured payloads use
+  `PATCH_CONTENT_MAX_BYTES` (same as zod), skip `imageDataUrl` leaves for
+  injection/length walks (base64 false-positives), and keep the 8k + injection
+  prefilter only for string `content` (regenerate feedback). Unit coverage in
+  `tests/unit/sanitizeGenerationInput.test.ts`.
+
+## 2026-11-15 — Empty `{}`/`[]` JSON decoy skip
+
+- **extractBalancedJson:** after a successful `JSON.parse`, skip empty `{}` /
+  `[]` when non-whitespace remains after the span so an LLM "example" decoy
+  cannot hide a later real payload (writer/critic `extractBalancedJson` path).
+- **parseAIJson:** on schema `safeParse` failure *or* hollow `{}`/`[]` result
+  with trailing text, resume at the next balanced span (optional/.catch schemas
+  previously accepted the decoy and stopped).
+- **LinkedIn completeness:** treat coerce-junk hook/body `"undefined"`/`"null"`
+  as incomplete (same rule as carousel slides).
+- **Tests:** `contentHelpers-parseAIJson.test.ts` covers decoy `{}` then
+  carousel array / LinkedIn object.
+
+## 2026-11-15 — Backend publish / persist / regenerate correctness
+
+- **DELETE while publishing:** `DELETE /api/scheduled-posts/:jobId` returns 409
+  when `publishStatus='publishing'` (same as upsert), with a race-safe delete
+  `WHERE` that excludes publishing rows.
+- **markPosted false success:** `markPosted` / `markPartialThread` require
+  `.returning()` length > 0; on 0 rows call `markPostedUnverified` /
+  `markPartialThreadUnverified` (helpers in `lib/publishStatus.ts`).
+- **Sweep timeout double-post:** stale publishing sweep stamps
+  `POSTED_UNVERIFIED_ERROR_PREFIX`; reschedule rejects that prefix on any
+  status (including failed).
+- **Regenerate claim rollback after enqueue:** clear `claimedForRollback`
+  immediately after a successful queue/direct handoff so snapshot/SSE failures
+  cannot roll a pending claim back to `done` while BullMQ still owns the job.
+- **Persist exhaust cross-instance failed SSE:** on `backgroundRepersist`
+  exhaust, keep a longer `persist-pending` (`exhausted`) marker until memory
+  eviction; sweeps continue to skip via `isPersistPending`
+  (`lib/pipelineRepersist.ts` + `markPersistPendingExhausted`).
+- **Job DELETE while publishing:** `softDeleteJobWithCleanup` 409s when any
+  related `scheduled_posts` row is publishing; publish worker re-checks
+  `content_jobs.deleted` immediately before `publishToSocialPlatform`.
+- **softDelete TOCTOU (publishing row):** under READ COMMITTED the pass-3
+  publishing SELECT could miss a concurrent pending→publishing claim;
+  `softDeleteJobWithCleanup` now `SELECT … FOR UPDATE`, deletes only
+  `publish_status <> 'publishing'`, and aborts with `PublishInProgressError`
+  if a publishing row remains (rolls back soft-delete).
+- **Account DELETE /me while publishing:** refuse with 409
+  `PUBLISH_IN_PROGRESS` before wipe; inside the delete txn lock
+  `scheduled_posts`, exclude publishing from DELETE, and abort on leftover
+  publishing so a live post cannot lose its durable row.
+- **POST /social/post TwitterTokenPersistError:** map to non-retryable 409
+  `TWITTER_RECONNECT_REQUIRED` via `toClientPublishError` (same Calendar
+  reconnect copy) instead of retryable 500.
+- **Twitter refresh token on upsert fail:** hard-retry upsert after a
+  successful refresh; preserve rotated tokens in the process fallback and
+  throw `TwitterTokenPersistError` (reconnect-required) instead of discarding
+  them and falling back to the dead prior pair.
+
+## 2026-11-15 — Account-switch / stuck-UI client fixes
+
+- **Brand form reset:** on Clerk `userId` change, blank form fields, clear DNA
+  samples/toasts/errors, set `isHydrated=false`, then re-apply via
+  `applyProfileToForm` when the new profile query lands.
+- **Result jobData + Post:** `useJobData` clears/reloads on `userId` change;
+  Result closes drawers/modals; `useSocial` re-`getJob`s before `postToSocial`
+  and treats ownership failure as a hard stop (no stale-body post).
+- **Ideate loading:** always `setLoading(false)` in `fetchIdeas` finally; gate
+  `setIdeas`/`setError` on user match; clear loading/error on `activeUserId`.
+- **Competitor:** clear result/handle/error on `userId` change; drop late
+  analyze writes after a switch.
+- **BatchResult:** ignore `location.state.jobs` unless submitter matches current
+  user (bind owner + `submitterUserId` from Create/Repurpose); reload scoped
+  sessionStorage or clear nav state on mismatch.
+- **Result query auth gates:** `useSocial`, `useResultTemplate`, HashtagPanel,
+  HistoryPanel, ResultHeader use `enabled: authLoaded && isSignedIn` (plus
+  `userId` in jobVersions/hashtags keys); panels wait for job revalidation.
+
+## 2026-11-15 — Residual AI pipeline bugs (JSON decoy, hollow strip, topic fallback)
+
+- **extractBalancedJson decoy braces:** on `JSON.parse` failure of a balanced
+  span (e.g. leading `{0-20}`), resume after that span and try the next
+  candidate instead of stopping at the first `{…}`/`[…]`. `parseAIJson` walks
+  candidates the same way until schema parse succeeds.
+- **Writer hollow twitter/video items:** after the length gate passes, assign
+  `tw.tweets = realTweets` / `vs.segments = realSegments` (carousel already
+  assigned `realSlides`).
+- **articleExtract topic throw:** wrap topic `generateWithAI` in try/catch; on
+  failure log and fall back to `Article insights` instead of aborting extract.
+
+## 2026-11-15 — Ideate/Repurpose/Batch/Brand/Calendar client race fixes
+
+- **SavedIdeasSection keyboard steal:** document keydown only acts when focus is
+  inside the section; ignores input/textarea/select/contenteditable targets.
+- **Repurpose navigate-after-leave:** `useRepurposeSubmit` ignores completion
+  after unmount and navigates only while still on `/repurpose`.
+- **Ideate account switch mid-request:** capture `activeUserId` at generate/
+  regenerate start; `setIdeatedIdeas({ forUserId })` drops stale writes.
+- **FeedMonitorPanel:** use `isPending` (no empty flash while auth gates);
+  disable pause/resume while toggle mutation is pending.
+- **BatchResult:** poll job status once immediately, then on the 2.5s interval.
+- **Ideate regenerate vs Generate:** bail `fetchIdeas` while a card is
+  regenerating; gate empty state on `activeUserId` (no flash before hydrate).
+- **Repurpose history scope:** capture userId at submit; `addEntry` ignores
+  when the signed-in scope changed.
+- **Brand/Calendar auth gates:** social connections, calendar jobs, `useSchedule`,
+  and DayDetailPanel connections use `enabled: authLoaded && isSignedIn` (and
+  `isPending` where gated queries would otherwise flash empty).
+- **LiveDemo:** disable platform pills while `demoLoading`.
+
+## 2026-11-15 — Library / Create / Onboarding client bugs
+
+- **Onboarding Escape/backdrop race:** Skip, Escape, and backdrop no-op while
+  `completeMutation.isPending`, and Skip is disabled during save, so a dismiss
+  cannot race the brand-name complete call.
+- **Library collectionJobs invalidation:** delete, bulk-delete, and tag success
+  also invalidate `['library','collectionJobs']` so folder view refreshes.
+- **Library Retry in folder view:** Retry refetches `collectionJobsQuery` when
+  `activeCollectionId` is set (was always retrying the main jobs query).
+- **Create account-switch draft sync:** form fields re-sync from the scoped draft
+  once `draftScopeId` matches the live user; `setDraft`/`clearDraft` do not write
+  sessionStorage until Clerk `userId` is set (no anon-bucket leak).
+- **Library exportCSV double-click:** sync `exportingRef` gate before the export
+  work so a second click cannot start another download.
+
+## 2026-11-15 — AI pipeline JSON parse, budget, critic FALLBACK, ideate
+
+- **Balanced JSON parse:** agents (`writer`, `critic`, `orchestrator`,
+  `performancePredictor`) and routes (`brandVoice`, `demo`) no longer use
+  greedy `/\{[\s\S]*\}/` — they call exported `extractBalancedJson` /
+  `parseAIJson` from `contentHelpers` (intentional FALLBACK paths kept).
+- **Repurpose budget:** `reserveGenerationBudget` runs before
+  `fetchAndExtractArticle`; extract failure refunds the reservation.
+- **Extracted topics:** `articleExtract` runs `sanitizeSearchText` +
+  `containsInjection` on the Gemini topic phrase; neutralizes to
+  `Article insights` when empty or injection-tainted before job insert.
+- **Critic FALLBACK:** `usedFallback` on parse/useless scorecards;
+  `runCriticWithFallbackRetries` (cap 2) retries critic only;
+  `pipelineRun` keeps the draft and does not feed generic FALLBACK text
+  into Writer revision loops. Abort helpers moved to `pipelineAbort.ts`.
+- **taskPlan:** writer prompt applies `sanitizeSearchText` + 600-char cap
+  (same spirit as `prepareCriticFeedback`).
+- **Ideate empty ideas:** `ideateResponseSchema` / regenerate schema require
+  ≥1 idea with non-empty `title`; else `AI_PARSE_ERROR` (not empty 200).
+- **Demo budget refund:** DECR global hourly budget on `generateWithAI` or
+  parse failure after a successful charge (fail-closed when Redis missing).
+- **Repurpose tests:** mock `lib/profileStore` + `insertPendingJobRow` (route
+  no longer goes through `routes/users.js`; avoids live-DB FK failures).
+
+## 2026-11-15 — Result-page race bugs (wrong-job writes, hung regen, leaks)
+
+- **Wrong-job content save:** `useResultContentMutations` captures `startedFor`
+  and skips `setJobData` / `setSaveError` unless `jobIdRef` still matches.
+  `useContentMutationLock` resets lock + bumps generation on `jobId` change so
+  `restoreDisabled` clears and in-flight gens go stale.
+- **Hung regenerate → lost:** `useJobStatusPoll` after `STALE_CLIENT_MS` sets
+  `lost` and `clearRegenerating()` even while regenerating (the old
+  `!regenerating` guard left ErrorState unreachable).
+- **EditSlideModal double-save:** sync `savingRef` gate (Create `submittingRef`
+  pattern) so a second click before re-render cannot start another PATCH.
+- **LoadingView elapsed across jobs:** Result remounts `<LoadingView key={jobId}>`
+  so the timer resets on A→B navigation while both are generating.
+- **actionError / saveError leak:** cleared on `jobId` change in `useJobData`
+  and `Result.tsx`.
+- **useSocial wrong-job posts:** `jobIdRef` gates post-await result/link updates;
+  `postingRef` always clears in `finally`.
+- **FeedbackPanel stale prefill:** `ActionDrawer` remounts FeedbackPanel with
+  `key={feedbackPrefill}` so Insights “Fix with AI” text does not stick on a
+  blank Rewrite open.
+
+## 2026-11-15 — Lock requeue jobId, failed-handler UUID, Twitter partial, direct lock-loss
+
+- **Lock-held BullMQ requeue:** `requeueWhileContentLockHeld` and the worker
+  failed-handler last-chance path now re-add via `addJobToQueueDetailed` with
+  `jobId: contentJobId` + delay (remove-if-not-active). Auto-id siblings were
+  invisible to `isQueuedInBullMq` / stale sweep, which could mark the durable
+  row failed while a delayed retry was still queued.
+- **Worker failed handler:** `markJobTerminalFailed` uses `data.jobId` (UUID)
+  with fallback to `job.id` only when that id is a valid UUID — auto-id
+  siblings no longer leave the content row spinning forever.
+- **Manual Twitter POST /post:** `TwitterPartialThreadError` returns 409
+  `PARTIAL_THREAD_POSTED` with `retryable: false` and postedCount/root
+  metadata (mirrors Calendar `publishWorker`) so the client does not
+  republish tweets 1..K.
+- **Direct-mode lock loss:** after retries, try delayed BullMQ requeue; if
+  the job is already active leave pending; if enqueue is unavailable mark
+  terminal failed with a retryable client message instead of orphaning until
+  the 15m sweep.
+
+## 2026-11-15 — Residual frontend abort/ownership races (Export, Adapt, EditSlide)
+
+- **ExportModal stuck exporting:** closing/Escape during export aborted the
+  controller but left that format's `exportState` at `'exporting'`, so
+  `anyExporting` kept every Download disabled after reopen. Abort early-returns
+  now reset the owning format to `'idle'` (gated on controller ownership), and
+  `exportState`/`exportErrors`/`exportingRef` reset when `isOpen` becomes false.
+- **useMultiplier stale poll stop:** `stop()` cleared whatever interval was
+  stored for the platform, not the interval that owned the closure. After
+  jobId A→B→A (or clear+`refreshFamily` restart) a stale in-flight tick could
+  kill the new poll and write terminal state for the old sibling. Polls now
+  capture their handle + require `acceptedJobIds` ownership of `siblingJobId`
+  before `clearInterval` or applying terminal/progress updates.
+- **EditSlideModal generating cleared early:** a second Generate click aborted
+  the first request; the first `finally` always called `setGenerating(false)`
+  while the second was still in flight, so dismiss guards dropped early. Now
+  only the owning attempt (`imageAbortRef.current === abort`) clears generating.
+
+## 2026-11-15 — Lock-loss token isolation + feed cursor CAS
+
+- **Lost lock no longer poisons new holders:** `contentJobLock` tracks loss by
+  lock **token** (not Redis key). A prior holder’s lost flag cannot make a new
+  SET NX holder see `isContentRunLockLost` / abort mid-stage. Pipeline stage
+  boundaries and the persist catch consult this acquire’s `AbortSignal`
+  (`runLockSignal` on `PipelineRunOpts`); `contentWorker` / `pipelineDirect`
+  wire `lock.signal` through. Sibling requeue / direct lock-loss handling left
+  intact.
+- **Feed-monitor TOCTOU:** `insertPendingJobAndAdvanceCursor` advances
+  `last_item_guid` only when `IS NOT DISTINCT FROM expectedOldGuid` (CAS). A
+  0-row update rolls back the pending insert so lock expiry mid-
+  `createJobsForPlatforms` cannot create a second UUID for the same item.
+
+## 2026-11-15 — Adapt rawResults strip + demo Redis test mocks
+
+- **Adapt research rehydrate:** `parseCachedResearch` always returns
+  `rawResults: []` (same as `parseSkipResearch`) so historical unsanitized
+  Tavily hits from DB are not copied onto Adapt/regenerate skipResearch jobs.
+- **Demo integration tests:** Redis mock supplies under-cap `incr`/`expire`
+  instead of `null` (fail-closed budget was returning 429). Added an explicit
+  429 case when Redis is null. Same stub applied in `content-routes` and
+  `security` demo tests. Production fail-closed budget unchanged.
+
+## 2026-11-15 — Backend correctness (queue dual-run, locks, persist sweep, feed cursor, SSE)
+
+- **Queue add timeout:** `addJobToQueueDetailed` verifies via `getJob` after a
+  `QueueOpTimeoutError` on `queue.add`; if the job landed, returns `queued` so
+  callers do not also `runPipelineDirect`.
+- **Direct-mode lock fail-closed:** when `UPSTASH_REDIS_URL` / `REDIS_URL` is
+  set, `runPipelineDirect` briefly retries `content:run` acquire then skips
+  (leaves pending for the worker) instead of running unlocked. Fail-open only
+  when Redis is intentionally unset.
+- **Feed-monitor lock renew:** Lua renew `0` or renew failing for a full TTL
+  sets `lockHeld=false` and aborts before `createJobsForPlatforms`.
+- **Persist-pending sweep:** `isPersistPending` fails closed on Redis lookup
+  errors (treat as pending / skip failing the row) so a blip cannot mark a
+  memory-only done job failed on another instance.
+- **Feed cursor txn:** pending job insert + `lastItemGuid` advance run in one
+  DB transaction (`insertPendingJobAndAdvanceCursor` via
+  `createJobsForPlatforms({ advanceFeedCursor })`).
+- **Lock-held without `moveToDelayed`:** re-enqueue a delayed sibling (same
+  payload) instead of burning BullMQ attempts; failed-handler last-chance
+  requeue on attempt exhaustion.
+- **SSE stream:** `GET /:jobId/stream` wrapped in try/catch; if headers already
+  sent as event-stream, `res.end()` only — never `res.status().json()`.
+
+## 2026-11-15 — Pipeline, critic, writer, demo, and sanitize fixes
+
+- **bestDraft on critic failure:** `pipelineRun` seeds `bestDraft` (score 0)
+  right after a successful formatter pass so a critic throw on attempt 1
+  delivers that draft as `partial` instead of failing the job.
+- **Useless critic scorecards:** after coerce-friendly `safeParse`, empty /
+  all-absent / all-zero+blank-feedback scorecards substitute
+  `FALLBACK_CRITIC_RESPONSE` (50 + actionable feedback) via
+  `isUselessCriticScorecard` in `critic.ts`.
+- **Hollow non-carousel drafts:** writer rejects empty LinkedIn / Twitter /
+  caption / video payloads after schema parse so the retry path fires.
+  Carousel minimum stays at 6 (raise-to-8 deferred).
+- **Research rawResults:** researcher returns `rawResults: []` — unsanitized
+  Tavily payloads are no longer persisted/API-facing (client had no consumers).
+- **parseAIJson:** balanced-brace/array extractor replaces greedy
+  `/\{[\s\S]*\}/` so trailing prose cannot corrupt extraction.
+- **Demo budget:** `demo.ts` validates with `demoSchema` before
+  `consumeDemoBudget`; system prompt treats XML-tagged content as data.
+- **sanitizeGenerationInput:** top-level `content` gets the same length +
+  injection prefilter (string or JSON-serialized object with string-leaf walk);
+  helper moved to `sanitizeGenerationInput.ts` so `rateLimit.ts` stays under
+  the 400-line cap.
+
+## 2026-11-15 — Client result, library, batch, and brand bugs
+
+- **Adapt stuck on Working:** `useMultiplier` clears `acceptedJobIds` and
+  `inFlightPlatforms` on `jobId` change. Family `processing`/`pending`
+  siblings start the shared `startPoll` loop (same as after multiply); intervals
+  are keyed by platform so polls are not double-started. Terminal clears the
+  accepted key so Retry works.
+- **Export double-fire:** `ExportModal` uses a sync `exportingRef` gate, aborts
+  any prior controller before a new export, and disables all format buttons
+  while any export is active.
+- **EditSlideModal mid-save dismiss:** Escape/backdrop/Cancel are ignored while
+  saving or generating; post-await setState/`onClose` only run if still mounted;
+  image gen uses an AbortController cleared on unmount.
+- **Done without content:** terminal `done`/`completed` with no usable final no
+  longer renders `LoadingView` forever — Result shows an error state with retry
+  and a Create-again link (distinct from regenerating / still-processing).
+- **Adapt double-click:** `useMultiplier` locks each target platform in a ref
+  before the POST and ignores a late error when that platform already has an
+  accepted job id, so a second click before paint cannot overwrite a successful
+  adapt with `failed`.
+- **Library in-flight poll:** status refresh always requests newest (`sort=date`;
+  `GET /jobs` has no status filter) and merges by id into the current list.
+  In-flight rows missing from that page are refreshed with `getJobStatus`
+  (chunks of 10). Folder view patches the collection jobs cache. `settled`
+  follows the merged list, not page 1 of the UI sort.
+- **Empty hook/caption:** Result picks LinkedIn, caption, thread, or video from
+  `job.platform`. An empty string no longer hides the column. Unknown platforms
+  still fall back to field sniffing.
+- **Video CTA:** a missing `cta`, `hook`, or `segments` array renders and copies
+  as empty instead of throwing.
+- **Carousel design seed:** the legacy preset is stored per content fingerprint
+  (headlines and bodies). Remounts reuse it and do not append no-repeat history.
+  History updates only when a fingerprint is seen for the first time.
+- **Batch session:** `ca_batch_result_v1` is stored with `userScopedKey` and
+  migrated off the old global key. A status poll 404 marks that item failed.
+- **Calendar / Dashboard:** schedule and unschedule invalidate
+  `['dashboard','nextScheduled']` as well as the calendar schedule. Deleting a
+  job on the dashboard invalidates both.
+- **Brand form:** fields initialize from the cached profile on the first render
+  and stay disabled until that profile is applied, so the page does not flash
+  empty inputs and then overwrite them.
+
+## 2026-11-15 — Slide images, job payloads, delete atomicity
+
+- **Slide images:** per-slide data URLs may be up to 3,000,000 characters and a
+  carousel export up to 8,000,000 combined. `PATCH /content` uses that same
+  combined cap (social posts stay at 200KB). The content and export JSON
+  parsers are 10mb so the schema is actually reachable. `sharp` is not a
+  dependency — `imageGen` skips a provider image over the per-slide cap and
+  returns 413 (`IMAGE_TOO_LARGE`) if nothing smaller succeeds, so the editor
+  never previews an image it cannot save. Raster-only data URLs are unchanged.
+- **Library / folders:** `GET /jobs` and collection job payloads go through
+  `toClientJob()`, which omits `sourceMaterial` and `competitorContext`.
+  Collection rows are assembled the same way as the library list
+  (`outputs.partial` is a boolean). Regenerate and the publish worker still
+  read those fields off `assembleJobFromDB`.
+- **Job delete:** soft-delete, `scheduled_posts` delete, and `collection_jobs`
+  delete run in one transaction. A failed transaction returns 500 and does not
+  mark the job deleted. BullMQ cancel runs after commit; a failed cancel is
+  logged and the delete still succeeds. Calendar month lists inner-join
+  non-deleted jobs, and folder badges count only non-deleted jobs, so older
+  orphan rows stay hidden.
+- **Carousel edits:** the writer schema truncates slide fields to the same
+  bounds as `slideDataSchema` (icon 16, label 200, desc 400, points 8,
+  `bg_suggestion` enum). Persist and `PATCH /content` coerce the same way, so
+  an older long deck can be saved. Export still hard-rejects over-cap fields
+  and non-raster images.
+- **SSRF:** `64:ff9b:1::/48` (local-use NAT64) is on the IPv6 blocklist, next
+  to the existing well-known `64:ff9b::/96` prefix.
+
+## 2026-11-15 — Calendar auto-publish correctness
+
+- **LinkedIn empty 201:** `ugcPosts` with Rest.li 2.0.0 often returns the new id in
+  `X-RestLi-Id` and an empty body. `publishToSocialPlatform` reads that header, then
+  body `id` / `value.id`. A 2xx with neither returns `postId: 'linkedin-unverified'`
+  (feed URL, `unverified: true`) and does not throw. The publish worker stores that
+  as `posted` with a `posted-unverified:` note so a reschedule does not double-post.
+- **Calendar move keeps auto-publish:** drag, Schedule, and Add pass through an
+  existing `publishPlatform` and `publishHour`. The schedule query still paints one
+  month, and also loads the adjacent months into `postsByJobId`. Omitting
+  `publishPlatform` on update leaves the stored platform; explicit `null` (Cancel)
+  still clears it. New jobs with no row stay reminder-only.
+- **Queue remove vs in-flight publish:** `queuePublishJob` returns
+  `{ ok: false, reason: 'active' | 'unavailable' | 'rejected' }`. An active job
+  gets `409 PUBLISH_IN_PROGRESS` and the row is left alone. If nothing was
+  queued, the row is marked `failed` only while `publishStatus` is still `pending`.
+- **DST:** the client sends `timezoneOffsetMinutes` from the target local date and
+  hour (`Date(y, m-1, d, hour).getTimezoneOffset()`), including Result's scheduler.
+- **Twitter refresh lock:** if Redis is configured and `SET NX` fails, the lock
+  returns `unavailable` and `ensureFreshSocialToken` waits and re-reads. It does
+  not fall open onto the process-local map. That map is only used when Redis is
+  not configured.
+
+## 2026-11-15 — Pipeline reliability (lock loss, persist sweep, feed cursor)
+
+- **Lost run lock:** a Redis renew of 0, or renew failing for a full TTL, no longer
+  completes the job as "this content was deleted." The run returns `lock_lost`.
+  The worker releases `content:run` and requeues with `moveToDelayed` +
+  `DelayedError` (same path as a held lock), so the durable row stays
+  non-terminal. Soft-delete still emits the deleted message and evicts. Direct
+  mode re-acquires once, then leaves the row in-flight if the lock is lost again.
+- **Cross-process persist:** while a done result lives only in memory,
+  `content:persist-pending:{jobId}` (12 min TTL, renewed by `backgroundRepersist`)
+  makes other processes' stale sweeps skip the row. Cleared when the save
+  succeeds, the job is superseded, or retries are abandoned.
+- **Feed cursor:** the monitor advances `lastItemGuid` only after at least one
+  job is created. An empty `createJobsForPlatforms` result refunds budget, sets
+  `lastError`, and leaves the cursor so the item is retried.
+- **Failed-row persist:** if writing the failed snapshot throws, memory keeps
+  `status: failed` (no 10-minute eviction) and the terminal failed SSE still
+  fires, so a refresh does not fall back to a pending spinner.
+- **Carousel length:** the formatter truncates each slide body to the critic's
+  per-slide maximum (60 / 55 / 30) instead of a flat 65.
+- **Eviction map:** `generationByJobId` is removed when its timer fires and when
+  a matching cancel runs, so finished jobs do not leak tokens.
+
+## 2026-11-15 — Full codebase review fixes (H1–M14 + hardening)
+
+Parallel fix pass from the Nov 15 full-codebase review. No Critical security holes
+were found; this entry covers the High/Medium/Low items that landed in code.
+
+### Backend reliability (H1, M1, M4–M6, M9, L5)
+- **H1:** `queue.ts` wraps BullMQ `getJob`/`getState`/`remove`/`add` (and sweep
+  `getJobState`) in a 3s `withQueueTimeout`; timeouts return `'unavailable'` so
+  create/regenerate can fall back to direct mode. Stale sweeps gain an
+  `isSweeping` re-entrancy guard.
+- **M1:** `runPipelineDirect` takes the same `content:run:{jobId}` Redis lock +
+  process-local `inFlightContentJobIds` as `contentWorker` (shared via
+  `contentJobLock.ts`).
+- **M4:** accepted direct-mode waiters wait up to 15 minutes (was 120s); full
+  queue still rejects immediately.
+- **M5:** lock renew tracks loss (`isLost()` / `AbortSignal` /
+  `isContentRunLockLost`); pipeline stage boundaries abort via `shouldAbortRun`.
+- **M6:** direct runs are tracked; SIGTERM calls `drainDirectPipelines(12s)`
+  before stopping the worker / closing DB.
+- **M9:** `express.json` 4mb limit for
+  `^/api/jobs/[^/]+/export/carousel-png$` (overlay schema was unreachable under
+  the global 256kb parser).
+- **L5:** `jobHeartbeat.ts` bumps in-flight `updatedAt` every 2 min on both the
+  BullMQ worker path and direct mode.
+
+### Routes / SSE / DB (M2, M3, M7, M8, L1, L4)
+- **M2:** `GET /:jobId/status` validates UUID → 404; parallelizes final/critique
+  lookups.
+- **M3:** `persist_failed` SSE no longer schedules the 2s stream auto-close;
+  close also skips if a newer event arrived for the job.
+- **M7:** PATCH content runs in a transaction; migration
+  `0022_unique_final_output.sql` dedupes then adds a partial unique index on
+  `(job_id)` where `output_type = 'final'`.
+- **M8:** onboarding `preferredTone` is `toneEnum.optional()`.
+- **L1:** `jobMutationRateLimit` on collections/scheduled-posts POSTs; max 50
+  collections per user (`COLLECTION_LIMIT`).
+- **L4:** content worker `failed` handler treats stalled failures as terminal
+  even when `attemptsMade < attempts`.
+
+### Frontend (M10–M14, L6, L7, batch draft)
+- **M10:** `/result/:jobId` remounts via `KeyedResultPage` (`key={jobId}`).
+- **M11:** `useMultiplier` guards after `await` with mount/jobId checks.
+- **M12:** status poll skips already-terminal jobs with a final output.
+- **M13:** `ActionDrawer` syncs tab during render (no `setTimeout(0)` before
+  focus trap).
+- **M14:** `useDraft` merges patches from a ref into sessionStorage.
+- Batch submit uses functional `setBatchRows`.
+- **L6:** onboarding dismiss key is user-scoped (`userScopedKey`).
+- **L7:** saved ideas keyed by `id`; Brand DNA copy matches the 50-char check.
+
+### Hardening (L2, L3, L10)
+- **L2:** AES-GCM `authTagLength: 16`, tag-length assert, `v1:` ciphertext
+  prefix with legacy decrypt support (`tokenEncryption` tests updated).
+- **L3:** SSRF blocklist adds `fec0::/10`, Teredo `2001::/32`, `192.88.99.0/24`.
+- **L10:** `ResearchResult` / `CriticResult` moved to `agents/agentTypes.ts` to
+  break the type-only cycle with `pipelineTypes`.
+- `browserPool`: WHY/SECURITY note on `--no-sandbox` (flags unchanged).
+
+### Still open (ops / follow-ups)
+- Staging `kill -9` recovery checklist still outstanding (CLAUDE.md §9).
+- Expand-then-contract migration policy + remove duplicate client install in
+  server `prebuild`/`build`.
+- `manage.ts` / `index.ts` still over the 400-line file cap.
+- `check:circular` not yet wired into CI.
+
+## 2026-11-15 — Platform/tone sync tests + jobs validation schema reuse
+
+- **Sync tests:** added `server/tests/unit/platform-tone-sync.test.ts` — asserts
+  `VALID_PLATFORMS` / `VALID_TONES` match `schemaEnums` pgEnums, client
+  `JOB_PLATFORMS` / `JOB_TONES`, Create `platforms.ts`, and ToneSelector (same
+  pattern as `template-id-sync.test.ts`). Palette id sync skipped (no server
+  `VALID_PALETTE_IDS`; `paletteId` remains unbounded `z.string().max(50)`).
+- **Jobs validation tests:** `jobs-validation.test.ts` now safeParses
+  `createJobSchema` and a batch schema built from shared enums/`TOPIC_MAX_LENGTH`
+  instead of a hand-copied `VALID_PLATFORMS` list.
+
+## 2026-11-15 — Job lifecycle integration tests (create insert gate, ownership UUID, Adapt lock, overlay cap)
+
+- **Tests:** create refuses enqueue when `insertPendingJobRow` returns false → 503; ownership invalid UUID → 404; multiply Adapt Redis lock `unavailable` → 503; `exportCarouselSsrSchema` rejects combined overlays over 3MB chars.
+- **Fix:** `jobs-batch-route` mocks `insertPendingJobRow` success so batch validation tests stay focused (real helper returns false with `db:null`).
+
+## 2026-11-15 — Frontend review fixes (Calendar mutate guard, keys, errors, auth gates)
+
+- **Calendar `isMutating`:** `CalendarPage` destructures `useSchedule().isMutating`, early-returns allocate/remove while pending, and disables sidebar drag/schedule, grid drop, and DayDetailPanel add/remove/hour controls.
+- **Ideate keys:** idea lists use `key={idea.id ?? idea.title}` (prefer stable id).
+- **`getSubmitError`:** Competitor analyze, Repurpose submit (single + batch), and PostPanel schedule map server `{ error, code, retryable }` via shared `lib/errorMessages`.
+- **Auth-gated queries:** Ideate competitor history, Competitor profile/history, and FeedMonitorPanel list use `enabled: authLoaded && isSignedIn`.
+- **Sync refs:** PostPanel schedule, HashtagPanel insert, and `useSocial` post flip a submitting-style ref before `await` (Create pattern).
+- **Library collections error:** `useLibraryData` exports `collectionsError` + retry; Folders UI shows retry instead of an empty-folders hint on fetch failure.
+- **Copy timeouts:** `useExport`, TwitterContent, VideoScriptContent use `useTrackedTimeout` so copy-feedback timers clear on unmount.
+- **a11y:** Result mobile footer buttons `type="button"`; saveError `role="alert"`; PostPanel schedule button `type="button"`.
+
+## 2026-11-15 — Multiply Adapt lock fail-closed + PipelineJob typing
+
+- **Multiply Adapt fail-closed:** when Redis multiply lock is `unavailable`,
+  `createMultiplyAdaptJob` refuses Adapt in production or whenever Redis is
+  configured (503 `SERVICE_UNAVAILABLE`) instead of continuing with only the
+  process-local Set — same cross-instance single-flight philosophy as feed
+  monitor check locks. Local dev without Redis still uses the process-local
+  mutex.
+- **PipelineJob typing:** removed `[key: string]: unknown` from `PipelineJob`;
+  added `RuntimeJob` alias. Agents (`orchestrator`/`researcher`/`writer`/
+  `formatter`/`critic`/`performancePredictor` + `writerPlatformPrompts`) now
+  take `RuntimeJob` instead of Drizzle `ContentJob`, so `asContentJob` and
+  competitorContext casts are gone. `readOutputs` / restore / PATCH content
+  narrow via `'outputs' in` without `as unknown as`.
+
+## 2026-11-15 — Pipeline durability (soft-delete cancel, persist honesty, PATCH final, overlay caps)
+
+- **Soft-delete mid-run:** `runContentPipeline` returns `status: 'cancelled'` (not `done`)
+  when the job is soft-deleted mid-run, and does not promote a partial final before bailing.
+  `runAndPersistPipeline` treats `cancelled` like a live delete (terminal SSE + evict, no persist).
+- **Post-success persist failure:** SSE uses `code: 'persist_failed'` and an honest
+  keep-tab-open message (never "Content generation complete!"). `backgroundRepersist`
+  persists from **live** memory (not a stale snapshot), aborts if status is no longer
+  `done` / soft-deleted / missing final, and re-checks before eviction after a late commit.
+- **PATCH `/:jobId/content`:** insert-if-missing for a `final` output row (and memory),
+  mirroring version restore — no more success-with-no-write when the final row is absent.
+- **Export overlays:** per-slide `imageDataUrl` max reduced to 1MB chars; combined overlays
+  across slides capped at 3MB chars (`exportCarouselSsrSchema` superRefine). Data-URL-only
+  validation unchanged.
+
+## 2026-11-15 — Medium/Low reliability + security hardening (SSE strip, ownership UUID, demo budget, shutdown)
+
+- **SSE bootstrap strip** (`stream.ts`): initial `state` event omits `sourceMaterial` /
+  `competitorContext` (same as `GET /:jobId` in manage.ts) so regenerate prompt context
+  never reaches the EventSource client.
+- **Ownership UUID guard** (`ownership.ts`): `lookupOwnedJob` / `requireJobOwnership`
+  reject non-UUID `jobId` with 404 before any Postgres hit (avoids driver 503 on bad ids).
+- **Demo global budget fail-closed** (`demo.ts`): `consumeDemoBudget()` returns false when
+  Redis is missing or `incr` throws — deny instead of allowing quota drain; per-IP limiter
+  unchanged.
+- **Shutdown** (`index.ts`): calls `stopSSERedisSubscriber()` and `stopJobEvictions()` so
+  the dedicated SSE Redis sub and eviction timers do not hang or outlive the process.
+- **Browser pool reset** (`browserPool.ts`): `closeBrowserPool` clears `_pool`, sets
+  `_poolReady = false`, and resets `_initPromise` after closing browsers.
+- **Job eviction unref** (`jobEviction.ts`): `timer.unref?.()` on schedule; `stopJobEvictions()`
+  clears all pending timers on shutdown.
+
+## 2026-11-15 — High reliability: gate create on pending insert + content-run lock fail-closed
+
+- **Create / batch / repurpose:** `insertPendingJobRow` boolean is checked before
+  `setJobInStore` / enqueue / `runPipelineDirect` (same pattern as multiplyAdapt).
+  Single create returns 503 `SERVICE_UNAVAILABLE`; batch items land in
+  `failedItems` via `CLIENT_BATCH_ITEM_FAILURE`; repurpose platforms reject out of
+  the fan-out instead of running a phantom pipeline.
+- **Content worker lock:** when Redis is configured, `lockResult.status ===
+  'unavailable'` is treated like `held` (delay via `requeueWhileContentLockHeld` /
+  `DelayedError`) — fail-closed, matching feed monitors. Fail-open
+  (process-local only) remains only when Redis is intentionally unset (dev /
+  unit tests).
+- **Malformed BullMQ payloads:** no longer `return` as success — throw so BullMQ
+  fails the attempt; valid UUID jobIds also get `markJobTerminalFailed`.
+
+## 2026-11-15 — Un-invert worker→routes layering (shared helpers → lib/)
+
+- Moved worker-shared helpers out of `routes/*` into `server/src/lib/` so workers never
+  import route modules: `contentHelpers.ts` (readOutputs/sanitize/parseAIJson),
+  `jobAssemble.ts` (assembleJobFromDB), `profileStore.ts`, `articleExtract.ts`,
+  `pipelineDirect.ts`, `repurposeJobs.ts` (createJobsForPlatforms).
+- Route files keep thin re-exports at the old paths so existing route imports stay stable.
+- `feedMonitorWorker` / `publishWorker` now import from `lib/` only.
+- CLAUDE.md §4 updated (lib entries + thin route wrappers); dropped missing
+  `History.tsx` / noted missing `CAROUSEL_TEMPLATE_PLAN.md`.
+
+## 2026-11-15 — Profile cache TTL + status `updatedAt` for Result poll
+
+- `profileStore.ts`: `userProfiles` is now a TTL (5 min) + size-capped (2k) cache of
+  `{ profile, expiresAt }` (same pattern as authMiddleware). Brand/account writes use
+  `invalidateUserProfileCache`.
+- `GET /:jobId/status` returns `updatedAt` so the client "lost" poll can age from last
+  activity after a reload mid-regenerate.
+
+## 2026-11-15 — Medium reliability fixes (regenerate source context, restore race, multiply persist)
+
+- **Regenerate keeps `sourceMaterial` / `competitorContext`:** new nullable `content_jobs.source_material` and `competitor_context` columns (migration `0021_job_source_context.sql`). `insertPendingJobRow` and `persistJobToDB` write them capped (6000 / 2000 chars; conflict update only when present). `AssembledJob` carries them; regenerate copies them (re-capped) into the `PipelineJob` and queue payload. `GET /:jobId` strips both from the client response.
+- **Version restore race:** `POST …/versions/:versionId/restore` now runs the pre-restore snapshot and output write in one transaction behind an atomic `status IN ('done','failed') AND deleted=0` UPDATE; 0 rows → 409 `JOB_IN_PROGRESS`. Memory is only mutated while the job is still terminal.
+- **Multiply:** a failed `insertPendingJobRow` no longer enqueues; returns 503 `SERVICE_UNAVAILABLE`.
+- **Regenerate snapshot ordering:** the "Before regenerate" version is taken only after enqueue succeeds, so the `active` 409 rollback leaves no spurious version.
+
+## 2026-11-15 — Low security hardening (SSE limiter, single-use SSE token, SSRF ports)
+
+- `GET /:jobId/stream` now runs a new IP-keyed, Redis-backed, fail-closed `sseStreamRateLimit`
+  (120/min, `rateLimit.ts`) before token verification. No new env vars.
+- SSE tokens are single-use: `verifySSEToken(token, { consume: true })` redeems via atomic
+  `GETDEL`; the 15-min TTL remains the fallback. Clients already mint a fresh token on reconnect.
+- `assertUrlIsPublic` rejects any explicit non-default port (only 80/443 allowed), including on
+  redirect hops. Tests added in `tests/unit/ssrfGuard.test.ts`.
+
+## 2026-11-15 — Publish worker reliability (posted-unverified marker, exhausted retries)
+
+- `workers/publishWorker.ts`: when the social post succeeds but `markPosted` fails after
+  retries, the worker now writes a `posted-unverified:` marker (with post URL if known) to
+  `publishError`; the existing stale-publishing sweep preserves it, so the eventual `failed`
+  row no longer reads like "nothing posted, try again" (double-post risk).
+- Added a `worker.on('failed')` handler (`handleFailedPublishJob`) that marks rows still
+  `pending` as `failed` once BullMQ attempts are exhausted (previously stuck forever).
+- `!db` now throws instead of silently completing the job; `console.error` → `logger.error`.
+- `lib/clientErrors.ts`: new `POSTED_UNVERIFIED_ERROR_PREFIX` constant.
+
+## 2026-11-15 — Client reliability fixes (poll staleness, multiply, SSE state, Ideate)
+
+- `useJobStatusPoll.ts`: "lost" staleness now ages from last observed progress (or server
+  `updatedAt` when sent) instead of `createdAt`, so a reload mid-regenerate no longer reports lost.
+- `useMultiplier.ts`: poll stops only after `getJob` succeeds; a throw keeps polling until max.
+- `mergeSSEIntoJobData.ts`: `state` events with `status: 'done'|'failed'` now update status.
+- `Ideate.tsx`: loading/submitting reset moved into `finally`.
+- `types/job.ts`: optional `JobStatus.updatedAt`.
+
+## 2026-11-15 — Feed-monitor cursor race and rotated-cursor backlog
+
+- `checkFeedMonitor` now re-reads the monitor row (by id + userId) after acquiring the Redis lock,
+  so a concurrent `POST /:id/check` that advanced `lastItemGuid` can no longer make the cron
+  create a duplicate Repurpose job from its stale preloaded row.
+- If `lastItemGuid` is no longer present in the feed (rotated out), selection is treated like a
+  first run (newest item only) instead of walking the entire feed oldest→newest across ticks.
+- Item sorting/selection and `advanceCursor` extracted to `server/src/lib/feedMonitorCheck.ts`,
+  keeping `feedMonitorWorker.ts` under the 400-line cap (409 → ~395).
+
+## 2026-11-15 — Stale sweep no longer fails still-queued jobs
+
+- `sweepStaleInFlightJobs` (`persistJobSweeps.ts`) marked BullMQ-queued `pending` jobs `failed`
+  after 15 min, and `contentWorker` H1 then skipped the failed row so it never ran. The sweep now
+  skips jobs whose in-memory snapshot is `pending` (under the 45-min ceiling) or whose BullMQ
+  state is waiting/delayed/active/paused/prioritized. H1 is unchanged, so genuinely failed
+  pipelines are still not re-run.
+- `sweepStalePublishingPosts` now writes neutral "status unknown — check your account" copy
+  instead of inviting a reschedule, and preserves `Partial thread:` / `posted-unverified:`
+  markers already on `publishError`.
+
+---
+
+## 2026-11-15 — Full codebase review fixes
+
+### Security
+
+- `articleExtract.ts`: replaced the 12s timer cleared at header arrival with a single
+  `AbortSignal.timeout(12000)` spanning fetch and body read, so slow-drip bodies can no
+  longer hang Repurpose or feed-monitor checks.
+- New `lib/htmlStrip.ts` `stripTagBlocks()` (linear scan) replaces the lazy-`[\s\S]*?`
+  `<script>`/`<style>` regexes in `stripScriptsAndEventHandlers` and `articleExtract.ts`
+  (ReDoS on many unclosed openers). Added unit tests in `tests/unit/carousel.test.ts`.
+- `dbDeleteToken` now rethrows DB failures; `DELETE /api/social/disconnect/:platform`
+  returns 503 `{ error, code: 'DISCONNECT_FAILED', retryable: true }` instead of `ok: true`
+  while the token still exists.
+
+### Frontend
+
+- `useJobData.ts`: Regenerate success now resets `stage`/`progress`/`message` (was leaving
+  `stage:'done'`, which fired the terminal refresh and cleared `regenerating` instantly); the
+  terminal-refresh effect also ignores a stage-only `done` while a regenerate is in flight.
+- `useJobData.ts`: `handleRegenerate`'s `openStream`/reconnect timer/catch now compare a
+  `jobIdRef` against the starting job id so a late continuation for job A cannot replace job
+  B's stream; reconnect timer is cleared on every jobId change.
+- `useJobStatusPoll.ts`: effect-scoped `cancelled` flag checked after each await so an
+  in-flight poll for the previous job cannot set state for the new one.
+- `Create.tsx`: Ideate/Competitor handoff is consumed once into the draft, then
+  `navigate(..., { replace: true, state: null })` so a reload no longer overrides edits.
+- `api/client.ts`: 60s default timeout (export route opts out with `timeout: 0`); requests
+  wait up to 3s for Clerk and fail locally instead of going out unauthenticated; a 401
+  retries once with a force-refreshed token, then redirects to `/sign-in`.
+
+### Backend reliability
+
+- **B-H1** New `markJobTerminalFailed()` (`persistJobSweeps.ts`, re-exported from `persistJob.ts`):
+  fails the DB row, flips the jobsMemory/jobStore snapshot to `failed` with a client-safe
+  message, sends terminal SSE and schedules eviction. Wired into `failJobForOverload`
+  (`pipelineDirect.ts`), `contentWorker`'s `failed` handler and the stale sweep — previously
+  stale `pending` memory caused permanent 409 `JOB_IN_PROGRESS`.
+- **M7** `contentWorker` only marks terminal failure once `attemptsMade >= opts.attempts`, so
+  intermediate BullMQ retries are not blocked by the failed guard.
+- **B-H2** `redisClient.ts`: `retryStrategy` never returns null (capped 5s backoff forever);
+  shared client uses `maxRetriesPerRequest: 2`. BullMQ (`createDedicatedRedisConnection`) and
+  the SSE subscriber (`sseRedis.ts`) duplicates override it back to `null`.
+- **B-M1** `pipeline.ts`: when the 3 inline persist attempts fail after a successful
+  generation, a background re-persist (5s→5min backoff) runs and schedules eviction on
+  success; no LLM re-run. Memory-only copy remains protected from the sweep meanwhile.
+- **B-M2** `lookupOwnedJob` throws `OwnershipLookupError` on DB errors;
+  `requireJobOwnership` and `GET /:jobId/status` return 503 `DB_UNAVAILABLE` `retryable: true`
+  instead of a non-retryable 404. 404 stays for true misses/wrong owner.
+- **B-L1** `regenerate.ts` calls the (now exported) `pruneOldVersions` after its snapshot insert.
+- **B-L2** `contentJobLock.ts`: content-run lock TTL 600s→120s, renew 60s→30s.
+- Tests: `tests/security/ownership.test.ts` covers the 503 DB-error path.
+
+### Publish / feed
+
+- **Partial Twitter thread (B-M3):** `socialPublish.ts` throws `TwitterPartialThreadError`
+  (posted K of N, root/last tweet id, root URL) when a reply fails after earlier tweets went
+  live. `publishWorker.ts` records such rows as `posted` with the root `postUrl` and a
+  `Partial thread: …` `publishError` (no new enum/migration). `routes/scheduledPosts.ts`
+  returns 409 `PARTIAL_THREAD_POSTED` instead of re-arming them. Marker in `lib/clientErrors.ts`.
+- **Transient token read (B-M4):** `dbGetTokens` rethrows DB errors in production (dev keeps
+  in-memory fallback). After claim, `publishWorker` releases back to `pending` and rethrows
+  for BullMQ retry; last attempt marks `failed`. `dbDeleteToken` untouched here.
+- **Feed monitor races (B-M5):** `feedMonitorWorker.ts` refunds generation budget at most once
+  and only before jobs exist; after job creation the cursor update retries 3x without refund.
+
+### Tests / UX
+
+- **Security-helper unit tests (A-H1):** `ssrfGuard.test.ts`, `sanitizeSearchText.test.ts`,
+  `tokenEncryption.test.ts`, `contentJobLock.test.ts` under `server/tests/unit/`.
+- **Partial draft banner (A-M2):** `Result.tsx` partial-final warning now has a bold
+  "Partial draft." lead-in, `role="status"`, and `data-testid="partial-draft-banner"`.
+
+---
+
+## 2026-11-14 — LinkedIn video: AtlasAudio inspiring business bed
+
+Swapped bed to `atlasaudio-inspiring-business-613526.mp3`; same quiet
+volume as prior mix (~0.041). See `v2/audio/ATTRIBUTION.txt`.
+
+## 2026-11-14 — LinkedIn video: explainer VO (not caption read-aloud)
+
+Voiceover copy rewritten as short explanations (separate from on-screen
+slogans), Flo with conversational pacing; falls back to OpenAI `tts-1-hd` /
+`nova` when `OPENAI_API_KEY` is set. Ambient bed still ducked under speech.
+
+## 2026-11-14 — LinkedIn video: spoken captions + soft ambient bed
+
+`v2/make-audio.sh` — macOS `say` reads each scene line, padded to scene
+length, mixed under a quiet original lavfi pad with sidechain ducking.
+Wired into `assemble.sh`; remuxed into `pensieve-linkedin-50s*.mp4`.
+
+## 2026-11-14 — LinkedIn video: trim storyboard to ~40s
+
+Same frames; shorter holds (4 / 5.5 / 5.5 / 8 / 6.5 / 5.5 / 5). Filenames
+stay `pensieve-linkedin-50s*.mp4`. `v2/assemble.sh` durations updated.
+
+## 2026-11-14 — LinkedIn video: full-desktop frames (no zoom / no tile)
+
+Earlier takes cropped into UI chrome or used 1600×900 CDP shots that tiled
+(duplicate left nav → looked “zoomed”). Recaptured every scene at **1440×900
+DPR 1** (under the tile threshold; single sidebar; full Create / Ideate /
+Result workspace). Rebuilt `pensieve-linkedin-50s.mp4` + square. `v2/recapture.mjs`
+viewport set to 1440×900 to match.
+
+## 2026-11-14 — LinkedIn video: fix side-by-side doubled frames
+
+Raw CDP captures used `CDPScreenshotNewSurface`, which tiled the Cursor
+browser panel into the emulated 1600×900@2× buffer (~2×2). Detiled product
+frames (top-left tile), restored a clean desktop hero from the v1 capture,
+reassembled `pensieve-linkedin-50s.mp4` + square. Capture notes warn to
+disable that Chromium feature / prefer `v2/recapture.mjs`.
+
+## 2026-11-14 — Responsive UI pass 7 (Library/Calendar tablet 44px)
+
+Browser-tested at 390 / 768 / 1280 in order Dashboard → Ideate → Competitor →
+Create → Repurpose → Library → Calendar → Brand → Landing → Result. No
+horizontal overflow at those sizes (Library filter pills stay in an
+`overflow-x: auto` row).
+
+- **Library ≤768:** search / folders / sort / pills / more / source-link /
+  pagination hit boxes raised from phone-only (≤640) so tablet hits 44 too;
+  layout stacking (header/filter column) stays ≤640.
+- **Calendar ≤768:** nav/toggle/Today, sidebar `Schedule…` chips (~26px), and
+  ghost icon actions → 44 without changing the tablet dvh shell / sidebar
+  visibility (layout shell remains ≤640).
+- Other pages in this order: no new overflow or <44px content targets beyond
+  chrome logo/Clerk already accepted.
+
+## 2026-11-14 — Responsive UI pass 6 (tablet 44px + search/theme)
+
+Browser-tested at 390 / 768 / 1280 in order Dashboard → Ideate → Competitor →
+Create → Repurpose → Library → Calendar → Brand → Landing → Result. No
+horizontal overflow at those sizes.
+
+- **Global ≤768:** `.btn-primary` / `.btn-secondary` get `min-height:44`
+  (tablet was still ~40 from desktop padding).
+- **Ideate ≤768:** focus input, count dropdown, platform chips, competitor
+  label, generate — raised from phone-only (≤480) so tablet hits 44 too.
+- **Library ≤640:** search `<input>` itself is 44 (wrap alone left the field
+  ~22); clear button hit box 44.
+- **Calendar ≤640:** `.sc-btn-ghost` (sheet ✕ / day-detail icons) → 44×44.
+- **Landing:** mobile-menu Close → 44×44; collapsed ThemeSwitcher 30×26 → 44×44
+  (also helps AuthLayout rail).
+- Other pages in this order: no new overflow or <44px content targets beyond
+  chrome logo/theme already covered above.
+
+## 2026-11-14 — Responsive UI pass 5 (Result tablet + Calendar phone)
+
+Browser-tested at 390 / 768 / 1280 in order Dashboard → Ideate → Competitor →
+Create → Repurpose → Library → Calendar → Brand → Landing → Result.
+
+- **Result ≤768:** `@media (max-width:768px)` forced `.rp-carousel-layout` to
+  `1fr`, undoing `@container rp-main (≥640)` slide|tools side-by-side on tablets
+  (~728px content). Removed that viewport override so container queries own the
+  stack. Slide dots kept `height:44` but flex-shrunk to ~14px wide — added
+  `min-width:44` + `flex-shrink:0`. Template rows (~31px) and color swatches
+  (22×22) → `min-height`/`44×44` hit boxes.
+- **Calendar ≤640:** `main-inner` + `.sc-cal` both padded ~20px, so the month
+  grid was ~310px and day cells ~42px wide. Reduced nested padding so cells
+  land ~49px on a 390 phone.
+- Other pages in this order: no new overflow or <44px targets beyond pass 4.
+
+## 2026-11-14 — Responsive UI pass 4 (remaining touch targets)
+
+Browser-tested at 390 / 768 / 1280 in order Dashboard → Ideate → Competitor →
+Create → Repurpose → Library → Calendar → Brand → Landing → Result. No
+horizontal overflow at any of those sizes.
+
+- **Dashboard ≤768:** section “View all” (~15px) and radar/trend toggle
+  (~25px) → `min-height:44`.
+- **Ideate ≤480/768:** count Dropdown (~33px) and “All” chip width; idea
+  source links (~17px) → 44px hit boxes.
+- **Competitor:** platform pills `minHeight` 40 → 44.
+- **Create:** Brand voice “Edit” link (~18px) → `minHeight:44`.
+- **Repurpose ≤768:** feed-monitor icon actions (~20×20), Add feed (~37px),
+  history View/Remove (~18×18), Brand Voice tip link → 44px.
+- **Library ≤640:** search wrap, source external-link icons (~10×10),
+  pagination Prev/Next/page nums → 44px.
+- **Calendar ≤640:** mobile-sheet Schedule… chips (~26px) → `min-height:44`.
+- **Brand:** Analyze writing style (~40px) and Delete account (~38px) →
+  `minHeight:44`.
+- **Landing ≤768:** hamburger `min-width/height:44`; demo platform chips
+  keep 44px (stop shrinking padding to ~34px).
+- **Result ≤768:** Library back link (~19px) and Adapt/Open chips (~35px)
+  → `min-height:44`.
+
+## 2026-11-14 — Responsive UI pass 3 (touch targets + Landing)
+
+Re-verified at 390 / 768 / 1280 in order Dashboard → Ideate → Competitor →
+Create → Repurpose → Library → Calendar → Brand → Landing → Result.
+
+- **Global ≤480:** `.btn-primary` / `.btn-secondary` get `min-height:44`
+  (9px pad alone was ~40px).
+- **Dashboard:** View / Manage card links get `min-height:44`.
+- **Ideate:** platform chips on ≤480 raised from 36 → 44.
+- **Competitor:** Past analyses history trigger `minHeight:44`.
+- **Create:** Plan multiple topics header toggle `minHeight:44`.
+- **Repurpose:** tone pills `minHeight:44`.
+- **Library ≤640:** Folders / header actions / more-menu hit 44px (not just
+  filter/sort pills).
+- **Calendar ≤640:** month nav chevrons, Today, and library toggle are 44×44.
+- **Brand:** voice tone pills `minHeight:44`.
+- **Landing:** signed-in banner dashboard link + dismiss hit 44px.
+- **Result ≤768:** slide prev/next, Edit/Copy, and dot hit boxes are 44px
+  (carousel stage fit from pass 2 still holds — stage ~358px at 390).
+
+## 2026-11-14 — Responsive UI pass 2 (Dashboard → Result)
+
+Browser-tested at 390 / 768 / 1280 in order Dashboard → Ideate → Competitor →
+Create → Repurpose → Library → Calendar → Brand → Result.
+
+- **Result carousel mobile:** `.rp-carousel-stage` used `min-width:auto`, so
+  ResizeObserver always measured the 470px slide and never shrank — preview
+  clipped mid-headline on ~358px columns. Stage now `min-width:0; max-width:100%`
+  and fit also caps against the parent layout width. Footer Copy/Regen/Export/
+  More buttons are 44px tall.
+- **Dashboard:** recent-job Create again / Delete icons are 44×44 on ≤768;
+  radar short label `Platform` → `Fit` (220–240 SVG was clipping "Platfo…").
+- **Repurpose:** Switch to Batch / multi-platform toggles get `min-height:44`.
+- **Library ≤640:** filter/sort pills get `min-height:44` touch targets.
+- Ideate / Competitor / Create / Calendar / Brand: no new layout bugs at these
+  sizes (prior Calendar/Library/Ideate fixes held).
+
+## 2026-11-14 — Responsive UI: Calendar / Library / Ideate
+
+- **Calendar mobile:** flex-stretch + visible-but-width-0 sidebar made the
+  month grid ~500px-tall rows (only week 1 visible). ≤640px now hides the
+  sidebar (`display:none`), sizes the grid to content (`align-content:start`),
+  and keeps the dvh shell for tablet (641–768) so the library still scrolls
+  inside the column. Closed desktop sidebar is `position:absolute` so it
+  cannot stretch the calendar column.
+- **Library ≤640:** Analytics / Manage / New content overflowed the content
+  column; header stacks and actions share width.
+- **Ideate:** idea-card icon actions get 44×44 touch targets on ≤768; platform
+  chips/generate button enlarge on ≤480 instead of shrinking.
+
+## 2026-11-14 — Brand Settings form label + error a11y
+
+- Identity / Voice / Content DNA / delete-confirm fields had visual labels
+  but no `htmlFor`/`id`, so accessible names fell back to placeholders.
+- DNA / export / save errors and toasts now use `role="alert"` /
+  `role="status"`; Danger Zone Export/Delete get explicit `aria-label`s.
+
+## 2026-11-14 — Calendar library toggle + collapsed-sidebar a11y
+
+- Toggle content library flipped both `sidebarOpen` and `mobileOpen`, so
+  closing the desktop library left an invisible `.sc-mobile-scrim` that
+  ate clicks; desktop now only collapses the sidebar, mobile only opens
+  the bottom sheet.
+- Collapsed desktop sidebar used `width:0` alone — Schedule… buttons stayed
+  in the tab order; `inert` + `aria-hidden` remove them when closed.
+
+## 2026-11-14 — Calendar month-nav + day-cell a11y
+
+- Prev/next month chevrons were icon-only with no accessible name; now
+  `Previous month` / `Next month` (Today also labeled).
+- Day cells announce full date + scheduled count via `aria-label` /
+  `aria-pressed` instead of bare day numbers.
+
+## 2026-11-14 — Library empty-topic + All-pill count
+
+- Blank `topic` rows rendered as empty cards (chip a11y read “LinkedIn —”);
+  Library now shows “Untitled” via `displayLibraryTopic`.
+- With a platform filter active, the All pill used filtered `total` (e.g.
+  “All 12” next to “Carousel 22”); it now sums `platformCounts` so All
+  stays the cross-platform total.
+
+## 2026-11-14 — Repurpose Clear + empty-batch label polish
+
+- Clear left `multiPlatform` on, so the toggle stayed “Switch to single
+  platform” after a full reset — now resets to single-platform defaults.
+- Empty batch mode showed “Batch (1 URLs)” because the display count used
+  `|| 1` while the plural check used the raw 0; plural now matches the
+  displayed count.
+
+## 2026-11-14 — Create draft toast no longer blocks the form
+
+- The “Draft is saved in this tab only…” toast stayed up for the whole draft
+  lifetime (`hasDraft &&`) and intercepted clicks on template/palette chips.
+  It now shows once per Create visit and auto-dismisses after 5s.
+
+## 2026-11-14 — Competitor history shows slug for legacy URL handles
+
+- Past-analyses rows that stored a full LinkedIn/X/Instagram URL as `handle`
+  (pre–`resolveCompetitorIdentity`) rendered as `@https://…` and refilled the
+  form with the URL. `displayCompetitorHandle` now shows/rehydrates the vanity
+  slug, and the list truncates long labels with ellipsis.
+
+## 2026-11-14 — Ideate dismiss no longer resets “Generated” time
+
+- Dismissing or regenerating a single idea used `setIdeatedIdeas`, which always
+  wrote a fresh `ideasGeneratedAt` — so “Generated Nov 11” jumped to “just now”
+  after a dismiss. Store now accepts `preserveGeneratedAt` for those mutations;
+  only a full Suggest/Regenerate run updates the timestamp.
+
 ## 2026-11-14 — Pre-commit review polish
 
 - Library slim poll treats all mid-pipeline statuses as in-flight (not only

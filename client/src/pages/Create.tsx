@@ -3,23 +3,20 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { AlertCircle, CalendarRange, ArrowLeft, Info } from 'lucide-react';
-import { createJob, getProfile, getAudienceDefaults } from '../api';
-import { posthog } from '../main';
+import { getProfile, getAudienceDefaults } from '../api';
 import { TopicStep } from './Create/TopicStep';
 import { BatchTopicList } from './Create/BatchTopicList';
 import { useDraft } from './Create/useDraft';
 import { useBatchCreate } from './Create/useBatchCreate';
+import { useCreateSubmit } from './Create/useCreateSubmit';
 import { useCarouselTemplateSelection } from './Create/useCarouselTemplateSelection';
-import { getSubmitError } from './Create/errorMessages';
 import type { CreateHandoff } from '../lib/utils';
-import { isJobPlatform, isJobTone } from '../types/job';
 import {
   TOPIC_PLACEHOLDERS,
   GENERATE_LABELS,
   AUDIENCE_DEFAULTS,
   resolveAudience,
   readRecentTopics,
-  writeRecentTopics,
 } from './Create/createConstants';
 
 // WHY: still localStorage-backed for template defaults: keys seed the DEFAULT
@@ -41,7 +38,9 @@ export default function CreatePage() {
 
   // NOTE: draft persists topic/platform/tone/audience across a trip to /brand and back;
   // cleared once a job is actually submitted (see handleSubmit).
-  const { draft, setDraft, clearDraft, draftWriteFailed, dismissDraftWriteFailed } = useDraft();
+  const {
+    draft, draftScopeId, setDraft, clearDraft, draftWriteFailed, dismissDraftWriteFailed,
+  } = useDraft();
 
   // NOTE: content inputs — prefill (nav state) wins over a saved draft, which wins over defaults
   const [platform, setPlatform] = useState(prefill.platform || draft.platform || 'instagram_carousel');
@@ -62,11 +61,24 @@ export default function CreatePage() {
     !prefill.platform && !draft.platform && !(prefill.topic || draft.topic),
   );
 
-  const [loading, setLoading] = useState(false);
-  // WHY: ref in addition to state: a fast double-click sees loading===false twice
-  // before the next paint, so both requests fire. The ref flips synchronously.
-  const submittingRef = useRef(false);
-  const [errorMsg,     setErrorMsg]     = useState('');
+  // WHY: Create local state is only initialized once — without this, switching
+  // Clerk accounts keeps the previous user's topic/platform/tone/audience on screen
+  // even after useDraft reloads the scoped draft. Wait until draftScopeId matches
+  // topicsScopeId so we never apply the previous account's draft for one frame.
+  const formScopedFor = useRef<string | null>(draftScopeId);
+  useEffect(() => {
+    if (draftScopeId !== topicsScopeId) return;
+    if (formScopedFor.current === topicsScopeId) return;
+    formScopedFor.current = topicsScopeId;
+    setPlatform(prefill.platform || draft.platform || 'instagram_carousel');
+    setTopic(prefill.topic || draft.topic || '');
+    setTone(draft.tone || '');
+    setTargetAudience(draft.targetAudience || '');
+    setShowPlatformGrid(
+      !prefill.platform && !draft.platform && !(prefill.topic || draft.topic),
+    );
+  }, [topicsScopeId, draftScopeId, draft, prefill.platform, prefill.topic]);
+
   const [retryAfterMs, setRetryAfterMs] = useState<number | null>(null);
 
   // SECURITY: recent topics are per-user (L2) — same userScopedKey pattern as drafts.
@@ -167,6 +179,22 @@ export default function CreatePage() {
   // tab won't show drafts from another tab — surface that so users don't assume
   // cross-tab sync. Toast UI lives near the bottom (same pattern as Brand/Library).
   const hasDraft = !!(draft.platform || draft.topic || draft.tone || draft.targetAudience);
+  // WHY: auto-dismiss (not `hasDraft &&` forever): a sticky fixed toast sat over
+  // template/palette chips and intercepted clicks for the whole draft lifetime.
+  // WHY no "shown once" ref: React Strict Mode remount clears the dismiss timer
+  // while leaving the ref set — toast stayed forever. Re-show when hasDraft
+  // flips false→true is fine and keeps the timer reliable.
+  const [showDraftToast, setShowDraftToast] = useState(false);
+
+  useEffect(() => {
+    if (!hasDraft) {
+      setShowDraftToast(false);
+      return undefined;
+    }
+    setShowDraftToast(true);
+    const t = setTimeout(() => setShowDraftToast(false), 5000);
+    return () => clearTimeout(t);
+  }, [hasDraft]);
 
   // WHY: learned default before the static map: a user's own recent history
   // (most-frequent targetAudience they've actually typed for this platform,
@@ -200,64 +228,28 @@ export default function CreatePage() {
       ...(prefill.competitorAnalysisId ? { competitorAnalysisId: prefill.competitorAnalysisId } : {}),
       ...(prefill.industry ? { industry: prefill.industry } : {}),
     });
+    // WHY: location.state survives a reload; left in place it would beat the (edited)
+    // draft via `prefill.topic || draft.topic`. Draft now owns the values — consume once.
+    navigate(location.pathname, { replace: true, state: null });
   // Only on mount for this handoff — don't re-write on every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional once-per-mount seed
   }, []);
 
-  async function handleSubmit() {
-    if (!topic.trim() || loading || submittingRef.current) return;
-    const trimmed = topic.trim();
-    // WHY: client min-3 before POST: matches createJobSchema / BatchTopicList and
-    // avoids a round-trip that used to surface only "Invalid request body" (QA-A3-003).
-    if (trimmed.length < 3) {
-      setErrorMsg('Topic must be at least 3 characters');
-      return;
-    }
-    submittingRef.current = true;
-    setLoading(true);
-    setErrorMsg('');
-    try {
-      // WHY: industry folded into competitorContext, not a new field: Create
-      // has no visible industry input, and createJobSchema only accepts
-      // competitorContext/competitorAnalysisId — this is the "simplest option
-      // that doesn't require new UI" the task calls for, matching how
-      // focusTopic already flows into ideate.ts as plain extra prompt text.
-      const industry = prefill.industry || draft.industry || '';
-      const gapContext = prefill.competitorContext || draft.competitorContext || '';
-      const analysisId = prefill.competitorAnalysisId || draft.competitorAnalysisId;
-      const competitorContext = [industry ? `Industry: ${industry}` : '', gapContext]
-        .filter(Boolean)
-        .join(' — ') || undefined;
-      // WHY: guards (not bare casts): Create state is still string-typed from
-      // draft/prefill; createJob expects JobPlatform/JobTone unions.
-      const platformForApi = isJobPlatform(platform) ? platform : 'instagram_carousel';
-      const toneForApi = isJobTone(effectiveTone) ? effectiveTone : 'professional';
-      const { jobId } = await createJob({
-        topic: trimmed,
-        platform: platformForApi,
-        tone: toneForApi,
-        targetAudience: effectiveAudience,
-        competitorContext,
-        competitorAnalysisId: analysisId,
-        ...(platformForApi === 'instagram_carousel' ? { templateId, paletteId } : {}),
-      });
-      // WHY: after success only: a failed/rate-limited submit used to pollute
-      // recent topics before the job existed (QA-A3-002).
-      const updated = [trimmed, ...recentTopics.filter((r) => r !== trimmed)].slice(0, 10);
-      writeRecentTopics(topicsScopeId, updated);
-      setRecentTopics(updated);
-      posthog.capture('content_generated', { platform, tone: effectiveTone });
-      clearDraft();
-      navigate(`/result/${jobId}`);
-    } catch (err: unknown) {
-      // NOTE: Error is displayed to user via setErrorMsg; no need for console.error in production
-      const { message, retryAfterMs } = getSubmitError(err);
-      setErrorMsg(message);
-      setRetryAfterMs(retryAfterMs ?? null);
-      setLoading(false);
-      submittingRef.current = false;
-    }
-  }
+  const { loading, errorMsg, handleSubmit } = useCreateSubmit({
+    topic,
+    platform,
+    effectiveTone,
+    effectiveAudience,
+    templateId,
+    paletteId,
+    prefill,
+    draft,
+    recentTopics,
+    setRecentTopics,
+    topicsScopeId,
+    clearDraft,
+    setRetryAfterMs,
+  });
 
   return (
     <div>
@@ -276,9 +268,10 @@ export default function CreatePage() {
           type="button"
           onClick={() => setBatchMode((v) => !v)}
           style={{
+            // WHY: header toggle was ~38px — under 44px mobile touch target.
             display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
             background: 'transparent', border: '1px solid var(--rule)', borderRadius: 9,
-            padding: '8px 14px', color: 'var(--text-secondary)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            padding: '8px 14px', minHeight: 44, color: 'var(--text-secondary)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
           }}
         >
           {batchMode ? <><ArrowLeft size={13} /> Back to single post</> : <><CalendarRange size={13} /> Plan multiple topics</>}
@@ -361,7 +354,7 @@ export default function CreatePage() {
       {/* Cross-tab navigation warning: drafts are sessionStorage-specific (per-tab).
           WHY solid raised bg + align center: icon must sit mid-height of the wrapped copy,
           not pinned to the first line (that read as top-heavy). */}
-      {hasDraft && (
+      {showDraftToast && (
         <div
           className="toast"
           role="status"

@@ -33,7 +33,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
 
   // WHY: an empty state, not `return null`: on mobile Insights is its own tab, and a
   // job with no critic result yet (generating, or pre-critic) would show a blank pane.
-  if (!criticResult?.scores) {
+  if (!criticResult) {
     return (
       <div className={shellClass}>
         <div className="rp-sidebar-panel" inert={collapsed ? true : undefined} aria-hidden={collapsed || undefined}>
@@ -86,12 +86,15 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
     );
   }
 
-  const worst = scoreDims.reduce((a, d) =>
-    (criticResult.scores[d.k] || 0) < (criticResult.scores[a.k] || 0) ? d : a,
-    scoreDims[0]
-  );
+  const dimScores = criticResult.scores;
+  const worst = dimScores
+    ? scoreDims.reduce((a, d) =>
+      (dimScores[d.k] || 0) < (dimScores[a.k] || 0) ? d : a,
+      scoreDims[0]
+    )
+    : null;
 
-  const showTip = (criticResult.scores[worst.k] || 0) < 17;
+  const showTip = Boolean(worst && dimScores && (dimScores[worst.k] || 0) < 17);
 
   return (
     <div className={shellClass}>
@@ -152,28 +155,30 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
           </div>
         </div>
 
-        {/* Score bars */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {scoreDims.map(({ l, k, c }) => {
-            const sc  = criticResult.scores[k] || 0;
-            const pct = Math.round((sc / 20) * 100);
-            return (
-              <div key={k}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{l}</span>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
-                    <span style={{ color: c, fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12 }}>{sc}</span>
-                    <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "var(--font-mono)" }}>/20</span>
-                    <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginLeft: 3 }}>{pct}%</span>
+        {/* Score bars — omitted when feedback-only (no per-dimension scores). */}
+        {dimScores && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {scoreDims.map(({ l, k, c }) => {
+              const sc  = dimScores[k] || 0;
+              const pct = Math.round((sc / 20) * 100);
+              return (
+                <div key={k}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{l}</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+                      <span style={{ color: c, fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12 }}>{sc}</span>
+                      <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "var(--font-mono)" }}>/20</span>
+                      <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: "var(--font-mono)", marginLeft: 3 }}>{pct}%</span>
+                    </div>
+                  </div>
+                  <div style={{ height: 7, background: 'var(--rule)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: `linear-gradient(90deg,${c},${c}80)`, borderRadius: 4, width: `${pct}%`, transition: 'width 1.2s cubic-bezier(.16,1,.3,1)', boxShadow: pct > 75 ? `0 0 6px ${c}60` : 'none' }} />
                   </div>
                 </div>
-                <div style={{ height: 7, background: 'var(--rule)', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', background: `linear-gradient(90deg,${c},${c}80)`, borderRadius: 4, width: `${pct}%`, transition: 'width 1.2s cubic-bezier(.16,1,.3,1)', boxShadow: pct > 75 ? `0 0 6px ${c}60` : 'none' }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Critic feedback */}
         {criticResult.feedback && (
@@ -184,7 +189,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
         )}
 
         {/* Actionable tip for weakest dimension */}
-        {showTip && (
+        {showTip && worst && (
           <div style={{ marginTop: 16, display: 'flex', gap: 9, background: 'color-mix(in srgb, var(--accent) 4%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 10%, transparent)', borderRadius: 9, padding: '12px 13px' }}>
             <Sparkles size={13} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }} />
             <div>
@@ -195,7 +200,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
         )}
 
         {/* Fix with AI button */}
-        {onSteer && showTip && (
+        {onSteer && showTip && worst && (
           <button onClick={() => onSteer(worst.tip)} className="btn-ghost" style={{ width: '100%', marginTop: 12, fontSize: 12, padding: '9px 14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Zap size={12} /> Fix with AI
           </button>

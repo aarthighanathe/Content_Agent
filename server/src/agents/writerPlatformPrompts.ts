@@ -1,8 +1,8 @@
 import { escapeXml } from '../lib/sanitizeSearchText.js';
-import type { ContentJob } from '../db/schema.js';
+import type { RuntimeJob } from '../lib/pipelineTypes.js';
 
 /** Platform-specific writer system prompts — kept out of writer.ts for the 400-line cap. */
-export function buildPlatformPrompts(job: ContentJob): Record<string, string> {
+export function buildPlatformPrompts(job: RuntimeJob): Record<string, string> {
   const audience = escapeXml(job.targetAudience || '');
   const tone = escapeXml(job.tone || '');
   return {

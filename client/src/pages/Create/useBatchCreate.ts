@@ -1,7 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@clerk/clerk-react';
 import { createBatchJobs } from '../../api';
 import { posthog } from '../../main';
+import { writeBatchResult } from '../../lib/batchResultStorage';
 import { getSubmitError } from './errorMessages';
 import type { BatchRow } from './BatchTopicList';
 
@@ -17,6 +19,9 @@ export function useBatchCreate(
   onRateLimited?: (retryAfterMs: number | null) => void,
 ) {
   const navigate = useNavigate();
+  const { userId } = useAuth();
+  const userIdRef = useRef(userId ?? null);
+  userIdRef.current = userId ?? null;
   const [batchMode, setBatchMode] = useState(false);
   const [batchRows, setBatchRows] = useState<BatchRow[]>(() => [
     { id: crypto.randomUUID(), topic: '', platform: 'instagram_carousel' },
@@ -29,10 +34,25 @@ export function useBatchCreate(
   // see batchLoading===false before the next paint.
   const submittingRef = useRef(false);
 
+  // WHY: account switch mid-batch must clear spinner/rows so the new user
+  // does not inherit the previous account's in-flight batch UI.
+  useEffect(() => {
+    setBatchMode(false);
+    setBatchRows([{ id: crypto.randomUUID(), topic: '', platform: 'instagram_carousel' }]);
+    setBatchTone('');
+    setBatchAudience('');
+    setBatchLoading(false);
+    setBatchError('');
+    submittingRef.current = false;
+  }, [userId]);
+
   async function handleBatchSubmit() {
     if (batchLoading || submittingRef.current) return;
     const validRows = batchRows.filter((r) => r.topic.trim().length >= 3);
     if (validRows.length === 0) return;
+    // WHY: capture at click — writeBatchResult/navigate must not run for a
+    // different Clerk user after the await settles.
+    const submitUserId = userIdRef.current;
     submittingRef.current = true;
     setBatchLoading(true);
     setBatchError('');
@@ -45,6 +65,11 @@ export function useBatchCreate(
         })),
         carouselTemplate,
       );
+      if (userIdRef.current !== submitUserId) {
+        setBatchLoading(false);
+        submittingRef.current = false;
+        return;
+      }
       posthog.capture('batch_content_generated', { count: jobs.length, failedCount: failedItems.length });
       if (failedItems.length > 0) {
         // WHY: map server index -> validRows -> row id, not display directly:
@@ -58,7 +83,8 @@ export function useBatchCreate(
           const rowId = validRows[f.index]?.id;
           if (rowId !== undefined) failuresByRowId.set(rowId, f.error);
         }
-        setBatchRows(batchRows.map((r) => (
+        // WHY: functional update — user may have edited rows during the await.
+        setBatchRows((prev) => prev.map((r) => (
           failuresByRowId.has(r.id) ? { ...r, error: failuresByRowId.get(r.id) } : r
         )));
       }
@@ -72,21 +98,19 @@ export function useBatchCreate(
         submittingRef.current = false;
         return;
       }
-      // WHY: also sessionStorage (L12): BatchResult used to rely only on router
-      // state, so a hard refresh showed "No batch found". Persist the job list
-      // for this tab so refresh recovers; URL stays clean (no job IDs in query).
-      try {
-        sessionStorage.setItem(
-          'ca_batch_result_v1',
-          JSON.stringify({
-            jobs,
-            creationFailedCount: failedItems.length,
-            savedAt: Date.now(),
-          }),
-        );
-      } catch { /* private mode / quota — navigate still works via state */ }
-      navigate('/batch-result', { state: { jobs, creationFailedCount: failedItems.length } });
+      // WHY: sessionStorage is per Clerk user (L12 + shared-browser leak).
+      // BatchResult used to rely only on router state, so a hard refresh
+      // showed "No batch found". URL stays clean (no job IDs in query).
+      writeBatchResult(submitUserId, { jobs, creationFailedCount: failedItems.length });
+      navigate('/batch-result', {
+        state: { jobs, creationFailedCount: failedItems.length, submitterUserId: submitUserId },
+      });
     } catch (err: unknown) {
+      if (userIdRef.current !== submitUserId) {
+        setBatchLoading(false);
+        submittingRef.current = false;
+        return;
+      }
       const { message, retryAfterMs } = getSubmitError(err);
       setBatchError(message);
       onRateLimited?.(retryAfterMs ?? null);

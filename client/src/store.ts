@@ -178,9 +178,16 @@ interface AppState {
 
   connectToStream: (jobId: string, token?: string, onEvent?: (data: SSEEvent) => void, onError?: () => void) => void;
   disconnectStream: () => void;
-  setIdeatedIdeas: (ideas: IdeatedIdea[]) => void;
+  // WHY: options.preserveGeneratedAt for dismiss / single-card regenerate —
+  // those mutate the batch without a new generation, so "Generated X ago"
+  // must stay tied to the last full Suggest/Regenerate run.
+  // WHY: forUserId drops stale generate/regenerate writes after an account switch mid-request
+  setIdeatedIdeas: (
+    ideas: IdeatedIdea[],
+    options?: { preserveGeneratedAt?: boolean; forUserId?: string | null },
+  ) => void;
   saveIdea: (idea: IdeatedIdea) => void;
-  unsaveIdea: (title: string) => void;
+  unsaveIdea: (id: string) => void;
   setTheme: (theme: ThemeName) => void;
   setActiveUser: (userId: string | null) => void;
   resetUserScopedState: () => void;
@@ -251,27 +258,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ sseConnection: null });
   },
 
-  setIdeatedIdeas: (ideas) => {
-    const generatedAt = new Date().toISOString();
-    const withIds = withIdeaIds(ideas);
+  setIdeatedIdeas: (ideas, options) => {
     const userId = get().activeUserId;
+    // WHY: Ideate captures activeUserId at request start — a late response after
+    // setActiveUser must not overwrite the new account's ideas / localStorage.
+    if (options?.forUserId !== undefined && options.forUserId !== userId) return;
+    const withIds = withIdeaIds(ideas);
     writeStoredIdeas(userId, withIds);
+    if (options?.preserveGeneratedAt) {
+      set({ ideatedIdeas: withIds });
+      return;
+    }
+    const generatedAt = new Date().toISOString();
     writeStoredGeneratedAt(userId, generatedAt);
     set({ ideatedIdeas: withIds, ideasGeneratedAt: generatedAt });
   },
 
   saveIdea: (idea) => {
     set((state) => {
-      if (state.savedIdeas.some((s) => s.title === idea.title)) return state;
-      const next = [{ ...idea, savedAt: new Date().toISOString() }, ...state.savedIdeas];
+      // WHY: keyed by id, not title — two distinct ideas can share a title.
+      const id = idea.id ?? newIdeaId();
+      if (state.savedIdeas.some((s) => s.id === id)) return state;
+      const next = [{ ...idea, id, savedAt: new Date().toISOString() }, ...state.savedIdeas];
       writeStoredSavedIdeas(state.activeUserId, next);
       return { savedIdeas: next };
     });
   },
 
-  unsaveIdea: (title) => {
+  unsaveIdea: (id) => {
     set((state) => {
-      const next = state.savedIdeas.filter((s) => s.title !== title);
+      const next = state.savedIdeas.filter((s) => s.id !== id);
       writeStoredSavedIdeas(state.activeUserId, next);
       return { savedIdeas: next };
     });

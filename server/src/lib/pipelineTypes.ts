@@ -5,8 +5,7 @@
 // both that logic and its 9 external consumers (routes/jobs/*, workers/*,
 // lib/persistJob.ts, etc.) import. pipeline.ts re-exports everything here so
 // no existing `from '../lib/pipeline.js'` import site needs to change.
-import type { ResearchResult } from '../agents/researcher.js';
-import type { CriticResult } from '../agents/critic.js';
+import type { ResearchResult, CriticResult } from '../agents/agentTypes.js';
 
 // WHY: content: unknown, not a discriminated union of every agent's output type:
 // outputType/agentName don't correlate to a single TypeScript-discriminable field
@@ -89,8 +88,14 @@ export interface PipelineJob {
   // framing forward automatically.
   sourceCompetitorAnalysisId?: string | null;
   competitorContext?: string;
-  [key: string]: unknown;
 }
+
+// WHY: agents used to take Drizzle's ContentJob (Date timestamps, every DB
+// column) while the pipeline only ever builds plain in-memory objects — that
+// forced `as unknown as ContentJob` at every call site. RuntimeJob is the
+// shared contract agents + runContentPipeline actually share (alias of
+// PipelineJob so call sites stay one name).
+export type RuntimeJob = PipelineJob;
 
 export type EmitProgress = (
   stage: string,
@@ -130,4 +135,12 @@ export interface SkipResearchOpts {
   researchResult: ResearchResult;
   taskPlan: string;
   platformRules: Record<string, unknown>;
+}
+
+// WHY: runLockSignal is the acquire's AbortSignal (aborted on renew loss) —
+// stage boundaries consult it so a prior holder's lost flag cannot poison a
+// new SET NX holder for the same jobId (see contentJobLock lostLockTokens).
+export interface PipelineRunOpts {
+  skipResearch?: SkipResearchOpts;
+  runLockSignal?: AbortSignal;
 }

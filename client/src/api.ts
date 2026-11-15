@@ -75,8 +75,8 @@ export async function getJobs(page: number = 1, options?: GetJobsOptions): Promi
   return response.data;
 }
 
-export async function getJob(jobId: string): Promise<ContentJob> {
-  const response = await api.get(`/jobs/${jobId}`);
+export async function getJob(jobId: string, signal?: AbortSignal): Promise<ContentJob> {
+  const response = await api.get(`/jobs/${jobId}`, { signal });
   return response.data;
 }
 
@@ -237,8 +237,9 @@ export async function postToSocial(
   platform: string,
   content: PlatformContent | PlatformContent[] | string,
   jobId?: string,
+  signal?: AbortSignal,
 ): Promise<PostToSocialResponse> {
-  const response = await api.post('/social/post', { platform, content, jobId });
+  const response = await api.post('/social/post', { platform, content, jobId }, { signal });
   return response.data;
 }
 

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, text, timestamp, integer, bigint, jsonb, uuid, index, uniqueIndex, boolean } from 'drizzle-orm/pg-core';
 import {
   platformEnum,
@@ -71,6 +72,13 @@ export const contentJobs = pgTable('content_jobs', {
   // client code, not the DB — same reasoning as this table's tag column.
   templateId: text('template_id'),
   paletteId: text('palette_id'),
+  // WHY: nullable capped text, no FK: Regenerate rebuilds a PipelineJob from this row once the
+  // in-memory copy has aged out, and these two fields only ever lived on the create/repurpose
+  // queue payload — regenerating a Repurpose or Competitor-lens job silently lost its source.
+  // SECURITY: sourceMaterial is untrusted article text; length is capped on write (persistJob.ts)
+  // and the writer still XML-wraps it as data.
+  sourceMaterial: text('source_material'),
+  competitorContext: text('competitor_context'),
   status: jobStatusEnum('status').default('pending').notNull(),
   retryCount: integer('retry_count').default(0).notNull(),
   deleted: integer('deleted').default(0).notNull(),
@@ -100,12 +108,17 @@ export const contentOutputs = pgTable('content_outputs', {
   jobIdIdx:   index('idx_content_outputs_job_id').on(table.jobId),
   jobTypeIdx: index('idx_content_outputs_job_type').on(table.jobId, table.outputType),
   // WHY: leading-outputType (mirror of jobTypeIdx, reversed): the GET /jobs
-  // sort=score subquery filters content_outputs by outputType='critique' then
-  // groups by jobId (perf audit) — jobTypeIdx's leading jobId cannot serve that
-  // WHERE, so without this index the subquery scans every critique row in the
-  // table before the user-narrowing join to contentJobs can apply. Applied to
-  // live DBs via `npm run db:generate && npm run db:migrate`.
+  // sort=score subquery filters content_outputs by outputType in
+  // ('final','critique') then groups by jobId (perf audit) — jobTypeIdx's
+  // leading jobId cannot serve that WHERE, so without this index the subquery
+  // scans every matching row before the user-narrowing join to contentJobs can
+  // apply. Applied to live DBs via `npm run db:generate && npm run db:migrate`.
   typeJobIdx: index('idx_content_outputs_type_job').on(table.outputType, table.jobId),
+  // WHY: PATCH content / restore race could insert two 'final' rows; readers pick one arbitrarily.
+  // Migration 0022 dedupes (keeps newest) before creating this.
+  jobFinalUnique: uniqueIndex('idx_content_outputs_job_final_unique')
+    .on(table.jobId)
+    .where(sql`${table.outputType} = 'final'`),
 }));
 
 export const agentLogs = pgTable('agent_logs', {

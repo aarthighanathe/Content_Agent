@@ -32,7 +32,8 @@ export function PlatformSelector({ value, onChange, disabled = false }: Platform
               color: sel ? 'var(--accent)' : 'var(--text-muted)',
               fontSize: 'clamp(11px,2vw,13px)',
               padding: '10px 14px',
-              minHeight: 40,
+              // WHY: 40 was just under the 44px mobile touch target.
+              minHeight: 44,
               borderRadius: 24,
               cursor: disabled ? 'not-allowed' : 'pointer',
               opacity: disabled ? 0.6 : 1,

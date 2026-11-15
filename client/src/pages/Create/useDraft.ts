@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { migrateLegacyKey, userScopedKey } from '../../lib/userScopedStorage';
 
@@ -98,6 +98,9 @@ function initialDraft(userId: string | null): Partial<CreateDraft> {
 // hook inventing its own UI.
 export function useDraft(): {
   draft: Partial<CreateDraft>;
+  // WHY: Create form state only syncs once draftScopeId matches the live user —
+  // otherwise a scope switch would briefly apply the previous account's draft.
+  draftScopeId: string | null;
   setDraft: (patch: Partial<CreateDraft>) => void;
   clearDraft: () => void;
   draftWriteFailed: boolean;
@@ -106,44 +109,66 @@ export function useDraft(): {
   const { userId } = useAuth();
   const scopeId = userId ?? null;
   const [draft, setDraftState] = useState<Partial<CreateDraft>>(() => initialDraft(scopeId));
+  const [draftScopeId, setDraftScopeId] = useState<string | null>(scopeId);
   const [draftWriteFailed, setDraftWriteFailed] = useState(false);
   const loadedFor = useRef<string | null>(scopeId);
+  // WHY: ref mirrors the latest merged draft so two setDraft calls in one tick
+  // don't write from a stale render-closure `draft` and drop the first patch.
+  const draftRef = useRef<Partial<CreateDraft>>(draft);
 
   // WHY: if the signed-in user changes while this hook stays mounted, drop the old
   // user's in-memory draft and load the new user's.
   useEffect(() => {
     if (loadedFor.current === scopeId) return;
     loadedFor.current = scopeId;
-    setDraftState(initialDraft(scopeId));
+    const fresh = initialDraft(scopeId);
+    draftRef.current = fresh;
+    setDraftState(fresh);
+    setDraftScopeId(scopeId);
   }, [scopeId]);
 
   function setDraft(patch: Partial<CreateDraft>): void {
-    const next = { ...draft, ...patch };
-    // WHY: write outside the setState updater: updaters must be pure (StrictMode runs
-    // them twice) and must not call other setters.
-    try {
-      sessionStorage.setItem(userScopedKey(DRAFT_KEY, scopeId), JSON.stringify(next));
-    } catch {
-      // storage unavailable (private mode, quota) — surfaced via draftWriteFailed
-      setDraftWriteFailed(true);
+    const next = { ...draftRef.current, ...patch };
+    draftRef.current = next;
+    // SECURITY: never write under the anon bucket — Clerk userId may still be
+    // null on first paint; persisting then would leak the next account's draft.
+    if (scopeId) {
+      // WHY: write outside the setState updater: updaters must be pure (StrictMode runs
+      // them twice) and must not call other setters.
+      try {
+        sessionStorage.setItem(userScopedKey(DRAFT_KEY, scopeId), JSON.stringify(next));
+      } catch {
+        // storage unavailable (private mode, quota) — surfaced via draftWriteFailed
+        setDraftWriteFailed(true);
+      }
     }
-    setDraftState((prev) => ({ ...prev, ...patch }));
+    setDraftState(next);
   }
 
   function clearDraft(): void {
-    try {
-      sessionStorage.removeItem(userScopedKey(DRAFT_KEY, scopeId));
-    } catch {
-      // storage unavailable — nothing to clear
+    if (scopeId) {
+      try {
+        sessionStorage.removeItem(userScopedKey(DRAFT_KEY, scopeId));
+      } catch {
+        // storage unavailable — nothing to clear
+      }
     }
+    draftRef.current = {};
     setDraftState({});
   }
 
+  // WHY: stable callback — Create's auto-dismiss effect depended on an inline
+  // dismiss that changed every setDraft keystroke and restarted the 4s timer.
+  const dismissDraftWriteFailed = useCallback((): void => {
+    setDraftWriteFailed(false);
+  }, []);
+
   return {
     draft,
+    draftScopeId,
     setDraft,
     clearDraft,
     draftWriteFailed,
-    dismissDraftWriteFailed: (): void => setDraftWriteFailed(false),
+    dismissDraftWriteFailed,
   };
 }

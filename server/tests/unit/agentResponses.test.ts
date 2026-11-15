@@ -92,6 +92,35 @@ describe('writerCarouselResponseSchema — per-field/per-slide tolerance', () =>
     expect(result.data[0].points).toEqual([]);
   });
 
+  it('truncates long point fields, keeps eight points, and drops an invalid background', () => {
+    const slides = [{
+      headline: 'H',
+      bg_suggestion: 'blue',
+      points: Array.from({ length: 9 }, (_, i) => ({
+        icon: 'x'.repeat(40),
+        label: 'l'.repeat(250),
+        desc: 'd'.repeat(500),
+        n: i,
+      })),
+    }];
+    const result = writerCarouselResponseSchema.safeParse(slides);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const points = result.data[0]?.points ?? [];
+    expect(points).toHaveLength(8);
+    expect(points[0]?.icon).toHaveLength(16);
+    expect(points[0]?.label).toHaveLength(200);
+    expect(points[0]?.desc).toHaveLength(400);
+    expect(result.data[0]?.bg_suggestion).toBeUndefined();
+  });
+
+  it('leaves omitted points omitted', () => {
+    const result = writerCarouselResponseSchema.safeParse([{ headline: 'Only headline' }]);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data[0]?.points).toBeUndefined();
+  });
+
   it('a completely unparseable slide (a bare string, not an object) degrades that slide but keeps its siblings', () => {
     const slides = [
       { slide_number: 1, headline: 'Real slide' },

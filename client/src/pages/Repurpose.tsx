@@ -136,7 +136,8 @@ export default function RepurposePage() {
                     disabled={loading}
                     aria-pressed={active}
                     style={{
-                      padding: '7px 14px', borderRadius: 20,
+                      // WHY: 7px pad ≈36px tall — under 44px mobile touch target.
+                      padding: '7px 14px', minHeight: 44, borderRadius: 20,
                       background: active ? 'color-mix(in srgb, var(--accent-2) 14%, transparent)' : 'color-mix(in srgb, var(--text-primary) 4%, transparent)',
                       border: active ? '1px solid color-mix(in srgb, var(--accent-2) 40%, transparent)' : '1px solid var(--rule)',
                       color: active ? 'var(--accent-2)' : 'var(--text-secondary)',

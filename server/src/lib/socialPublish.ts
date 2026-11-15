@@ -5,14 +5,11 @@
 // exact same logic — duplicating ~80 lines of fetch/parsing code across two
 // call sites would let them silently drift (e.g. one gets a bug fix the
 // other doesn't). This is the single shared implementation both call.
+import { logger } from './logger.js';
 import type { SocialTokenData } from './socialTokens.js';
 
 interface LinkedInProfileResponse {
   id?: string;
-}
-interface LinkedInPostResponse {
-  id?: string;
-  value?: { id?: string };
 }
 interface TwitterTweetResponse {
   data?: { id?: string };
@@ -21,9 +18,41 @@ interface TwitterTweetResponse {
 export interface PublishResult {
   postId: string;
   postUrl: string;
+  // WHY: LinkedIn can return 2xx with no id (empty body, no X-RestLi-Id).
+  // Callers must record posted / posted-unverified instead of throwing.
+  unverified?: boolean;
 }
 
+const LINKEDIN_UNVERIFIED_POST_ID = 'linkedin-unverified';
+const LINKEDIN_FEED_URL = 'https://www.linkedin.com/feed/';
+
 export class SocialPublishError extends Error {}
+
+// WHY: tweets 1..N-1 are already live when tweet N fails; callers must be able
+// to tell this apart from "nothing posted" so they never republish the whole thread.
+export class TwitterPartialThreadError extends SocialPublishError {
+  readonly postedCount: number;
+  readonly totalCount: number;
+  readonly rootId: string;
+  readonly lastId: string;
+  readonly postUrl: string;
+
+  constructor(params: {
+    postedCount: number;
+    totalCount: number;
+    rootId: string;
+    lastId: string;
+    postUrl: string;
+  }) {
+    super(`Posted ${params.postedCount} of ${params.totalCount} tweets`);
+    this.name = 'TwitterPartialThreadError';
+    this.postedCount = params.postedCount;
+    this.totalCount = params.totalCount;
+    this.rootId = params.rootId;
+    this.lastId = params.lastId;
+    this.postUrl = params.postUrl;
+  }
+}
 
 // WHY: ~25s: LinkedIn/Twitter occasionally hang; calendar publishWorker must
 // fail the scheduled row rather than block a worker slot indefinitely (M1).
@@ -113,6 +142,59 @@ function twitterTweetTexts(content: unknown): string[] {
   return [];
 }
 
+function linkedInUpdateUrl(postId: string): string {
+  return `https://www.linkedin.com/feed/update/${encodeURIComponent(postId)}/`;
+}
+
+function readLinkedInId(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const direct = record.id;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const nested = record.value;
+  if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return undefined;
+  const nestedId = (nested as Record<string, unknown>).id;
+  if (typeof nestedId !== 'string') return undefined;
+  const trimmed = nestedId.trim();
+  return trimmed || undefined;
+}
+
+// WHY: Rest.li 2.0.0 returns 201 with the new id in X-RestLi-Id and an empty
+// body. response.json() throws on that body, which used to mark a live post
+// failed and a later reschedule posted it again.
+export async function linkedInResultFromAcceptedResponse(
+  postRes: Response,
+): Promise<PublishResult> {
+  // NOTE: Headers.get is case-insensitive (x-restli-id matches X-RestLi-Id).
+  const headerId = postRes.headers.get('x-restli-id')?.trim();
+  if (headerId) {
+    return { postId: headerId, postUrl: linkedInUpdateUrl(headerId) };
+  }
+
+  let bodyId: string | undefined;
+  try {
+    const raw = await postRes.text();
+    if (raw.trim()) {
+      const parsed: unknown = JSON.parse(raw);
+      bodyId = readLinkedInId(parsed);
+    }
+  } catch (err: unknown) {
+    logger.warn('[socialPublish] LinkedIn 2xx body was not JSON', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  if (bodyId) {
+    return { postId: bodyId, postUrl: linkedInUpdateUrl(bodyId) };
+  }
+
+  return {
+    postId: LINKEDIN_UNVERIFIED_POST_ID,
+    postUrl: LINKEDIN_FEED_URL,
+    unverified: true,
+  };
+}
+
 async function postTwitterTweet(
   accessToken: string,
   text: string,
@@ -187,15 +269,8 @@ export async function publishToSocialPlatform(
     if (!postRes.ok) {
       throw new SocialPublishError('LinkedIn rejected this post — try reconnecting or shortening the text');
     }
-    const postData = await postRes.json() as LinkedInPostResponse;
-    const linkedinPostId: string | undefined = postData.id || postData.value?.id;
-    if (linkedinPostId) {
-      return {
-        postId: linkedinPostId,
-        postUrl: `https://www.linkedin.com/feed/update/${encodeURIComponent(linkedinPostId)}/`,
-      };
-    }
-    throw new SocialPublishError('LinkedIn did not return a post id');
+    // WHY: never throw after a 2xx — LinkedIn already accepted the share.
+    return linkedInResultFromAcceptedResponse(postRes);
   }
 
   // platform === 'twitter'
@@ -207,21 +282,37 @@ export async function publishToSocialPlatform(
     throw new SocialPublishError('Nothing to post — content is empty');
   }
 
-  let rootId = '';
-  let previousId: string | undefined;
-  for (const text of tweets) {
-    const id = await postTwitterTweet(conn.accessToken, text, previousId);
-    if (!rootId) rootId = id;
-    previousId = id;
-  }
-
   // WHY: conn.displayName here: stored as "@username" when the account was
   // connected — Twitter's status URL requires a handle, not just the tweet
   // ID. Falls back to the generic "i" path (still resolves, via redirect)
   // if displayName is somehow missing.
   const handle = conn.displayName?.replace(/^@/, '') || 'i';
-  return {
-    postId: rootId,
-    postUrl: `https://twitter.com/${encodeURIComponent(handle)}/status/${encodeURIComponent(rootId)}`,
-  };
+  const statusUrl = (id: string): string =>
+    `https://twitter.com/${encodeURIComponent(handle)}/status/${encodeURIComponent(id)}`;
+
+  let rootId = '';
+  let previousId: string | undefined;
+  let postedCount = 0;
+  for (const text of tweets) {
+    try {
+      // eslint-disable-next-line no-await-in-loop -- WHY: each reply needs the previous tweet's id
+      const id = await postTwitterTweet(conn.accessToken, text, previousId);
+      if (!rootId) rootId = id;
+      previousId = id;
+      postedCount += 1;
+    } catch (err: unknown) {
+      if (postedCount > 0 && rootId && previousId) {
+        throw new TwitterPartialThreadError({
+          postedCount,
+          totalCount: tweets.length,
+          rootId,
+          lastId: previousId,
+          postUrl: statusUrl(rootId),
+        });
+      }
+      throw err;
+    }
+  }
+
+  return { postId: rootId, postUrl: statusUrl(rootId) };
 }

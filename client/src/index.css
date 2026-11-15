@@ -899,6 +899,15 @@ html[data-theme="aurora"] body::after {
 
 }
 
+/* WHY ≤768: tablet .btn-primary was ~40px (desktop pad) — under 44 touch target. */
+@media (max-width: 768px) {
+  .btn-primary,
+  .btn-secondary {
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+}
+
 @media (max-width: 480px) {
   .main-inner {
     padding: 14px 16px 24px;

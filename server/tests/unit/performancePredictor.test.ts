@@ -53,14 +53,9 @@ describe('runPerformancePredictor — response parsing', () => {
     expect(result.topReason.length).toBeGreaterThan(0);
   });
 
-  it('falls back to "medium" when tier is not a valid enum value, without discarding the other valid fields', async () => {
-    // NOTE: unlike critic.ts/writer.ts/orchestrator.ts, this specific behavior
-    // isn't a regression fix — the pre-existing code already validated tier
-    // via `['high','medium','low'].includes(parsed.tier) ? parsed.tier :
-    // 'medium'` and independently defaulted every other field with `|| ''`,
-    // so it was already per-field tolerant. This test documents that the new
-    // schema-based validation (z.enum(...).catch('medium')) preserves that
-    // exact behavior, not that it fixes a bug that existed here.
+  it('rejects invalid raw tier (even with topReason) and uses score-derived fallback', async () => {
+    // WHY: hollow gate requires raw tier ∈ high|medium|low — schema .catch
+    // must not revive an invalid first-span as a usable prediction.
     const { generateWithAI } = await import('../../src/lib/ai.js');
     vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
       tier: 'very high',
@@ -73,16 +68,19 @@ describe('runPerformancePredictor — response parsing', () => {
     const { runPerformancePredictor } = await import('../../src/agents/performancePredictor.js');
     const result = await runPerformancePredictor(MOCK_JOB, MOCK_CONTENT, MOCK_CRITIC_RESULT, undefined);
 
-    expect(['high', 'medium', 'low']).toContain(result.tier);
-    // The other valid fields on the same response are NOT discarded just
-    // because tier was invalid — .catch() is per-field, not per-object.
-    expect(result.confidenceScore).toBe(90);
-    expect(result.topReason).toBe('Reason');
+    // MOCK_CRITIC_RESULT.totalScore 85 → score-derived 'high'.
+    expect(result.tier).toBe('high');
+    expect(result.topReason.length).toBeGreaterThan(0);
+    expect(result.topReason).not.toBe('Reason');
   });
 
   it('clamps confidenceScore to 0-100', async () => {
     const { generateWithAI } = await import('../../src/lib/ai.js');
-    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({ tier: 'high', confidenceScore: 250 }));
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      tier: 'high',
+      confidenceScore: 250,
+      topReason: 'Strong hook',
+    }));
 
     const { runPerformancePredictor } = await import('../../src/agents/performancePredictor.js');
     const result = await runPerformancePredictor(MOCK_JOB, MOCK_CONTENT, MOCK_CRITIC_RESULT, undefined);
@@ -92,7 +90,11 @@ describe('runPerformancePredictor — response parsing', () => {
 
   it('works with carousel array content (Array.isArray branch)', async () => {
     const { generateWithAI } = await import('../../src/lib/ai.js');
-    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({ tier: 'medium', confidenceScore: 70 }));
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      tier: 'medium',
+      confidenceScore: 70,
+      topReason: 'Solid carousel hook',
+    }));
 
     const carouselContent = [
       { headline: 'Slide 1 headline', body: 'Body' },
@@ -112,7 +114,11 @@ describe('runPerformancePredictor — response parsing', () => {
 
   it('works with twitter thread content (tweets branch)', async () => {
     const { generateWithAI } = await import('../../src/lib/ai.js');
-    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({ tier: 'low', confidenceScore: 40 }));
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      tier: 'low',
+      confidenceScore: 40,
+      topReason: 'Weak opening tweet',
+    }));
 
     const threadContent = { tweets: [{ number: 1, text: '1/ Opening tweet' }] } as any;
 
@@ -137,5 +143,59 @@ describe('runPerformancePredictor — response parsing', () => {
     // No criticResult → fallback's `criticResult?.totalScore || 70` uses 70,
     // which lands in the 'medium' tier bucket (>= 65 but < 80).
     expect(result.tier).toBe('medium');
+  });
+
+  it('omits fake zero dimensions when critic scores are absent (feedback-only)', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      tier: 'medium',
+      confidenceScore: 60,
+      topReason: 'Total score only',
+      improvementSuggestion: 'Add dimensions next time',
+      benchmarkContext: 'Average',
+    }));
+
+    const feedbackOnly = {
+      approved: false,
+      totalScore: 72,
+      feedback: 'Rewrite the hook.',
+    } as any;
+
+    const { runPerformancePredictor } = await import('../../src/agents/performancePredictor.js');
+    await runPerformancePredictor(MOCK_JOB, MOCK_CONTENT, feedbackOnly, undefined);
+
+    const prompt = vi.mocked(generateWithAI).mock.calls[0]?.[0] as string;
+    expect(prompt).toContain('Per-dimension scores unavailable');
+    expect(prompt).not.toContain('Hook Strength: 0/20');
+  });
+
+  it('skips a hollow first-span candidate and uses a later complete prediction', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    vi.mocked(generateWithAI).mockResolvedValueOnce(
+      '{} {"tier":"high","confidenceScore":88,"topReason":"Sharp opening claim","improvementSuggestion":"Add a stat","benchmarkContext":"Above average"}',
+    );
+
+    const { runPerformancePredictor } = await import('../../src/agents/performancePredictor.js');
+    const result = await runPerformancePredictor(MOCK_JOB, MOCK_CONTENT, MOCK_CRITIC_RESULT, undefined);
+
+    expect(result.tier).toBe('high');
+    expect(result.topReason).toBe('Sharp opening claim');
+    expect(result.confidenceScore).toBe(88);
+  });
+
+  it('rejects schema-success hollow (missing topReason) and falls back to score-derived default', async () => {
+    const { generateWithAI } = await import('../../src/lib/ai.js');
+    // WHY: tier alone passes schema .catch/.optional but is hollow without topReason.
+    vi.mocked(generateWithAI).mockResolvedValueOnce(JSON.stringify({
+      tier: 'low',
+      confidenceScore: 40,
+    }));
+
+    const { runPerformancePredictor } = await import('../../src/agents/performancePredictor.js');
+    const result = await runPerformancePredictor(MOCK_JOB, MOCK_CONTENT, MOCK_CRITIC_RESULT, undefined);
+
+    // MOCK_CRITIC_RESULT.totalScore 85 → score-derived 'high', not hollow 'low'.
+    expect(result.tier).toBe('high');
+    expect(result.topReason.length).toBeGreaterThan(0);
   });
 });

@@ -2,10 +2,10 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { randomUUID } from 'crypto';
 import { AuthRequest } from '../../middleware/auth.js';
-import { streamTokenRateLimit } from '../../middleware/rateLimit.js';
+import { sseStreamRateLimit, streamTokenRateLimit } from '../../middleware/rateLimit.js';
 import { sseManager } from '../../lib/sse.js';
 import { getRedisClient } from '../../lib/redisClient.js';
-import { requireJobOwnership } from './ownership.js';
+import { requireJobOwnership, toClientJob } from './ownership.js';
 import { getJobFromStore, jobsMemory } from '../../lib/jobStore.js';
 import { isValidUUID } from '../../lib/uuid.js';
 
@@ -20,7 +20,10 @@ export interface VerifiedSSEToken {
   jobId?: string;
 }
 
-export async function verifySSEToken(token: string | undefined): Promise<VerifiedSSEToken | null> {
+export async function verifySSEToken(
+  token: string | undefined,
+  opts: { consume?: boolean } = {},
+): Promise<VerifiedSSEToken | null> {
   if (!token) return null;
   // SECURITY: stream-token mints randomUUID — reject oversized / non-UUID strings
   // before hitting Redis (DoS / key abuse) (SEC-005).
@@ -31,7 +34,9 @@ export async function verifySSEToken(token: string | undefined): Promise<Verifie
     const client = getRedisClient();
     if (client) {
       const key = `sse:token:${token}`;
-      const val = await client.get(key);
+      // WHY: GETDEL is atomic, so two concurrent connects can't both redeem one token;
+      // the 15-min TTL remains the fallback for tokens that are never used.
+      const val = opts.consume ? await client.getdel(key) : await client.get(key);
       if (val) {
         try {
           const parsed = JSON.parse(val) as { dbUserId?: unknown; jobId?: unknown };
@@ -58,40 +63,68 @@ export async function verifySSEToken(token: string | undefined): Promise<Verifie
 }
 
 // GET /:jobId/stream — SSE job progress stream
-router.get('/:jobId/stream', async (req: Request, res: Response) => {
+router.get('/:jobId/stream', ...sseStreamRateLimit, async (req: Request, res: Response) => {
   const jobId = req.params.jobId as string;
-  const token = req.query.token as string | undefined;
+  try {
+    const token = typeof req.query.token === 'string' ? req.query.token : undefined;
 
-  // NOTE: verifySSEToken now always returns the DB UUID directly (never a Clerk
-  // ID), so it can be passed straight into requireJobOwnership() — no separate
-  // clerkId → dbUserId re-resolution step needed here anymore.
-  const verified = await verifySSEToken(token);
-  if (!verified) {
-    res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
-    return;
-  }
-  // WHY: 404 not 403: same ownership-enumeration rule as requireJobOwnership —
-  // a 403 would confirm the token is valid for a different job id.
-  if (verified.jobId && verified.jobId !== jobId) {
-    res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
-    return;
-  }
+    // NOTE: verifySSEToken now always returns the DB UUID directly (never a Clerk
+    // ID), so it can be passed straight into requireJobOwnership() — no separate
+    // clerkId → dbUserId re-resolution step needed here anymore.
+    // SECURITY: consume: true makes the token single-use (a leaked URL from logs/history
+    // can't be replayed); the client mints a fresh token on every reconnect.
+    const verified = await verifySSEToken(token, { consume: true });
+    if (!verified) {
+      return res.status(401).json({ error: 'Unauthorized', code: 'AUTH_MISSING', retryable: false });
+    }
+    // WHY: 404 not 403: same ownership-enumeration rule as requireJobOwnership —
+    // a 403 would confirm the token is valid for a different job id.
+    if (verified.jobId && verified.jobId !== jobId) {
+      return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
+    }
 
-  const job = await requireJobOwnership(jobId, verified.dbUserId, res);
-  if (!job) return;
+    const job = await requireJobOwnership(jobId, verified.dbUserId, res);
+    if (!job) return;
 
-  const clientId = uuidv4();
-  if (!sseManager.addClient(jobId, clientId, res)) {
-    res.status(429).json({ error: 'Too many live streams for this job', code: 'RATE_LIMITED', retryable: true });
-    return;
-  }
+    const clientId = uuidv4();
+    if (!sseManager.addClient(jobId, clientId, res)) {
+      return res.status(429).json({
+        error: 'Too many live streams for this job',
+        code: 'RATE_LIMITED',
+        retryable: true,
+      });
+    }
 
-  // Send current state if available
-  const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
-  if (memJob) {
-    // WHY: jobId alias (CORR-013): memory jobs use `id`; the client bootstrap
-    // historically required `data.jobId` and ignored the initial state event.
-    res.write(`data: ${JSON.stringify({ type: 'state', jobId: memJob.id, ...memJob })}\n\n`);
+    // Send current state if available
+    const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
+    if (memJob) {
+      // SECURITY: omit sourceMaterial/competitorContext — same strip as GET /:jobId.
+      // WHY: jobId alias (CORR-013): memory jobs use `id`; the client bootstrap
+      // historically required `data.jobId` and ignored the initial state event.
+      const clientJob = toClientJob(memJob);
+      res.write(`data: ${JSON.stringify({ type: 'state', jobId: memJob.id, ...clientJob })}\n\n`);
+    }
+  } catch (err: unknown) {
+    console.error(
+      '[SSE] Stream handler error:',
+      err instanceof Error ? err.message : err,
+    );
+    // WHY: once event-stream headers are flushed, never res.status().json() —
+    // that corrupts the stream. res.end() fires 'close', which runs closeClient
+    // and clears keepAlive/idle timers.
+    if (res.headersSent) {
+      try {
+        res.end();
+      } catch {
+        // already closed
+      }
+      return;
+    }
+    return res.status(500).json({
+      error: 'Failed to open stream',
+      code: 'SERVER_ERROR',
+      retryable: true,
+    });
   }
 });
 

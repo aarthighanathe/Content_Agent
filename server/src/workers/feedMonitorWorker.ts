@@ -13,11 +13,12 @@ import { randomUUID } from 'node:crypto';
 import * as Sentry from '@sentry/node';
 import cron from 'node-cron';
 import type Parser from 'rss-parser';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { feedMonitors, users, type FeedMonitor } from '../db/schema.js';
 import { db } from '../db/index.js';
-import { getUserProfile } from '../routes/users.js';
-import { fetchAndExtractArticle, createJobsForPlatforms } from '../routes/content/repurpose.js';
+import { getUserProfile } from '../lib/profileStore.js';
+import { fetchAndExtractArticle } from '../lib/articleExtract.js';
+import { createJobsForPlatforms } from '../lib/repurposeJobs.js';
 import {
   assertUrlIsPublic,
   formatFetchError,
@@ -28,15 +29,11 @@ import { fetchFeedXml, parseFeedXml } from '../lib/feedFetch.js';
 import { getRedisClient } from '../lib/redisClient.js';
 import { reserveGenerationBudget, releaseGenerationBudget } from '../middleware/rateLimit.js';
 import { logger } from '../lib/logger.js';
-
-// WHY: a typeof guard, not a bare `as string` cast: rss-parser types every
-// custom/namespaced field (pubDate/guid/link) as `unknown` on
-// Parser.Output<Record<string, unknown>> — a malformed feed could send a
-// non-string value through, which a bare cast would silently trust and let
-// flow into `new Date()`/dedupe-key comparisons/an eventual fetch() URL.
-function asOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
+import {
+  asOptionalString,
+  selectNextItem,
+  sortNewestFirst,
+} from '../lib/feedMonitorCheck.js';
 
 // WHY: Lua: compare-and-delete/extend must be atomic so a check whose lock TTL
 // expired can never delete or extend a lock now owned by a different check.
@@ -92,17 +89,48 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
     return;
   }
 
-  // WHY: renew: a slow feed + extraction + job creation can outlast the TTL,
-  // letting a second check start; heartbeat keeps the lock while we still own it.
+  // WHY: renew like contentJobLock — Lua 0 or a full TTL of failed renews means
+  // we lost ownership; abort before createJobsForPlatforms so we never enqueue
+  // under another checker's lock.
+  let lastRenewOkAt = Date.now();
   const renewTimer = setInterval(() => {
     redis
       .eval(RENEW_LOCK_LUA, 1, lockKey, lockToken, String(FEED_LOCK_TTL_SECONDS))
-      .catch(() => {
-        // best-effort; TTL still bounds the lock
+      .then((result: unknown) => {
+        if (result === 0 || result === '0') {
+          lockHeld = false;
+          logger.error('[FeedMonitor] Lock lost mid-check (renew owned by another)', {
+            monitorId: monitor.id,
+          });
+          return;
+        }
+        lastRenewOkAt = Date.now();
+      })
+      .catch((err: unknown) => {
+        logger.warn('[FeedMonitor] Lock renew failed', {
+          monitorId: monitor.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        if (Date.now() - lastRenewOkAt >= FEED_LOCK_TTL_SECONDS * 1000) {
+          lockHeld = false;
+          logger.error('[FeedMonitor] Lock lost mid-check (renew failing longer than TTL)', {
+            monitorId: monitor.id,
+          });
+        }
       });
   }, FEED_LOCK_RENEW_MS);
   try {
-    await runFeedMonitorCheck(monitor, userId);
+    // WHY: re-read after the lock: the cron's preloaded row (or a caller's copy)
+    // may predate a concurrent check that already advanced lastItemGuid, which
+    // would make us re-create a job for an already-processed item.
+    const fresh = await db.query.feedMonitors.findFirst({
+      where: and(eq(feedMonitors.id, monitor.id), eq(feedMonitors.userId, userId)),
+    });
+    if (!fresh) {
+      logger.info('[FeedMonitor] Monitor gone before check, skipping', { monitorId: monitor.id });
+      return;
+    }
+    await runFeedMonitorCheck(fresh, userId, () => lockHeld);
   } finally {
     clearInterval(renewTimer);
     if (lockHeld) {
@@ -115,17 +143,15 @@ export async function checkFeedMonitor(monitor: FeedMonitor, userId: string): Pr
   }
 }
 
-async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promise<void> {
+async function runFeedMonitorCheck(
+  monitor: FeedMonitor,
+  userId: string,
+  isLockHeld: () => boolean,
+): Promise<void> {
   if (!db) return;
 
-  // DEFENSE IN DEPTH: DELETE /api/users/me now deletes this user's feedMonitors
-  // rows explicitly (feed_monitors.userId has no FK constraint, so nothing
-  // enforces this automatically). This check catches any monitor that still
-  // becomes orphaned some other way (e.g. a manual DB edit) before spending a
-  // Gemini/Tavily call on it — without it, the failure mode is the eventual
-  // job insert failing on contentJobs.userId's FK constraint, landing in the
-  // catch block below, which still advances the cursor and repeats every
-  // 30-minute tick indefinitely.
+  // DEFENSE IN DEPTH: feed_monitors.userId has no FK, so an orphaned monitor (e.g. manual
+  // DB edit) must be caught here before spending a generation call on it.
   const owner = await db.query.users.findFirst({
     where: eq(users.id, userId),
     columns: { id: true, clerkId: true },
@@ -140,14 +166,9 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
 
   const feedUrl = monitor.feedUrl;
 
-  // SECURITY: feedMonitorSchema only validates feedUrl as a well-formed URL —
-  // nothing stops a user from pointing a monitor at an internal/private address
-  // (e.g. a cloud metadata endpoint). This is the same DNS-rebinding-resistant
-  // guard Repurpose's article fetch already applies (lib/ssrfGuard.ts); the RSS
-  // fetch below runs every 30 min via the cron sweep AND on-demand via
-  // POST /:id/check, so it needs the identical protection, not just the
-  // downstream article-extraction step (which already goes through
-  // fetchAndExtractArticle's own call to the same guard).
+  // SECURITY: create-time validation only checks that feedUrl is a URL. Re-apply
+  // the DNS-rebinding-resistant SSRF guard before each cron and POST /:id/check
+  // fetch — article extract's own guard is not a substitute.
   const urlSafety = await assertUrlIsPublic(feedUrl);
   if (!urlSafety.safe) {
     logger.warn('[FeedMonitor] Feed URL failed SSRF check, skipping', { feedUrl, reason: urlSafety.reason });
@@ -193,47 +214,12 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     return;
   }
 
-  // WHY: sort by pubDate descending (newest first): this means item[0] is
-  // always the most-recent, and we stop processing once we hit the known
-  // lastItemGuid — so the first run after creating a monitor processes only
-  // the very latest item (not the entire feed history).
-  // WHY: parseDate: a pubDate string can be present but unparseable (malformed
-  // RSS date), which makes `new Date(x).getTime()` return NaN — NaN propagating
-  // into the `bDate - aDate` subtraction breaks the sort's total order (an item
-  // can land at an arbitrary position instead of sorting as oldest), silently
-  // violating the "sorted[0] is always most-recent" invariant this comment relies
-  // on. A malformed date is treated the same as a missing one: fall back to 0.
-  const parseDate = (value: string | undefined): number => {
-    if (!value) return 0;
-    const time = new Date(value).getTime();
-    return Number.isNaN(time) ? 0 : time;
-  };
-  const sorted = [...items].sort((a, b) => {
-    const aDate = parseDate(asOptionalString(a.pubDate));
-    const bDate = parseDate(asOptionalString(b.pubDate));
-    return bDate - aDate;
-  });
-
-  // Determine which items are new (not yet seen)
-  const newItems: typeof sorted = [];
-  for (const item of sorted) {
-    const guid = asOptionalString(item.guid) || asOptionalString(item.link) || '';
-    if (guid && guid === monitor.lastItemGuid) break; // we've reached known items
-    newItems.push(item);
-  }
-
-  // Cap at one job per tick. First check (no cursor): take the newest item only
-  // so a new monitor against a long feed does not enqueue historic backlog.
-  // Later checks: take the oldest unseen so intermediate items are not skipped
-  // when the cursor previously jumped to the tip (CORR-012).
-  if (newItems.length === 0) {
+  const sorted = sortNewestFirst(items);
+  const item = selectNextItem(sorted, monitor.lastItemGuid);
+  if (!item) {
     await db.update(feedMonitors).set({ lastCheckedAt: new Date(), lastError: null }).where(eq(feedMonitors.id, monitor.id));
     return;
   }
-
-  const item = !monitor.lastItemGuid
-    ? newItems[0]
-    : newItems[newItems.length - 1];
   const itemUrl = asOptionalString(item.link) || '';
   const newGuid = asOptionalString(item.guid) || itemUrl;
 
@@ -261,6 +247,22 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     return;
   }
 
+  // WHY: single-shot refund: a throw inside the release (or a later catch) must
+  // never refund the same reservation twice.
+  let budgetSettled = false;
+  const refundBudgetOnce = async (): Promise<void> => {
+    if (budgetSettled) return;
+    budgetSettled = true;
+    try {
+      await releaseGenerationBudget(budgetKey, budget.reserved);
+    } catch (refundErr: unknown) {
+      logger.error('[FeedMonitor] Budget refund failed', {
+        monitorId: monitor.id, error: refundErr instanceof Error ? refundErr.message : String(refundErr),
+      });
+    }
+  };
+
+  let jobsCreated = false;
   try {
     // WHY: parallel profile + article fetch (O4): they don't depend on each other;
     // sequential awaits added ~network RTT before createJobsForPlatforms every tick.
@@ -270,7 +272,7 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
     ]);
     if (!extracted.ok) {
       logger.warn('[FeedMonitor] Failed to extract article from new item', { feedUrl, itemUrl, error: extracted.error });
-      await releaseGenerationBudget(budgetKey, budget.reserved);
+      await refundBudgetOnce();
       // WHY: do NOT advance lastItemGuid: a transient extract failure would
       // permanently skip the item if we moved the cursor (CORR-012).
       // extracted.error is already client-safe from fetchAndExtractArticle.
@@ -283,21 +285,55 @@ async function runFeedMonitorCheck(monitor: FeedMonitor, userId: string): Promis
       return;
     }
 
+    // WHY: abort after extract if renew lost the lock — do not create jobs under
+    // another checker's ownership. Durable CAS in insertPendingJobAndAdvanceCursor
+    // still prevents double-create if the lock expires mid-createJobsForPlatforms.
+    if (!isLockHeld()) {
+      await refundBudgetOnce();
+      logger.warn('[FeedMonitor] Aborting before job create — lock lost', {
+        monitorId: monitor.id, feedUrl, itemUrl,
+      });
+      return;
+    }
     const jobs = await createJobsForPlatforms(
       userId, userProfile, itemUrl, extracted.article,
       [monitor.platform], monitor.tone, monitor.targetAudience,
+      // WHY: same DB txn as pending insert — crash between insert and cursor
+      // advance must not recreate this item. expectedOldGuid CAS blocks a second
+      // pending UUID if the Redis check lock expires mid-create (TOCTOU).
+      {
+        advanceFeedCursor: {
+          monitorId: monitor.id,
+          newGuid,
+          expectedOldGuid: monitor.lastItemGuid ?? null,
+        },
+      },
     );
     if (jobs.length === 0) {
-      await releaseGenerationBudget(budgetKey, budget.reserved);
-    } else {
-      logger.info('[FeedMonitor] Created job for new feed item', { feedUrl, itemUrl, jobId: jobs[0].jobId });
+      await refundBudgetOnce();
+      // WHY: [] means the insert failed (cursor not advanced in that case).
+      await db.update(feedMonitors)
+        .set({ lastCheckedAt: new Date(), lastError: CLIENT_FEED_JOB_FAILURE })
+        .where(eq(feedMonitors.id, monitor.id));
+      return;
     }
-
-    await db.update(feedMonitors)
-      .set({ lastCheckedAt: new Date(), lastItemGuid: newGuid || null, lastError: null })
-      .where(eq(feedMonitors.id, monitor.id));
+    // WHY: budget is spent — cursor already advanced in the insert txn.
+    jobsCreated = true;
+    budgetSettled = true;
+    logger.info('[FeedMonitor] Created job for new feed item', {
+      feedUrl, itemUrl, jobId: jobs[0]?.jobId,
+    });
   } catch (err) {
-    await releaseGenerationBudget(budgetKey, budget.reserved);
+    if (jobsCreated) {
+      // WHY: job+cursor already committed; surface unexpected post-create errors
+      // without refunding budget or rolling back the cursor.
+      logger.error('[FeedMonitor] Error after job+cursor commit', {
+        feedUrl, itemUrl, monitorId: monitor.id, error: err instanceof Error ? err.message : String(err),
+      });
+      Sentry.captureException(err, { tags: { action: 'feed-monitor-post-create' }, extra: { feedUrl, itemUrl } });
+      return;
+    }
+    await refundBudgetOnce();
     logger.error('[FeedMonitor] Error creating job for feed item', {
       feedUrl, itemUrl, error: err instanceof Error ? err.message : String(err),
     });

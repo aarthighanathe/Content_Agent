@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
+import { Check, AlertCircle } from 'lucide-react';
 import { updateBrandVoice, getProfile, analyzeVoice, exportMyData, deleteMyAccount } from '../api';
 import type { ContentDna, Profile } from '../types/api';
 import { getSubmitError } from '../lib/errorMessages';
@@ -13,16 +13,16 @@ import { PublishingConnectionsCard } from './Brand/PublishingConnectionsCard';
 import { useBrandSocial } from './Brand/useBrandSocial';
 import { DangerZoneCard } from './Brand/DangerZoneCard';
 import { DeleteAccountModal } from './Brand/DeleteAccountModal';
+import { BrandSaveBar } from './Brand/BrandSaveBar';
 import { ConfirmDeleteModal } from '../components/ConfirmDeleteModal';
 import { BRAND_STYLES } from './Brand/brandStyles';
-import { loadDnaHistory, saveDnaHistory } from './Brand/dnaHistory';
-import type { DnaHistoryEntry } from './Brand/dnaHistory';
+import { loadDnaHistory, saveDnaHistory, type DnaHistoryEntry } from './Brand/dnaHistory';
 import { normalizeBrandVoices } from './Brand/brandVoices';
+import { useBrandAccountReset } from './Brand/useBrandAccountReset';
+import { useBrandToast } from './Brand/useBrandToast';
+import { downloadJsonExport } from './Brand/downloadExport';
 
-// WHY: this exact key: Dashboard.tsx's profileQuery uses ['dashboard', 'profile'] for the
-// same getProfile() call. Sharing the key means both pages read/write one cache entry —
-// editing brand info here now invalidates what Dashboard shows, instead of the two pages
-// silently diverging (audit #25/2026-07).
+// WHY: share Dashboard's key so Brand edits invalidate the same cache entry.
 const PROFILE_QUERY_KEY = ['dashboard', 'profile'];
 
 export default function BrandSettings() {
@@ -31,15 +31,28 @@ export default function BrandSettings() {
   const { signOut } = useClerk();
   const { user } = useUser();
   const clerkUserId = user?.id ?? '';
+  // WHY: mutation onSuccess closes over render-time id — a ref keeps the live
+  // account so DNA/export success after a switch is ignored.
+  const clerkUserIdRef = useRef(clerkUserId);
+  clerkUserIdRef.current = clerkUserId;
 
-  const [brandName, setBrandName]                 = useState('');
-  const [industry, setIndustry]                   = useState('');
-  const [selectedVoices, setSelectedVoices]       = useState<string[]>(['Professional']);
-  const [phrasesUse, setPhrasesUse]               = useState('');
-  const [phrasesAvoid, setPhrasesAvoid]           = useState('');
+  // WHY: seed from the React Query cache on the first render. Waiting for an
+  // effect (especially setTimeout(0)) painted empty fields, then overwrote them.
+  const [cachedProfile] = useState(
+    () => queryClient.getQueryData<Profile>(PROFILE_QUERY_KEY),
+  );
+  const [brandName, setBrandName] = useState(cachedProfile?.brandName || '');
+  const [industry, setIndustry] = useState(cachedProfile?.industry || '');
+  const [selectedVoices, setSelectedVoices] = useState<string[]>(
+    () => normalizeBrandVoices(cachedProfile?.brandVoice),
+  );
+  const [phrasesUse, setPhrasesUse] = useState(cachedProfile?.phrasesUse || '');
+  const [phrasesAvoid, setPhrasesAvoid] = useState(cachedProfile?.phrasesAvoid || '');
   const [saveError, setSaveError]                 = useState('');
   const [dnaSamples, setDnaSamples]               = useState('');
-  const [contentDna, setContentDna]               = useState<ContentDna | null>(null);
+  const [contentDna, setContentDna] = useState<ContentDna | null>(
+    cachedProfile?.contentDna ?? null,
+  );
   const [dnaError, setDnaError]                   = useState('');
   const [dnaHistory, setDnaHistory]               = useState<DnaHistoryEntry[]>([]);
   const [exportError, setExportError]             = useState('');
@@ -47,16 +60,7 @@ export default function BrandSettings() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteError, setDeleteError]             = useState('');
   const [resetConfirming, setResetConfirming]     = useState(false);
-  // WHY: one toast object (#36): previously save + social used two stacked toast mechanisms.
-  const [toast, setToast] = useState<{ message: string; isError?: boolean } | null>(null);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flashToast = useCallback((message: string, isError = false, durationMs = 4000) => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToast({ message, isError });
-    toastTimerRef.current = setTimeout(() => setToast(null), durationMs);
-  }, []);
-  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
+  const { toast, flashToast, setToast, toastTimerRef } = useBrandToast();
 
   const brandSocial = useBrandSocial(flashToast);
   // WHY: gate on Clerk auth (mirrors Dashboard): avoid getProfile before JWT exists.
@@ -65,7 +69,6 @@ export default function BrandSettings() {
   });
 
   // WHY: extracted: handleReset needs the same "copy server profile → form" on demand.
-  // WHY: useCallback: hydration effect deps this; fresh identity would re-trigger.
   const applyProfileToForm = useCallback((profile: Profile): void => {
     setBrandName(profile.brandName || '');
     setIndustry(profile.industry || '');
@@ -77,56 +80,28 @@ export default function BrandSettings() {
     setContentDna(profile.contentDna || null);
   }, []);
 
-  // WHY: a hydrated-once guard (audit #2, original: "profile-load race clobbering
-  // in-progress edits"): profileQuery can refetch/refresh in the background (window
-  // refocus, another tab's mutation invalidating this same shared key, React Query's
-  // default staleness behavior) at any point while the user is mid-edit on this form.
-  // Only copying server data into local state the FIRST time it successfully loads —
-  // never on subsequent background refetches — means a user who's already typed into a
-  // field can't have it silently overwritten out from under them.
-  // WHY: call applyProfileToForm instead of duplicating the logic: the original
-  // effect had truthy-only checks (if (profile.brandName)) that differed from
-  // applyProfileToForm's || '' fallbacks. This meant clearing a field server-side
-  // (e.g. brandName set to empty string) wouldn't be reflected on reload, while
-  // clicking Reset would correctly blank it. Using the shared function ensures both
-  // paths behave identically.
-  // WHY: useState (not useRef): the Save button reads hydration to set disabled/
-  // title during render. Reading a ref during render trips react-hooks/refs and
-  // only flipped the button after an unrelated re-render. State makes that read
-  // reactive. Still set inside the timeout so StrictMode cleanup can't mark
-  // hydration done after cancelling the first timer.
-  const [isHydrated, setIsHydrated] = useState(false);
-  useEffect(() => {
-    if (isHydrated || !profileQuery.data) return undefined;
-    const profile = profileQuery.data;
-    // WHY: setTimeout(..., 0): calling setState synchronously inside an effect body
-    // triggers react-hooks/set-state-in-effect. Deferring via a 0ms timeout keeps
-    // the same user-visible behaviour (fires in the same microtask flush) while
-    // satisfying the rule — the state update now happens in a callback, not in the
-    // effect body itself.
-    const t = setTimeout(() => {
-      setIsHydrated(true);
-      applyProfileToForm(profile);
-    }, 0);
-    return () => clearTimeout(t);
-  }, [profileQuery.data, isHydrated, applyProfileToForm]);
+  // WHY: hydrate once. Later refetches must not clobber in-progress edits.
+  // Copying during render (not a timeout) means the filled form is what paints.
+  const [isHydrated, setIsHydrated] = useState(cachedProfile != null);
 
   const updateBrandVoiceMutation = useMutation({
     mutationFn: updateBrandVoice,
-    onSuccess: () => {
+    // WHY: capture at mutate — invalidate/toast must not apply after an account switch.
+    onMutate: (): { mutateUserId: string } => ({ mutateUserId: clerkUserIdRef.current }),
+    onSuccess: (_data, _vars, context) => {
+      if (clerkUserIdRef.current !== (context?.mutateUserId ?? '')) return;
       queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
       flashToast('Brand settings saved!');
     },
     // WHY: getSubmitError: zod validation messages (e.g. max length) were already
     // returned as `error` but discarded for a generic banner (QA-BRAND-003).
-    onError: (err: unknown) => {
+    onError: (err: unknown, _vars, context) => {
+      if (clerkUserIdRef.current !== (context?.mutateUserId ?? '')) return;
       setSaveError(getSubmitError(err, 'Failed to save brand settings — please try again.').message);
     },
   });
 
-  // WHY: useEffect to load DNA history: clerkUserId is not available synchronously
-  // on first render (Clerk hydrates asynchronously). Loading once when the userId
-  // stabilises avoids an empty-history flash on slow-auth sessions.
+  // WHY: load after Clerk hydrates — sync first paint would flash empty history.
   useEffect(() => {
     if (clerkUserId) {
       const t = setTimeout(() => setDnaHistory(loadDnaHistory(clerkUserId)), 0);
@@ -137,63 +112,95 @@ export default function BrandSettings() {
 
   const analyzeVoiceMutation = useMutation({
     mutationFn: analyzeVoice,
-    onSuccess: ({ contentDna: dna }) => {
+    // WHY: capture Clerk id at mutate — onSuccess must not apply DNA to a switched account.
+    onMutate: (): { mutateUserId: string } => ({ mutateUserId: clerkUserIdRef.current }),
+    onSuccess: ({ contentDna: dna }, _vars, context) => {
+      if (clerkUserIdRef.current !== (context?.mutateUserId ?? '')) return;
       setContentDna(dna);
       setDnaSamples('');
       queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
       // WHY: save here: this is the point where a new DNA fingerprint is produced.
       // Saving before or after the invalidation both work — the DB write is async
       // and localStorage is sync, so the history entry lands immediately.
-      if (clerkUserId) {
-        const updated = saveDnaHistory(clerkUserId, dna);
+      const ownerId = context?.mutateUserId ?? '';
+      if (ownerId) {
+        const updated = saveDnaHistory(ownerId, dna);
         setDnaHistory(updated);
       }
     },
-    onError: () => {
+    onError: (_err, _vars, context) => {
+      if (clerkUserIdRef.current !== (context?.mutateUserId ?? '')) return;
       setDnaError('Analysis failed — please try again.');
     },
   });
 
   const exportMyDataMutation = useMutation({
     mutationFn: exportMyData,
-    onSuccess: (data) => {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `pensieve-export-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      // WHY: export caps at 100 jobs + always omits agent logs — surface the
-      // server `warning` so a truncated dump is not mistaken for a full archive.
-      if (data.truncated && data.warning) {
-        flashToast(data.warning, false, 6000);
-      } else if (data.warning) {
-        flashToast(data.warning, false, 4000);
+    // WHY: capture at mutate — skip download/toast if the user switched mid-export.
+    onMutate: (): { mutateUserId: string } => ({ mutateUserId: clerkUserIdRef.current }),
+    onSuccess: (data, _vars, context) => {
+      if (clerkUserIdRef.current !== (context?.mutateUserId ?? '')) return;
+      downloadJsonExport(
+        data,
+        `pensieve-export-${new Date().toISOString().slice(0, 10)}.json`,
+      );
+      // WHY: surface server `warning` — export caps at 100 jobs / omits agent logs.
+      if (data.warning) {
+        flashToast(data.warning, false, data.truncated ? 6000 : 4000);
       } else {
         flashToast('Export downloaded.');
       }
     },
-    onError: () => {
+    onError: (_err, _vars, context) => {
+      if (clerkUserIdRef.current !== (context?.mutateUserId ?? '')) return;
       setExportError('Export failed — please try again.');
     },
   });
 
   const deleteMyAccountMutation = useMutation({
     mutationFn: deleteMyAccount,
-    onSuccess: () => {
+    // WHY: capture at mutate — only signOut the account that requested delete.
+    onMutate: (): { mutateUserId: string } => ({ mutateUserId: clerkUserIdRef.current }),
+    onSuccess: (_data, _vars, context) => {
+      if (clerkUserIdRef.current !== (context?.mutateUserId ?? '')) return;
       void signOut({ redirectUrl: '/' });
     },
-    onError: () => {
+    onError: (_err, _vars, context) => {
+      if (clerkUserIdRef.current !== (context?.mutateUserId ?? '')) return;
       setDeleteError('Failed to delete account — please try again.');
+    },
+  });
+
+  // WHY: after mutations exist — reset DNA/export isPending UI on account switch.
+  useBrandAccountReset({
+    clerkUserId,
+    setIsHydrated,
+    setBrandName,
+    setIndustry,
+    setSelectedVoices,
+    setPhrasesUse,
+    setPhrasesAvoid,
+    setContentDna,
+    setDnaSamples,
+    setDnaError,
+    setSaveError,
+    setExportError,
+    setResetConfirming,
+    setShowDeleteModal,
+    setDeleteConfirmText,
+    setDeleteError,
+    setToast,
+    toastTimerRef,
+    resetMutations: () => {
+      analyzeVoiceMutation.reset();
+      exportMyDataMutation.reset();
+      updateBrandVoiceMutation.reset();
     },
   });
 
   function handleAnalyzeDna() {
     if (!dnaSamples.trim() || dnaSamples.length < 50) {
-      setDnaError('Please paste at least 3 sample posts.');
+      setDnaError('Please paste at least 50 characters of sample posts (3–5 posts works best).');
       return;
     }
     setDnaError('');
@@ -225,22 +232,24 @@ export default function BrandSettings() {
     });
   }
 
-  // WHY: refetch-and-reapply, not clear-to-blank: the confirm dialog's copy says
-  // "Discard unsaved edits?" — implying the saved profile comes back — but the old
-  // implementation just blanked every field to hardcoded defaults, which is a
-  // different (and destructive-looking) action if the user actually has saved brand
-  // settings. Refetching guarantees the reapplied values are the current server
-  // state, not a possibly-stale local cache.
+  // WHY: refetch saved profile (not blank defaults) — matches "Discard unsaved edits?".
   async function handleReset() {
+    // WHY: no-op while save is pending — Reset mid-save raced the mutation.
+    if (updateBrandVoiceMutation.isPending) return;
     if (!resetConfirming) {
       setResetConfirming(true);
       return;
     }
     setResetConfirming(false);
+    // WHY: capture before refetch — applyProfileToForm must not paint User A's
+    // profile onto User B's form if they switched mid-await.
+    const resetUserId = clerkUserIdRef.current;
     try {
       const { data } = await profileQuery.refetch();
+      if (clerkUserIdRef.current !== resetUserId) return;
       if (data) applyProfileToForm(data);
     } catch {
+      if (clerkUserIdRef.current !== resetUserId) return;
       flashToast('Failed to reload your saved settings — please try again.', true);
     }
   }
@@ -254,6 +263,17 @@ export default function BrandSettings() {
     if (deleteConfirmText !== 'DELETE') return;
     setDeleteError('');
     deleteMyAccountMutation.mutate();
+  }
+
+  // WHY: profile that arrives after mount is copied before paint. Inputs stay
+  // locked until that copy so a fast keystroke can't land in the blank form.
+  // WHY: also unlock on terminal profile error — otherwise inputs stayed disabled
+  // forever with empty defaults and no way to edit/save without a successful load.
+  if (!isHydrated && profileQuery.data) {
+    setIsHydrated(true);
+    applyProfileToForm(profileQuery.data);
+  } else if (!isHydrated && profileQuery.isError) {
+    setIsHydrated(true);
   }
 
   return (
@@ -273,16 +293,20 @@ export default function BrandSettings() {
         <IdentityCard
           brandName={brandName} onBrandNameChange={setBrandName}
           industry={industry} onIndustryChange={setIndustry}
+          inputsDisabled={!isHydrated}
         />
 
         <VoiceCard
           selectedVoices={selectedVoices} onToggleVoice={toggleVoice}
           phrasesUse={phrasesUse} onPhrasesUseChange={setPhrasesUse}
           phrasesAvoid={phrasesAvoid} onPhrasesAvoidChange={setPhrasesAvoid}
+          inputsDisabled={!isHydrated}
         />
 
         <VoiceDriftCard
-          isLoading={profileQuery.isLoading}
+          // WHY: isPending, not isLoading: while Clerk hydrates the query is disabled
+          // and isLoading is false — that flashed the empty voice-consistency copy.
+          isLoading={profileQuery.isPending}
           isError={profileQuery.isError}
           onRetry={() => { profileQuery.refetch().catch(() => {}); }}
           dimensionTrend={profileQuery.data?.stats?.dimensionTrend}
@@ -318,55 +342,31 @@ export default function BrandSettings() {
         />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 11, flexWrap: 'wrap' }}>
-        {resetConfirming ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Discard unsaved edits?</span>
-            <button className="btn-secondary" onClick={() => setResetConfirming(false)}>Cancel</button>
-            <button
-              onClick={() => { handleReset().catch(() => {}); }}
-              style={{ background: 'color-mix(in srgb, var(--color-error) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--color-error) 30%, transparent)', color: 'var(--color-error)', borderRadius: 8, padding: '9px 16px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}
-            >
-              Yes, reset
-            </button>
-          </div>
-        ) : (
-          <button className="btn-secondary" onClick={() => { handleReset().catch(() => {}); }} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <RefreshCw size={13} /> Reset
-          </button>
-        )}
-        <button
-          className="btn-primary"
-          onClick={handleSave}
-          // WHY: also gate on hydration: Save used to be enabled while the
-          // profile was still loading, so a click wrote the blank default form
-          // over the real brand. Disable until the first successful hydrate.
-          disabled={updateBrandVoiceMutation.isPending || !isHydrated || profileQuery.isLoading || profileQuery.isError}
-          title={
-            profileQuery.isError
-              ? 'Could not load your profile — retry above before saving'
-              : !isHydrated || profileQuery.isLoading
-                ? 'Loading your saved brand…'
-                : undefined
-          }
-        >
-          {updateBrandVoiceMutation.isPending ? (
-            <>
-              <div style={{ width: 16, height: 16, border: '2px solid color-mix(in srgb, var(--on-accent) 20%, transparent)', borderTopColor: 'var(--on-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              Saving...
-            </>
-          ) : (
-            <><Sparkles size={14} /> Save brand settings</>
-          )}
-        </button>
-      </div>
-
-      {saveError && (
-        <div style={{ fontSize: 11.5, color: 'var(--color-error)', textAlign: 'right' }}>{saveError}</div>
-      )}
+      <BrandSaveBar
+        resetConfirming={resetConfirming}
+        onCancelReset={() => setResetConfirming(false)}
+        onReset={() => { handleReset().catch(() => {}); }}
+        onSave={handleSave}
+        savePending={updateBrandVoiceMutation.isPending}
+        saveDisabled={
+          updateBrandVoiceMutation.isPending
+          || !isHydrated
+          // WHY: isPending — disabled gated query must keep Save off until hydrate.
+          || profileQuery.isPending
+        }
+        saveTitle={
+          profileQuery.isError
+            ? 'Profile failed to load — saving will use what’s in the form (retry Voice Drift above to reload)'
+            : !isHydrated || profileQuery.isPending
+              ? 'Loading your saved brand…'
+              : undefined
+        }
+        saveError={saveError}
+      />
 
       {toast && (
         <div
+          role="status"
           className={`toast ${toast.isError ? 'toast-error' : 'toast-success'}`}
           style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
         >

@@ -11,11 +11,23 @@ import type {
   PipelineJob,
   EmitProgress,
   PersistedJobResult,
-  SkipResearchOpts,
+  PipelineRunOpts,
 } from './pipelineTypes.js';
 import { logger } from './logger.js';
 import { CLIENT_PIPELINE_FAILURE } from './clientErrors.js';
 import { runContentPipeline, isSoftDeleted } from './pipelineRun.js';
+import {
+  ContentJobLockHeldError,
+  isContentJobLockHeldError,
+} from './contentJobLock.js';
+import {
+  backgroundFailedRepersist,
+  backgroundRepersist,
+  isLiveDoneResult,
+} from './pipelineRepersist.js';
+
+// WHY: re-export for unit tests / callers that already import from pipeline.js.
+export { isLiveDoneResult } from './pipelineRepersist.js';
 
 // WHY: re-exported, not moved outright: consumers import types from this module
 // while definitions live in pipelineTypes.ts — see that file's WHY.
@@ -23,14 +35,30 @@ export type {
   PipelineOutput,
   PipelineLog,
   PipelineJob,
+  RuntimeJob,
   EmitProgress,
   PersistedJobResult,
+  PipelineRunOpts,
   SkipResearchOpts,
 } from './pipelineTypes.js';
 
 // WHY: re-export the run loop: create.ts / contentWorker / tests historically
 // imported runContentPipeline from pipeline.js.
 export { runContentPipeline, isSoftDeleted } from './pipelineRun.js';
+export type { PipelineRunResult } from './pipelineRun.js';
+
+function emitDeletedAndEvict(jobId: string, evict: (jobId: string) => void): void {
+  // WHY: terminal SSE before eviction (H2). Soft-delete only — not lock loss.
+  sseManager.sendEvent(jobId, {
+    type: 'progress',
+    stage: 'failed',
+    progress: 0,
+    agent: 'system',
+    message: 'Job cancelled — this content was deleted.',
+  });
+  cancelJobEviction(jobId);
+  evict(jobId);
+}
 
 /**
  * Runs the pipeline, persists the terminal result (success or failure) to the
@@ -45,34 +73,29 @@ export async function runAndPersistPipeline(
     set: (jobId: string, data: PersistedJobResult) => void;
     evict: (jobId: string) => void;
   },
-  opts?: { skipResearch?: SkipResearchOpts },
+  opts?: PipelineRunOpts,
 ): Promise<void> {
   // WHY: cancel here: a prior run's 10-min eviction must not fire mid-regenerate
   // (same jobId) and wipe the in-flight snapshot (CORR-002).
   cancelJobEviction(job.id);
 
   try {
-    const { outputs, logs, criticResult } = await runContentPipeline(job, emitProgress, opts);
+    const runResult = await runContentPipeline(job, emitProgress, opts);
 
-    // WHY: the user may have deleted this job mid-run (DELETE /:jobId sets
-    // deleted=1 in jobsMemory/jobStore + DB). Persisting a "done" result now
-    // would resurrect a soft-deleted job and waste the write — bail out here
-    // instead of racing the delete.
-    if (isSoftDeleted(job.id)) {
-      // WHY: terminal SSE before eviction (H2): Result's useJobData keeps
-      // spinning until it sees a terminal stage — silent eviction left the UI
-      // waiting forever on a job the user already deleted.
-      sseManager.sendEvent(job.id, {
-        type: 'progress',
-        stage: 'failed',
-        progress: 0,
-        agent: 'system',
-        message: 'Job cancelled — this content was deleted.',
-      });
-      cancelJobEviction(job.id);
-      store.evict(job.id);
+    // WHY: lock loss is retryable. Throw so contentWorker requeues (DelayedError)
+    // and this catch does not persist failed or emit the deleted message.
+    if (runResult.status === 'lock_lost') {
+      throw new ContentJobLockHeldError(job.id);
+    }
+
+    // WHY: cancelled status OR live deleted flag — soft-delete used to return
+    // status:'done' (no final), which looked like success to status-only callers.
+    if (runResult.status === 'cancelled' || isSoftDeleted(job.id)) {
+      emitDeletedAndEvict(job.id, store.evict);
       return;
     }
+
+    const { outputs, logs, criticResult } = runResult;
 
     // WHY: merge live editable fields (CORR-003): the pipeline closure/`job`
     // is the create/queue payload — mid-run Library tag/template PATCH updates
@@ -90,32 +113,33 @@ export async function runAndPersistPipeline(
     // catch below used to overwrite done+outputs with failed+[] (regen wipe).
     let persisted: boolean;
     try {
-      persisted = await persistWithRetries(jobResult, job.id);
+      persisted = await persistWithRetries(jobResult, job.id, 'pipeline-persist-success-result');
     } catch (err: unknown) {
       // WHY: persist refused a soft-deleted row mid-race — treat like the
-      // isSoftDeleted bail above (terminal SSE + evict), not a failed generation.
+      // cancelled bail above (terminal SSE + evict), not a failed generation.
       if (err instanceof JobSoftDeletedError || isSoftDeleted(job.id)) {
-        sseManager.sendEvent(job.id, {
-          type: 'progress',
-          stage: 'failed',
-          progress: 0,
-          agent: 'system',
-          message: 'Job cancelled — this content was deleted.',
-        });
-        cancelJobEviction(job.id);
-        store.evict(job.id);
+        emitDeletedAndEvict(job.id, store.evict);
         return;
       }
       throw err;
     }
     clearJobStageThrottle(job.id);
     if (!persisted) {
+      // WHY: stage stays 'done' so Result stops loading (frontend terminals on
+      // done|failed) but code+message make clear the DB write did not commit —
+      // never emit the durable "Content generation complete!" string here.
       sseManager.sendEvent(job.id, {
-        type: 'progress', stage: 'done', progress: 100,
+        type: 'progress',
+        stage: 'done',
+        progress: 100,
         agent: 'system',
-        message: 'Content ready — saving failed, keep this tab open and retry if it disappears.',
+        code: 'persist_failed',
+        message:
+          'Content is ready in this tab only — server save failed. Keep this tab open; we are retrying the save. Do not refresh until save succeeds.',
       });
-      // No eviction timer: memory is the only durable copy until a later save.
+      // WHY (B-M1): memory is the only copy — keep it, retry from live memory
+      // (not this closed-over snapshot) so a mid-retry PATCH is not overwritten.
+      backgroundRepersist(job.id, store.evict);
       return;
     }
 
@@ -134,31 +158,26 @@ export async function runAndPersistPipeline(
       agent: 'system', message: 'Content generation complete!',
     });
   } catch (error: unknown) {
-    console.error(`Pipeline failed for ${job.id}:`, error);
-
     if (isSoftDeleted(job.id)) {
-      // WHY: terminal SSE before eviction (H2): same as the success-path soft-
-      // delete bail — Result must leave the loading state.
-      sseManager.sendEvent(job.id, {
-        type: 'progress',
-        stage: 'failed',
-        progress: 0,
-        agent: 'system',
-        message: 'Job cancelled — this content was deleted.',
-      });
-      cancelJobEviction(job.id);
-      store.evict(job.id);
+      emitDeletedAndEvict(job.id, store.evict);
       return;
     }
+    // WHY: a lost content:run lock is not a business failure. Rethrow so the
+    // worker requeues without writing failed or completing as a user cancel.
+    // Prefer this acquire's AbortSignal — never a jobId-keyed lost set (poisons
+    // a newer SET NX holder for the same key).
+    if (isContentJobLockHeldError(error) || opts?.runLockSignal?.aborted) {
+      logger.warn('[pipeline] Content run lock lost — leaving job in-flight', { jobId: job.id });
+      throw isContentJobLockHeldError(error) ? error : new ContentJobLockHeldError(job.id);
+    }
+
+    console.error(`Pipeline failed for ${job.id}:`, error);
 
     // WHY: skip empty failed overwrite: if memory already holds a done result
     // with outputs (e.g. a concurrent path left them), do not replace with
     // outputs:[] — that erased a prior final when persist of a new run failed.
     const existing = getJobFromStore(job.id) || jobsMemory.get(job.id);
-    const keepExistingDone = existing?.status === 'done'
-      && Array.isArray(existing.outputs)
-      && existing.outputs.some((o) => o.outputType === 'final');
-    if (keepExistingDone) {
+    if (existing && isLiveDoneResult(existing)) {
       throw error;
     }
 
@@ -181,39 +200,36 @@ export async function runAndPersistPipeline(
     };
     store.set(job.id, failedResult);
     clearJobStageThrottle(job.id);
+    // WHY: mirror success persistWithRetries — await durable failed before
+    // terminal failed SSE when Neon recovers quickly, so regenerate/Adapt/list
+    // do not see DB pending while Result already shows failed.
+    let failedRowPersisted = false;
     try {
-      await persistJobToDB(failedResult);
+      failedRowPersisted = await persistWithRetries(
+        failedResult,
+        job.id,
+        'pipeline-persist-failed-result',
+      );
     } catch (persistErr: unknown) {
-      if (persistErr instanceof JobSoftDeletedError) {
-        sseManager.sendEvent(job.id, {
-          type: 'progress',
-          stage: 'failed',
-          progress: 0,
-          agent: 'system',
-          message: 'Job cancelled — this content was deleted.',
-        });
-        cancelJobEviction(job.id);
-        store.evict(job.id);
+      if (persistErr instanceof JobSoftDeletedError || isSoftDeleted(job.id)) {
+        emitDeletedAndEvict(job.id, store.evict);
         return;
       }
-      // WHY: persistJobToDB's platform/tone/targetAudience validation throws
-      // before its own try/catch, so a job whose data was already invalid
-      // (e.g. a stale tone value) throws again here identically. Without this
-      // guard that second throw escapes uncaught, leaving the job marked
-      // terminal in the in-memory store (line above) with zero DB row and no
-      // record of why — this catch ensures at least a log + Sentry trail
-      // survives even when the failed-job persist itself fails.
-      console.error(`[pipeline] Failed to persist failed-job record for ${job.id} — job has no DB row:`, persistErr);
+      // WHY: persistWithRetries only rethrows soft-delete; keep a Sentry trail
+      // if that contract changes so a failed-job persist cannot go silent.
+      console.error(
+        `[pipeline] Failed to persist failed-job record for ${job.id}:`,
+        persistErr,
+      );
       Sentry.captureException(persistErr, {
         tags: { jobId: job.id, stage: 'pipeline-persist-failed-result' },
         contexts: { originalError: { message: errorMessage } },
       });
     }
 
-    // WHY: schedule eviction on failure too (CORR-014): failed snapshots used
-    // to sit in memory until process restart.
-    scheduleJobEviction(job.id, store.evict);
-
+    // WHY: still emit failed SSE when durable write is retrying — Result must
+    // unblock; backgroundFailedRepersist + claim/Adapt memory-failed guards
+    // keep regenerate from 409-ing on a still-pending DB row forever.
     sseManager.sendEvent(job.id, {
       type: 'progress',
       stage: 'failed',
@@ -221,6 +237,12 @@ export async function runAndPersistPipeline(
       agent: 'system',
       message: 'Content generation failed. Please try again or start a new job.',
     });
+
+    if (failedRowPersisted) {
+      scheduleJobEviction(job.id, store.evict);
+    } else {
+      backgroundFailedRepersist(job.id, store.evict);
+    }
     throw error;
   }
 }
@@ -271,6 +293,7 @@ async function loadPriorOutputsFromDb(jobId: string): Promise<PipelineOutput[]> 
 async function persistWithRetries(
   jobResult: PersistedJobResult,
   jobId: string,
+  sentryStage: string,
 ): Promise<boolean> {
   const delaysMs = [0, 500, 1500];
   let lastErr: unknown;
@@ -293,7 +316,7 @@ async function persistWithRetries(
     }
   }
   Sentry.captureException(lastErr, {
-    tags: { jobId, stage: 'pipeline-persist-success-result' },
+    tags: { jobId, stage: sentryStage },
   });
   return false;
 }

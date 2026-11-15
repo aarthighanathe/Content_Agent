@@ -1,0 +1,58 @@
+# AI PR security review (Anthropic Claude Code Security Review).
+# Requires repo secret CLAUDE_API_KEY (Claude API + Claude Code enabled).
+# Skips cleanly when the secret is unset so forks/local clones still pass CI.
+#
+# SECURITY: use pull_request (not pull_request_target). Require approval for
+# workflows from first-time external contributors before this runs on forks.
+
+name: Claude Security Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  security-review:
+    # WHY: draft PRs and fork PRs should not burn Claude quota / secrets.
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check for CLAUDE_API_KEY
+        id: key
+        env:
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+        run: |
+          if [ -z "$CLAUDE_API_KEY" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLAUDE_API_KEY not set — skipping Claude security review"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout PR head
+        if: steps.key.outputs.present == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      # WHY: pin to a reviewed commit SHA — @main can change under us with our API key.
+      - name: Claude Code security review
+        if: steps.key.outputs.present == 'true'
+        uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda
+        with:
+          comment-pr: true
+          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+          # NOTE: omit claude-model to use the action default; override here to cut cost if needed.
+          claudecode-timeout: 20
+          exclude-directories: >-
+            node_modules,dist,coverage,server/drizzle,server/src/generated,
+            client/dist,.git
+          custom-security-scan-instructions: .github/security/claude-scan-instructions.md

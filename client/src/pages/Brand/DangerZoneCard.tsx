@@ -30,6 +30,7 @@ export function DangerZoneCard({ exporting, exportError, onExport, onOpenDeleteM
             icon={<Download size={13} />}
             onClick={onExport}
             disabled={exporting}
+            aria-label={exporting ? 'Exporting your data' : 'Export your data'}
             style={{ flexShrink: 0 }}
           >
             {exporting ? 'Exporting…' : 'Export'}
@@ -45,13 +46,18 @@ export function DangerZoneCard({ exporting, exportError, onExport, onOpenDeleteM
             variant="danger"
             icon={<Trash2 size={13} />}
             onClick={onOpenDeleteModal}
-            style={{ flexShrink: 0 }}
+            aria-label="Delete account"
+            style={{ flexShrink: 0, minHeight: 44 }}
           >
             Delete
           </Button>
         </div>
       </div>
-      {exportError && <div style={{ fontSize: 11.5, color: 'var(--color-error)', marginTop: 10 }}>{exportError}</div>}
+      {exportError && (
+        <div role="alert" style={{ fontSize: 11.5, color: 'var(--color-error)', marginTop: 10 }}>
+          {exportError}
+        </div>
+      )}
     </div>
   );
 }

@@ -11563,45 +11563,25 @@ function deriveColorSystemFromPalette(palette) {
 // src/pages/Result/components/content/carousel/igslide/presets.ts
 var DESIGN_PRESETS = [
   { contentStart: 0, contentForce: 0, cover: 0, bgBias: "alternate" },
-  //  0 Classic editorial
   { contentStart: 0, contentForce: 1, cover: 1, bgBias: "mostly-dark" },
-  //  1 Bold dark banner emoji
   { contentStart: 0, contentForce: 2, cover: 0, bgBias: "mostly-light" },
-  //  2 Clean card brand
   { contentStart: 0, contentForce: null, cover: 0, bgBias: "alternate" },
-  //  3 Full cycle alternating brand
   { contentStart: 1, contentForce: null, cover: 1, bgBias: "mostly-dark" },
-  //  4 B→C→A cycle dark emoji
   { contentStart: 2, contentForce: null, cover: 0, bgBias: "mostly-light" },
-  //  5 C→A→B cycle light brand
   { contentStart: 0, contentForce: 0, cover: 1, bgBias: "mostly-dark" },
-  //  6 Stripe dark emoji
   { contentStart: 0, contentForce: 1, cover: 0, bgBias: "mostly-light" },
-  //  7 Banner light brand
   { contentStart: 0, contentForce: 2, cover: 1, bgBias: "mostly-dark" },
-  //  8 Card dark emoji
   { contentStart: 0, contentForce: null, cover: 1, bgBias: "mostly-light" },
-  //  9 A→B→C cycle light emoji
   { contentStart: 1, contentForce: null, cover: 0, bgBias: "alternate" },
-  // 10 B→C→A cycle alternating brand
   { contentStart: 2, contentForce: null, cover: 1, bgBias: "mostly-dark" },
-  // 11 C→A→B cycle dark emoji
   { contentStart: 0, contentForce: 0, cover: 0, bgBias: "mostly-light" },
-  // 12 Stripe light brand
   { contentStart: 0, contentForce: 1, cover: 1, bgBias: "alternate" },
-  // 13 Banner alternating emoji
   { contentStart: 0, contentForce: 2, cover: 0, bgBias: "alternate" },
-  // 14 Card alternating brand
   { contentStart: 1, contentForce: null, cover: 1, bgBias: "mostly-light" },
-  // 15 B→C→A cycle light emoji
   { contentStart: 2, contentForce: null, cover: 0, bgBias: "mostly-dark" },
-  // 16 C→A→B cycle dark brand
   { contentStart: 0, contentForce: 0, cover: 1, bgBias: "mostly-light" },
-  // 17 Stripe light emoji
   { contentStart: 0, contentForce: 2, cover: 1, bgBias: "mostly-light" },
-  // 18 Card light emoji
   { contentStart: 2, contentForce: null, cover: 1, bgBias: "alternate" }
-  // 19 C→A→B cycle alternating emoji
 ];
 
 // src/pages/Result/components/content/carousel/igslide/constants.ts
@@ -12689,7 +12669,7 @@ function HowToLayout({ slide, colors }) {
     /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", justifyContent: hasPoints ? "flex-start" : "center" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("h2", { style: { margin: hasPoints ? "14px 0 6px" : "0 0 6px", fontSize: hasPoints ? 20 : 26, fontWeight: 700, lineHeight: 1.14, letterSpacing: -0.3, color: colors.BRAND_DARK, fontFamily: FONT, flexShrink: 0 }, children: slide.headline }),
       slide.body && !hasPoints && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { margin: "0 0 16px", fontSize: 13, lineHeight: 1.6, color: colors.BRAND_DARK + "AA", fontFamily: FONT, flexShrink: 0 }, children: slide.body }),
-      hasPoints && // WHY justifyContent: center — a short points list (e.g. 3-4 rows) in a tall
+      hasPoints && // WHY: justifyContent: center — a short points list (e.g. 3-4 rows) in a tall
       // box otherwise packs to the top and leaves empty space below; centering keeps
       // it looking intentional whether there are 2 rows or enough to fill the box.
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", justifyContent: "center", overflow: "hidden", flex: 1, minHeight: 0 }, children: slide.points.map((pt, i) => /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(NumberedStep, { point: pt, stepNum: i + 1, colors, isLight: true, isLast: i === slide.points.length - 1 }, pointKeys[i])) })
@@ -13611,7 +13591,7 @@ function estimateFitScale(input) {
 
 // src/pages/Result/components/content/carousel/igslide/layouts/TemplateLayout.tsx
 var import_jsx_runtime14 = (
-  // WHY no padding/background here: every *Template.tsx component already
+  // WHY: no padding/background here: every *Template.tsx component already
   // applies its own `padding: spacing.padding` and `background` to its inner
   // content div (that's where each template's actual surface color lives).
   // This box's only job is fixed sizing + clipping; full-bleed styling is
@@ -14690,7 +14670,7 @@ var LuxuryDarkTemplate = import_react9.default.forwardRef(
               display: "flex",
               flexDirection: "column",
               padding: spacing.padding,
-              // WHY colors.DARK_BG not a literal hex: this template is always visually
+              // WHY: colors.DARK_BG not a literal hex: this template is always visually
               // dark, but the actual shade must still come from the resolved ColorSystem
               // (per-palette tinted, deriveColorSystemFromPalette) so switching the
               // curated palette in the gallery has a visible effect here too — a
@@ -15700,8 +15680,7 @@ var TEMPLATE_COMPONENTS = {
 var import_jsx_runtime25 = __toESM(require_jsx_runtime(), 1);
 var IGSlide = import_react14.default.memo(
   import_react14.default.forwardRef(
-    // NOTE: isLast stays in IGSlideProps (callers pass it) but is no longer consumed here —
-    // it only ever fed the now-removed SwipeArrow.
+    // NOTE: isLast stays in IGSlideProps for caller compatibility but is unused here.
     function IGSlide2({ slide, index, total, colors, brandName, handle, width = 420, height = 525, designPreset = 0, templateId, paletteId }, ref) {
       const preset = DESIGN_PRESETS[Math.abs(designPreset) % DESIGN_PRESETS.length];
       const resolvedTemplateId = templateId && isTemplateId(templateId) ? templateId : void 0;

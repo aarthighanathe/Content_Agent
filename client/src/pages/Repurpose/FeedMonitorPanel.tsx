@@ -1,6 +1,7 @@
 // FeedMonitorPanel — RSS/Atom subscriptions; server polls every 30 min → auto-repurpose.
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
 import { Rss, PlusCircle, Trash2, Play, Pause, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   getFeedMonitors, createFeedMonitor, toggleFeedMonitor,
@@ -9,6 +10,7 @@ import {
 import { ConfirmDeleteModal } from '../../components/ConfirmDeleteModal';
 import { SkeletonBlock } from '../../components/SkeletonCard';
 import { ErrorState } from '../../components/ErrorState';
+import { isSafeHttpUrl } from '../../lib/utils';
 import { useFeedMonitorCheck } from './useFeedMonitorCheck';
 
 const PLATFORMS = [
@@ -36,12 +38,17 @@ const DEFAULT_FORM: AddFormState = {
 
 export function FeedMonitorPanel() {
   const queryClient = useQueryClient();
+  const { isLoaded: authLoaded, isSignedIn, userId } = useAuth();
   const monitorsQuery = useQuery({
     queryKey: ['feedMonitors'],
     queryFn: getFeedMonitors,
+    // WHY: gate like Create/Library — avoid an unauthenticated fetch before Clerk hydrates.
+    enabled: authLoaded && isSignedIn,
   });
   const monitors = monitorsQuery.data?.monitors || [];
-  const loading = monitorsQuery.isLoading;
+  // WHY: isPending, not isLoading: while Clerk hydrates the query is disabled and
+  // isLoading is false — that flashed an empty list then skeletons (Dashboard pattern).
+  const loading = monitorsQuery.isPending;
   const loadError = monitorsQuery.isError;
 
   const [showAdd, setShowAdd] = useState(false);
@@ -50,7 +57,20 @@ export function FeedMonitorPanel() {
   const [collapsed, setCollapsed] = useState(false);
   // WHY: confirm before delete: trash was one-click with no undo (Library pattern).
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // WHY: sync gate — isPending only flips after re-render; double-click Subscribe
+  // could fire two creates before React Query armed the button disable.
+  const creatingRef = useRef(false);
   const { checkMutation, checkingId, checkError } = useFeedMonitorCheck();
+
+  // WHY: account switch must not leave User A's draft URL / open add form /
+  // delete-confirm modal on User B's panel.
+  useEffect(() => {
+    setForm(DEFAULT_FORM);
+    setShowAdd(false);
+    setError('');
+    setDeleteConfirmId(null);
+    creatingRef.current = false;
+  }, [userId]);
 
   const createMutation = useMutation({
     mutationFn: createFeedMonitor,
@@ -97,18 +117,30 @@ export function FeedMonitorPanel() {
   });
 
   async function handleAdd() {
-    if (!form.feedUrl.trim()) { setError('Feed URL is required'); return; }
-    try { new URL(form.feedUrl); } catch { setError('Enter a valid https:// URL'); return; }
+    if (createMutation.isPending || creatingRef.current) return;
+    const trimmed = form.feedUrl.trim();
+    if (!trimmed) { setError('Feed URL is required'); return; }
+    // WHY: new URL alone accepts javascript:/ftp: — copy claims https; require http(s).
+    if (!isSafeHttpUrl(trimmed)) { setError('Enter a valid https:// URL'); return; }
+    creatingRef.current = true;
     setError('');
-    createMutation.mutate({
-      feedUrl: form.feedUrl.trim(),
-      platform: form.platform,
-      tone: form.tone,
-      targetAudience: form.targetAudience.trim() || 'general audience',
-    });
+    createMutation.mutate(
+      {
+        feedUrl: trimmed,
+        platform: form.platform,
+        tone: form.tone,
+        targetAudience: form.targetAudience.trim() || 'general audience',
+      },
+      {
+        onSettled: () => {
+          creatingRef.current = false;
+        },
+      },
+    );
   }
 
   function handleToggle(id: string, current: boolean) {
+    if (toggleMutation.isPending) return;
     toggleMutation.mutate({ id, active: !current });
   }
 
@@ -239,9 +271,10 @@ export function FeedMonitorPanel() {
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                  <div className="fm-row-actions" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                     <button
                       type="button"
+                      className="fm-icon-btn"
                       onClick={() => checkMutation.mutate(m.id)}
                       disabled={checkingId === m.id}
                       title="Check now"
@@ -256,15 +289,25 @@ export function FeedMonitorPanel() {
                     </button>
                     <button
                       type="button"
+                      className="fm-icon-btn"
                       onClick={() => handleToggle(m.id, m.active)}
+                      disabled={toggleMutation.isPending}
                       title={m.active ? 'Pause' : 'Resume'}
                       aria-label={m.active ? 'Pause feed monitor' : 'Resume feed monitor'}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: m.active ? 'var(--accent)' : 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+                      style={{
+                        background: 'none', border: 'none',
+                        cursor: toggleMutation.isPending ? 'not-allowed' : 'pointer',
+                        padding: 4,
+                        color: m.active ? 'var(--accent)' : 'var(--text-muted)',
+                        display: 'flex', alignItems: 'center',
+                        opacity: toggleMutation.isPending ? 0.4 : 1,
+                      }}
                     >
                       {m.active ? <Pause size={12} /> : <Play size={12} />}
                     </button>
                     <button
                       type="button"
+                      className="fm-icon-btn"
                       onClick={() => setDeleteConfirmId(m.id)}
                       title="Remove monitor"
                       aria-label="Remove feed monitor"
@@ -356,6 +399,8 @@ export function FeedMonitorPanel() {
             </div>
           ) : (
             <button
+              type="button"
+              className="fm-add-btn"
               onClick={() => setShowAdd(true)}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -373,7 +418,24 @@ export function FeedMonitorPanel() {
         </div>
       )}
 
-      <style>{`@keyframes fm-spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes fm-spin { to { transform: rotate(360deg); } }
+        /* WHY: icon-only feed actions were ~20×20; Add row ~37px on phones. */
+        @media (max-width: 768px) {
+          .fm-icon-btn {
+            min-width: 44px !important;
+            min-height: 44px !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 !important;
+            box-sizing: border-box;
+          }
+          .fm-add-btn {
+            min-height: 44px;
+            box-sizing: border-box;
+          }
+        }
+      `}</style>
 
       {deleteConfirmId && (
         <ConfirmDeleteModal

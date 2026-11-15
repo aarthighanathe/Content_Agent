@@ -8,6 +8,7 @@
 // from the same React components the client draws (see lib/carouselSsr.ts), so all of
 // that was removed along with the /render-slides endpoints.
 import { createHash } from 'crypto';
+import { stripTagBlocks } from './htmlStrip.js';
 import {
   getPngCacheEntry,
   isPngCacheEntryFresh,
@@ -81,8 +82,7 @@ export type ThemeKey = LegacyThemeKey | NewTemplateKey;
 // `<script\n>fetch(...)</script\n>` slipped through unstripped. Caught by
 // tests/unit/carousel.test.ts's "irregular internal whitespace/newlines" case.
 export function stripScriptsAndEventHandlers(html: string): string {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
+  return stripTagBlocks(html, 'script')
     .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/javascript\s*:/gi, 'removed:')
     .replace(/data\s*:\s*text\/html/gi, 'removed:')

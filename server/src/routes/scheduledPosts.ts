@@ -1,94 +1,33 @@
-// WHY: this route exists: replaces the 100%-client-side localStorage calendar
-// schedule (client/src/pages/Calendar/calendarHelpers.ts's old SCHEDULE_KEY)
-// with a real DB-backed table so scheduled placements survive a cleared
-// browser and sync across devices.
-//
-// WHY: this table is a SEPARATE concept from social.ts's in-memory
-// scheduledPosts Map, not the same thing under two names: this table tracks
-// a calendar date-placement tied to a jobId (platform is optional — only set
-// when the user wants real auto-publish, see below); social.ts's Map tracks a
-// platform+exact-datetime+arbitrary-content publish intent with no jobId
-// requirement (e.g. posting ad-hoc text unrelated to any generated job). A
-// user can place the same job on the Calendar here AND separately queue a
-// social-schedule intent for it via PostPanel.tsx — nothing currently
-// cross-checks the two, so they can go out of sync with no error surfaced.
-// See social.ts's own scheduledPosts Map comment for the mirrored
-// cross-reference.
-//
-// WHY: added 2026-08-05 (real auto-publish, `publishPlatform` on
-// createScheduledPostSchema): previously this table was purely a planning
-// aid — placing a job on a date never actually posted anything anywhere,
-// same disclosed scope as social.ts's reminder-only POST /api/social/schedule
-// (see CLAUDE.md §9 "Known Limitations", now updated). POST / here now
-// optionally queues a BullMQ delayed job (lib/publishQueue.ts) that fires at
-// a fixed daily hour on the scheduled date and calls the real platform post
-// API (workers/publishWorker.ts, sharing lib/socialPublish.ts's posting logic
-// with social.ts's own interactive POST /api/social/post route). Scheduling
-// with no publishPlatform stays exactly the old reminder-only behavior.
+// WHY: DB-backed calendar placements (survive a cleared browser and sync
+// across devices). publishPlatform set → BullMQ delayed job
+// (publishQueue → publishWorker → socialPublish). Omitted on update keeps
+// the stored platform; explicit null stays reminder-only and skips the worker.
 import { Router, Response, NextFunction } from 'express';
-import { and, eq, gte, lt, ne } from 'drizzle-orm';
+import { and, asc, eq, gte, lt, ne } from 'drizzle-orm';
 import { AuthRequest } from '../middleware/auth.js';
+import { jobMutationRateLimit } from '../middleware/rateLimit.js';
 import { db } from '../db/index.js';
-import { scheduledPosts } from '../db/schema.js';
+import { scheduledPosts, contentJobs } from '../db/schema.js';
 import { requireJobOwnership, requireDbUser } from './jobs/ownership.js';
 import { parseBody, createScheduledPostSchema, listScheduledPostsQuerySchema } from '../schemas/index.js';
 import { isValidUUID } from '../lib/uuid.js';
 import { queuePublishJob, cancelPublishJob } from '../lib/publishQueue.js';
+import { DEFAULT_PUBLISH_HOUR, publishDelayMs } from '../lib/publishDelay.js';
+import {
+  sendPublishConflict,
+  isPartialThreadPosted,
+  isPostedUnverified,
+  firstDayOfNextMonth,
+  currentUtcMonth,
+} from '../lib/scheduledPostGuards.js';
 
-// WHY: default hour 9: morning slot when the client omits publishHour (older
-// clients / reminder-only schedules). L10/F12 added an optional 0–23 picker.
-const DEFAULT_PUBLISH_HOUR = 9;
+export { publishDelayMs };
 
 // WHY: hard cap even inside a month window — a month of personal calendar
 // rows should be tiny; this bounds a pathological / crafted query.
 const LIST_MAX_ROWS = 200;
 
-// WHY: timezoneOffsetMinutes, not just trusting scheduledDate as a UTC day:
-// CalendarGrid.tsx builds scheduledDate from the browser's LOCAL calendar day
-// (year/month/dayNum all come from local Date methods), but this function
-// used to interpret that same string as a UTC calendar day via Date.UTC() —
-// for any user not on UTC, "publish at 9am" could fire up to ~16 hours off
-// from their actual 9am, and near a calendar-day boundary could even publish
-// on the wrong day entirely. timezoneOffsetMinutes (JS Date.getTimezoneOffset()
-// convention: minutes to ADD to local time to reach UTC) lets this compute
-// the real UTC instant of "N:00 in the user's own timezone, on this calendar
-// day" instead. Optional and defaults to 0 (i.e. the old UTC-day behavior)
-// so an older client or a direct API call still works, just with the
-// original (documented) imprecision rather than a hard failure.
-export function publishDelayMs(
-  scheduledDate: string,
-  timezoneOffsetMinutes = 0,
-  publishHour = DEFAULT_PUBLISH_HOUR,
-): number {
-  const hour = Number.isFinite(publishHour)
-    ? Math.min(23, Math.max(0, Math.floor(publishHour)))
-    : DEFAULT_PUBLISH_HOUR;
-  const [y, m, d] = scheduledDate.split('-').map(Number);
-  const publishAtUtc = Date.UTC(y, m - 1, d, hour, 0, 0);
-  const publishAt = publishAtUtc + timezoneOffsetMinutes * 60_000;
-  return publishAt - Date.now();
-}
-
 const router = Router();
-
-// WHY: computed, not a hardcoded "-31": query.month is validated YYYY-MM by
-// listScheduledPostsQuerySchema, so this always receives a real "YYYY-MM"
-// pair — returns the first day of the following month as "YYYY-MM-DD" for
-// use as an exclusive upper bound (see the GET / route's WHY above).
-function firstDayOfNextMonth(month: string): string {
-  const [year, mon] = month.split('-').map(Number);
-  const next = new Date(Date.UTC(year, mon, 1)); // mon is 1-indexed input; JS Date month is 0-indexed, so this already lands on next month
-  const yyyy = next.getUTCFullYear();
-  const mm = String(next.getUTCMonth() + 1).padStart(2, '0');
-  return `${yyyy}-${mm}-01`;
-}
-
-function currentUtcMonth(): string {
-  const now = new Date();
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  return `${yyyy}-${mm}`;
-}
 
 // GET /api/scheduled-posts?month=YYYY-MM — list this user's scheduled posts
 // for one calendar month. Omitting `month` defaults to the current UTC month
@@ -129,12 +68,33 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     // mount) just to show a topic string. The scheduled_posts row count per
     // user is small and bounded (this is a personal planning view, not a
     // high-volume table), so the extra join column is cheap here.
-    const rows = await db!.query.scheduledPosts.findMany({
-      where: and(...conditions),
-      orderBy: (sp, { asc }) => [asc(sp.scheduledDate)],
-      limit: LIST_MAX_ROWS,
-      with: { job: { columns: { topic: true, platform: true } } },
-    });
+    // SECURITY: drop schedules whose job is soft-deleted. Historical rows can
+    // outlive a delete that failed before this cleanup was transactional.
+    const rows = await db!
+      .select({
+        id: scheduledPosts.id,
+        userId: scheduledPosts.userId,
+        jobId: scheduledPosts.jobId,
+        scheduledDate: scheduledPosts.scheduledDate,
+        createdAt: scheduledPosts.createdAt,
+        publishPlatform: scheduledPosts.publishPlatform,
+        publishHour: scheduledPosts.publishHour,
+        publishStatus: scheduledPosts.publishStatus,
+        publishedAt: scheduledPosts.publishedAt,
+        postUrl: scheduledPosts.postUrl,
+        publishError: scheduledPosts.publishError,
+        topic: contentJobs.topic,
+        platform: contentJobs.platform,
+      })
+      .from(scheduledPosts)
+      .innerJoin(contentJobs, and(
+        eq(contentJobs.id, scheduledPosts.jobId),
+        eq(contentJobs.userId, userId),
+        eq(contentJobs.deleted, 0),
+      ))
+      .where(and(...conditions))
+      .orderBy(asc(scheduledPosts.scheduledDate))
+      .limit(LIST_MAX_ROWS);
 
     return res.json({
       scheduledPosts: rows.map((row) => ({
@@ -149,7 +109,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         publishedAt: row.publishedAt,
         postUrl: row.postUrl,
         publishError: row.publishError,
-        job: row.job ? { topic: row.job.topic, platform: row.job.platform } : undefined,
+        job: { topic: row.topic, platform: row.platform },
       })),
     });
   } catch (error) {
@@ -161,7 +121,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 // the current user. Upserts on jobId (unique constraint) to preserve the
 // one-job-one-date invariant that Calendar.tsx's allocate() already enforces
 // client-side — moving a job to a new date is just re-POSTing it.
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', jobMutationRateLimit, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const userId = requireDbUser(req, res, 'Scheduling');
     if (!userId) return;
@@ -174,13 +134,60 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const ownership = await requireJobOwnership(body.jobId, userId, res);
     if (!ownership) return;
 
-    const publishHour = body.publishHour ?? 9;
+    const [existing] = await db!
+      .select()
+      .from(scheduledPosts)
+      .where(and(eq(scheduledPosts.jobId, body.jobId), eq(scheduledPosts.userId, userId)))
+      .limit(1);
+    // WHY: 409 while publishing: the worker already claimed this row and may be
+    // mid-post; resetting to pending and re-queuing would double-post.
+    if (existing?.publishStatus === 'publishing') {
+      sendPublishConflict(
+        res,
+        'This post is being published right now — try again shortly',
+        'PUBLISH_IN_PROGRESS',
+      );
+      return;
+    }
+
+    // WHY: omitted publishPlatform keeps the stored value on update. A drag of
+    // a job that lives in another month used to omit it and the upsert wrote
+    // null, cancelling auto-publish. Explicit null still clears.
+    const preservedPlatform = existing?.publishPlatform === 'linkedin'
+      || existing?.publishPlatform === 'twitter'
+      ? existing.publishPlatform
+      : null;
+    const publishPlatform = body.publishPlatform !== undefined
+      ? body.publishPlatform
+      : preservedPlatform;
+    const publishHour = body.publishHour ?? existing?.publishHour ?? DEFAULT_PUBLISH_HOUR;
+
+    // WHY: a partially posted Twitter thread is already live; re-arming would
+    // republish tweets 1..K as duplicates. Block until the user deletes the row.
+    if (publishPlatform && isPartialThreadPosted(existing?.publishStatus, existing?.publishError)) {
+      sendPublishConflict(
+        res,
+        'This Twitter thread was only partly posted — finish it manually instead of rescheduling',
+        'PARTIAL_THREAD_POSTED',
+      );
+      return;
+    }
+    // WHY: LinkedIn accepted / sweep timed out after claim — post may be live.
+    // Reject for any status (including failed) whenever the prefix is present.
+    if (publishPlatform && isPostedUnverified(existing?.publishError)) {
+      sendPublishConflict(
+        res,
+        'This post may already be live — check the account before scheduling again',
+        'POSTED_UNVERIFIED',
+      );
+      return;
+    }
 
     // WHY: reject past/current-hour schedules before insert: publishQueue used
     // to clamp a negative delay to 0 and fire immediately while the 201 body
     // still said publishStatus pending — so "schedule for 15:00" at 15:40
     // posted now. Require a future top-of-hour before accepting auto-publish.
-    if (body.publishPlatform) {
+    if (publishPlatform) {
       const delayMs = publishDelayMs(
         body.scheduledDate,
         body.timezoneOffsetMinutes,
@@ -197,25 +204,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     // CORR-006: hour-only tweaks on an already-posted row must not re-arm
     // publishStatus→pending (that double-posted to LinkedIn/Twitter).
-    const [existing] = await db!
-      .select()
-      .from(scheduledPosts)
-      .where(and(eq(scheduledPosts.jobId, body.jobId), eq(scheduledPosts.userId, userId)))
-      .limit(1);
-    // WHY: 409 while publishing: the worker already claimed this row and may be
-    // mid-post; resetting to pending and re-queuing would double-post.
-    if (existing?.publishStatus === 'publishing') {
-      return res.status(409).json({
-        error: 'This post is being published right now — try again shortly',
-        code: 'PUBLISH_IN_PROGRESS',
-        retryable: false,
-      });
-    }
     if (
       existing
       && existing.publishStatus === 'posted'
       && existing.scheduledDate === body.scheduledDate
-      && (existing.publishPlatform ?? null) === (body.publishPlatform ?? null)
+      && (existing.publishPlatform ?? null) === publishPlatform
     ) {
       const [row] = await db!
         .update(scheduledPosts)
@@ -242,7 +235,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         userId,
         jobId: body.jobId,
         scheduledDate: body.scheduledDate,
-        publishPlatform: body.publishPlatform ?? null,
+        publishPlatform,
         publishHour,
       })
       .onConflictDoUpdate({
@@ -250,7 +243,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         where: ne(scheduledPosts.publishStatus, 'publishing'),
         set: {
           scheduledDate: body.scheduledDate,
-          publishPlatform: body.publishPlatform ?? null,
+          publishPlatform,
           publishHour,
           publishStatus: 'pending',
           publishedAt: null,
@@ -263,14 +256,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     // WHY: empty returning after conflict WHERE miss — worker claimed between
     // the publishing check above and this upsert; same 409 as the early guard.
     if (!row) {
-      return res.status(409).json({
-        error: 'This post is being published right now — try again shortly',
-        code: 'PUBLISH_IN_PROGRESS',
-        retryable: false,
-      });
+      sendPublishConflict(
+        res,
+        'This post is being published right now — try again shortly',
+        'PUBLISH_IN_PROGRESS',
+      );
+      return;
     }
 
-    if (body.publishPlatform) {
+    if (publishPlatform) {
       const delayMs = publishDelayMs(
         body.scheduledDate,
         body.timezoneOffsetMinutes,
@@ -280,19 +274,38 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // row that the calendar labeled "Will auto-publish" while nothing was
       // queued. Prefer 503 over a silent lie.
       const queued = await queuePublishJob(row.id, delayMs);
-      if (!queued) {
-        // WHY: clear auto-publish on the row: leaving publishStatus pending
-        // after a failed queue made the calendar say "Will auto-publish"
-        // forever. Downgrade to a reminder-only schedule so the day still
-        // shows the job without promising a post that will never fire.
-        await db!
+      if (!queued.ok) {
+        // WHY: an active job may still post. Do not flip the row to failed.
+        if (queued.reason === 'active') {
+          sendPublishConflict(
+            res,
+            'This post is being published right now — try again shortly',
+            'PUBLISH_IN_PROGRESS',
+          );
+          return;
+        }
+        // WHY: only pending. A worker may have claimed publishing between the
+        // upsert and this update; wiping that row hides a post still going out.
+        const downgraded = await db!
           .update(scheduledPosts)
           .set({
             publishPlatform: null,
             publishStatus: 'failed',
             publishError: 'Queue unavailable',
           })
-          .where(eq(scheduledPosts.id, row.id));
+          .where(and(
+            eq(scheduledPosts.id, row.id),
+            eq(scheduledPosts.publishStatus, 'pending'),
+          ))
+          .returning({ id: scheduledPosts.id });
+        if (downgraded.length === 0) {
+          sendPublishConflict(
+            res,
+            'This post is being published right now — try again shortly',
+            'PUBLISH_IN_PROGRESS',
+          );
+          return;
+        }
         return res.status(503).json({
           error: 'Could not queue auto-publish — try again in a moment',
           code: 'SERVICE_UNAVAILABLE',
@@ -331,13 +344,46 @@ router.delete('/:jobId', async (req: AuthRequest, res: Response, next: NextFunct
     // SECURITY: scope the delete by userId too, not just jobId — otherwise a
     // user could delete another user's scheduling row by guessing/observing a
     // jobId (the row itself carries no ownership check besides this filter).
+    // WHY: 409 while publishing (same as upsert) — deleting mid-post makes
+    // markPosted update 0 rows and can hide a live post as a silent success.
+    const [existing] = await db!
+      .select({
+        id: scheduledPosts.id,
+        publishStatus: scheduledPosts.publishStatus,
+      })
+      .from(scheduledPosts)
+      .where(and(eq(scheduledPosts.jobId, jobId), eq(scheduledPosts.userId, userId)))
+      .limit(1);
+
+    if (!existing) {
+      res.status(404).json({ error: 'Scheduled post not found', code: 'NOT_FOUND', retryable: false });
+      return;
+    }
+    if (existing.publishStatus === 'publishing') {
+      sendPublishConflict(
+        res,
+        'This post is being published right now — try again shortly',
+        'PUBLISH_IN_PROGRESS',
+      );
+      return;
+    }
+
     const deleted = await db!
       .delete(scheduledPosts)
-      .where(and(eq(scheduledPosts.jobId, jobId), eq(scheduledPosts.userId, userId)))
+      .where(and(
+        eq(scheduledPosts.jobId, jobId),
+        eq(scheduledPosts.userId, userId),
+        // WHY: race with claim — same 409 as the early guard if worker wins.
+        ne(scheduledPosts.publishStatus, 'publishing'),
+      ))
       .returning();
 
     if (deleted.length === 0) {
-      res.status(404).json({ error: 'Scheduled post not found', code: 'NOT_FOUND', retryable: false });
+      sendPublishConflict(
+        res,
+        'This post is being published right now — try again shortly',
+        'PUBLISH_IN_PROGRESS',
+      );
       return;
     }
 

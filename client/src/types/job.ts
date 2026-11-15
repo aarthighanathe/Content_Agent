@@ -35,7 +35,9 @@ export interface CriticScores {
 export interface CriticResult {
   approved: boolean;
   totalScore: number;
-  scores: CriticScores;
+  // WHY: optional — feedback-only critiques omit dimensions so UI/dashboard
+  // do not treat coerced zeros as real scores.
+  scores?: CriticScores;
   feedback: string;
 }
 
@@ -127,6 +129,8 @@ export interface JobStatus {
   hasFinal: boolean;
   score?: number;
   topic?: string;
+  /** ISO timestamp; optional — current status route does not send it yet. */
+  updatedAt?: string;
 }
 
 export interface PlatformContent {

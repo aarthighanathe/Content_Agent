@@ -58,3 +58,9 @@ server/.cache/
 # Local audit run outputs (may contain URLs/screenshots)
 AUDIT_RUN_*/
 audit-e2e/
+
+# Local Clerk session for video recapture — never commit
+marketing/linkedin-video/v2/cookies.json
+
+# Local scanner scratch (never commit)
+.tmp-scan/

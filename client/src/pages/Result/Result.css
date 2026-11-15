@@ -183,7 +183,10 @@
   max-height: none;
   min-height: 0;
 }
-.rp-carousel-stage { width:100%; height:100%; min-height:0; display:flex; flex-direction:column; align-items:flex-start; gap:8px; }
+/* WHY min-width:0 + max-width:100%: default min-width:auto let the stage grow
+   with the 470px slide, so ResizeObserver always saw 470 and never shrank the
+   preview on phones (column ~358px) — card clipped mid-headline. */
+.rp-carousel-stage { width:100%; max-width:100%; min-width:0; height:100%; min-height:0; display:flex; flex-direction:column; align-items:flex-start; gap:8px; }
 /* WHY 640: matches the pre-responsive desktop look — slide left, tools
    right inside the capped content column. Stack only when mid-width
    content-width stacking already put Quality under content. */
@@ -510,7 +513,8 @@
    behind/under that global nav and its Copy/Regen/Export/More buttons were unreachable —
    this now stacks it directly above the global bar instead of overlapping it. */
 .rp-footer-bar { display:none; position:fixed; bottom:72px; left:0; right:0; z-index:150; background:color-mix(in srgb, var(--bg-base) 92%, transparent); border-top:1px solid var(--rule); backdrop-filter:blur(20px); padding:10px 16px; gap:8px; align-items:center; justify-content:center; }
-.rp-footer-bar-btn { display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:none; cursor:pointer; color:var(--text-secondary); font-family:var(--font-mono); font-size:9px; letter-spacing:0.5px; text-transform:uppercase; transition:color .18s; padding:6px 14px; border-radius:8px; flex:1; max-width:80px; }
+/* WHY min-height 44: Copy/Regen/Export/More were ~28px on phones. */
+.rp-footer-bar-btn { display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:none; cursor:pointer; color:var(--text-secondary); font-family:var(--font-mono); font-size:9px; letter-spacing:0.5px; text-transform:uppercase; transition:color .18s; padding:8px 14px; border-radius:8px; flex:1; max-width:80px; min-height:44px; justify-content:center; box-sizing:border-box; }
 .rp-footer-bar-btn:hover { color:var(--text-primary); background:var(--rule); }
 .rp-footer-bar-btn:disabled { opacity:0.4; cursor:not-allowed; }
 .rp-footer-bar-btn:disabled:hover { color:var(--text-secondary); background:none; }
@@ -877,7 +881,9 @@
 }
 
 @media (max-width:768px) {
-  .rp-carousel-layout { grid-template-columns:1fr; }
+  /* WHY: do NOT force .rp-carousel-layout to 1fr here — @container rp-main
+     already stacks below 640px content width. A viewport 1fr override undid
+     slide|tools side-by-side on ~768 tablets whose .rp-main is still ≥640. */
   .rp-carousel-side { position:static; }
   .rp-hd-bottom { flex-direction:column; align-items:stretch; }
   .rp-toolbar { display:none !important; }
@@ -910,6 +916,20 @@
   .rp-lv-step-name { margin-top:0; text-align:left; }
   .rp-lv-step-sub  { margin-top:0; text-align:left; }
   .rp-footer-bar { display:flex; }
+  /* WHY: prev/next were 32×32 and Edit/Copy ~33px — under 44px mobile touch target.
+     Dot hit area stays visually small but expands the tap box; min-width +
+     flex-shrink:0 stop the 8-dot row from compressing width:44 down to ~14. */
+  .rp-slide-btn { width:44px; height:44px; flex-shrink:0; }
+  .rp-slide-textbtn { min-height:44px; padding:10px 12px; }
+  .rp-slide-dots button {
+    width:44px; height:44px; min-width:44px; flex-shrink:0;
+  }
+  /* WHY: template rows were ~31px; color swatches 22×22 — under 44px tap target. */
+  .rp-template-row { min-height:44px; padding:10px 8px 10px 6px; box-sizing:border-box; }
+  .rp-color-dot { width:44px; height:44px; min-width:44px; box-sizing:border-box; }
+  /* WHY: back link ~19px; Adapt/Open chips ~35px on phones. */
+  .rp-back-link { min-height:44px; padding:0 2px; box-sizing:border-box; }
+  .rp-adapt-go { min-height:44px; padding:10px 12px; box-sizing:border-box; }
   /* WHY 140px, not 80px: .main-content (index.css) already reserves 72px+safe-area to
      clear the global bottom nav; this page also needs its OWN ~64px-tall footer bar
      (which now sits above that nav, not overlapping it — see .rp-footer-bar) cleared on

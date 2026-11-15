@@ -245,6 +245,20 @@ describe('stripScriptsAndEventHandlers', () => {
     const result = stripScriptsAndEventHandlers(safe);
     expect(result).toBe(safe);
   });
+
+  it('handles many unclosed <script openers in linear time (no ReDoS)', async () => {
+    const { stripScriptsAndEventHandlers } = await import('../../src/lib/carousel.js');
+    const payload = '<script>'.repeat(50_000);
+    const start = Date.now();
+    stripScriptsAndEventHandlers(payload);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('strips multiple script blocks and keeps text between them', async () => {
+    const { stripScriptsAndEventHandlers } = await import('../../src/lib/carousel.js');
+    const result = stripScriptsAndEventHandlers('a<script>1</script>b<SCRIPT >2</script >c');
+    expect(result).toBe('abc');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

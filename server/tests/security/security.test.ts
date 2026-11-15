@@ -10,9 +10,15 @@ vi.mock('../../src/lib/ai.js', () => ({
   generateWithAI: vi.fn(),
   searchTavily: vi.fn().mockResolvedValue({ results: [] }),
 }));
-// WHY: demo consumeDemoBudget uses shared Redis — exhausted counters flake as 429.
+// WHY: under-cap Redis stub — consumeDemoBudget fails closed on null (429).
+const demoRedis = vi.hoisted(() => ({
+  client: {
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+  },
+}));
 vi.mock('../../src/lib/redisClient.js', () => ({
-  getRedisClient: () => null,
+  getRedisClient: () => demoRedis.client,
 }));
 
 async function buildDemoApp() {
@@ -28,6 +34,8 @@ describe('TC-055 — HTML/XSS injection in topic field', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    demoRedis.client.incr.mockResolvedValue(1);
+    demoRedis.client.expire.mockResolvedValue(1);
     const aiModule = await import('../../src/lib/ai.js');
     vi.mocked(aiModule.generateWithAI).mockResolvedValue(
       JSON.stringify({ hook: 'Safe hook', body: 'Safe body.' })

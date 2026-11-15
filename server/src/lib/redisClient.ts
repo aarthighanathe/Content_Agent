@@ -28,13 +28,16 @@ function redisHostForLog(redisUrl: string): string {
 // shared client permanently closed — every RedisStore init then logged
 // "Connection is closed" and BullMQ workers spammed ECONNRESET while the API
 // still reported "live". Keep reconnecting with capped backoff instead.
+// WHY (B-H2): never return null — a null strategy permanently closes the singleton
+// (getRedisClient never rebuilds it), so one long Upstash outage killed rate
+// limits, SSE tokens and locks until restart. Capped backoff reconnects forever.
+// WHY: bounded maxRetriesPerRequest on the shared client so plain get/set during
+// an outage fail fast (callers already degrade) instead of hanging HTTP requests.
+// BullMQ/subscriber duplicates override this back to null (see below).
 const REDIS_IO_OPTIONS = {
-  maxRetriesPerRequest: null as null,
+  maxRetriesPerRequest: 2 as number | null,
   enableReadyCheck: false,
-  retryStrategy: (times: number): number | null => {
-    if (times > 30) return null;
-    return Math.min(times * 250, 5000);
-  },
+  retryStrategy: (times: number): number => Math.min(times * 250, 5000),
   reconnectOnError: (err: Error): boolean | 1 | 2 => {
     const msg = err.message || '';
     if (
@@ -135,7 +138,9 @@ export function getRedisClient(): IORedis | null {
  */
 export function createDedicatedRedisConnection(): IORedis {
   const base = getRedisClient();
-  if (base) return base.duplicate();
+  // WHY: BullMQ requires maxRetriesPerRequest null on Queue/Worker
+  // connections (blocking commands); duplicate() would otherwise inherit 2.
+  if (base) return base.duplicate({ maxRetriesPerRequest: null });
 
   logger.warn('[Redis] No Redis URL found — BullMQ will be skipped');
   return new IORedis({

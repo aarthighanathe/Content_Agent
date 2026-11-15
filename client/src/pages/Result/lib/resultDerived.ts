@@ -8,11 +8,12 @@ import { getLatestCritique } from '../../../lib/qualityScore';
 // varies by outputType; a 'critique' output's content is a CriticResult object
 // with these fields — narrow before use rather than casting.
 export function isCriticResult(value: unknown): value is CriticResult {
+  // WHY: scores optional — feedback-only cards persist totalScore + feedback only.
   return (
     typeof value === 'object' &&
     value !== null &&
     'totalScore' in value &&
-    'scores' in value
+    typeof (value as { totalScore: unknown }).totalScore === 'number'
   );
 }
 
@@ -56,7 +57,9 @@ export function deriveResultContent(jobData: ContentJob | null | undefined): Res
     Array.isArray(rawContent) || (typeof rawContent === 'object' && rawContent !== null)
       ? (rawContent as ResultContent)
       : undefined;
-  const isDone = jobData?.status === 'done';
+  // WHY: treat 'completed' as terminal done — some older/assembled rows use
+  // that alias; without it, done-without-content would spin LoadingView forever.
+  const isDone = jobData?.status === 'done' || jobData?.status === 'completed';
   const isFailed = jobData?.status === 'failed';
   // WHY: jobData only (not Zustand): SSE merges into jobData via mergeSSEIntoJobData.
   const progress = jobData?.progress ?? (isDone ? 100 : 0);

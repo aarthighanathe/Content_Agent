@@ -1,0 +1,5 @@
+# WHY: client/Dockerfile + server/Dockerfile are local-dev-only (docker-compose),
+# not the Vercel/Render production path. Non-root USER is still good practice
+# for local containers, but DS002 must not block CI until those files are
+# hardened or removed. Trivy emits ID "DS002" (not "DS-0002").
+DS002

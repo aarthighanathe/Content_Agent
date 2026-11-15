@@ -421,6 +421,14 @@ Content_Agent/
 ├── render.yaml             ← Render Blueprint for server deployment (see §12)
 ├── docker-compose.yml      ← LOCAL DEV ONLY — Postgres/Redis stand-ins for Neon/Upstash (see §12)
 ├── .gitignore
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml                      ← test matrix + npm-audit / TruffleHog / Semgrep / Trivy
+│   │   ├── _reusable-build.yml         ← lint + test + build
+│   │   └── claude-security-review.yml  ← PR LLM security review (needs CLAUDE_API_KEY)
+│   └── security/
+│       ├── claude-scan-instructions.md ← Pensieve-specific Claude review focus
+│       └── llm-redteam.md              ← staging-only PyRIT / Nuclei checklist
 │
 │ (no docs/ directory today — see §10; CHANGELOG.md records a docs/archive/ folder being
 │  created 2026-07-28, but it and its two archived audit files are absent from the repo now)
@@ -508,8 +516,7 @@ Content_Agent/
 │           │   ├── PublishingConnectionsCard.tsx
 │           │   ├── DangerZoneCard.tsx
 │           │   └── DeleteAccountModal.tsx
-│           ├── History.tsx             ← Redirects to Library (merged into Library as content tab)
-│           ├── Library.tsx             ← Saved content library
+│           ├── Library.tsx             ← Saved content library (/history redirects here in App.tsx)
 │           ├── Calendar.tsx            ← Content calendar view
 │           ├── Ideate.tsx              ← AI topic brainstorming
 │           ├── Repurpose.tsx           ← URL → content (skips research phase)
@@ -604,29 +611,30 @@ Content_Agent/
         │   │   ├── regenerate.ts       ← POST /:id/regenerate (snapshots a version first), POST /:id/multiply
         │   │   │                          — extracted from manage.ts 2026-08-10, same sub-router pattern as
         │   │   │                          list.ts/versions.ts's earlier extractions from the same file
-        │   │   ├── pipelineDirect.ts   ← gated runPipelineDirect (shared by create/regenerate/multiply)
+        │   │   ├── pipelineDirect.ts   ← thin re-export of lib/pipelineDirect.ts (create.ts import path)
         │   │   ├── exportSlides.ts     ← SEC-003: resolve export slides from stored final (+ image overlays);
         │   │   │                          tests: tests/unit/exportSlides.test.ts,
         │   │   │                          tests/security/export-carousel-sec003.test.ts
         │   │   └── ownership.ts        ← requireJobOwnership(); re-exports jobsMemory/getJobFromStore
-        │   │                              from lib/jobStore.ts; requireDbUser() (shared db+UUID guard
+        │   │                              from lib/jobStore.ts + assembleJobFromDB from
+        │   │                              lib/jobAssemble.ts; requireDbUser() (shared db+UUID guard
         │   │                              for non-:jobId user-scoped routes — used by
         │   │                              scheduledPosts/collections/feedMonitors; added 2026-08-10)
         │   ├── content.ts              ← thin router mounting content/* below
         │   ├── content/                ← Modular content-tool routes (split from a single content.ts file)
         │   │   ├── ideate.ts           ← POST /ideate
         │   │   ├── hashtags.ts         ← POST /hashtags
-        │   │   ├── articleExtract.ts   ← fetchAndExtractArticle + buildSourceMaterial (extracted under 400-line cap)
-        │   │   ├── repurpose.ts        ← POST /repurpose (+ re-exports fetchAndExtractArticle/createJobsForPlatforms for feedMonitorWorker)
+        │   │   ├── articleExtract.ts   ← thin re-export of lib/articleExtract.ts
+        │   │   ├── repurpose.ts        ← POST /repurpose (+ thin re-exports of lib helpers)
         │   │   ├── competitor.ts       ← POST /competitor
-        │   │   └── shared.ts           ← readOutputs/sanitizeContentDeep/parseAIJson — canonical copies imported by jobs/manage.ts and jobs/regenerate.ts too
+        │   │   └── shared.ts           ← thin re-export of lib/contentHelpers.ts
         │   ├── users.ts                ← thin router mounting users/* below
         │   ├── users/                  ← Modular user-profile routes (split from a single users.ts file)
         │   │   ├── brandVoice.ts       ← POST /brand-voice, POST /analyze-voice (Content DNA)
         │   │   ├── me.ts               ← GET /me
         │   │   ├── onboarding.ts       ← GET/POST /onboarding
         │   │   ├── account.ts          ← DELETE /me (account deletion)
-        │   │   └── profileStore.ts     ← getUserProfile/saveUserProfile cache-aside helpers
+        │   │   └── profileStore.ts     ← thin re-export of lib/profileStore.ts
         │   ├── social/                 ← OAuth + post (index.ts connections/post; oauth.ts connect/callback)
         │   ├── scheduledPosts.ts       ← GET/POST /api/scheduled-posts, DELETE /:jobId (Calendar server-sync)
         │   ├── collections.ts          ← GET/POST /api/collections, DELETE /:id, GET/POST/DELETE /:id/jobs[/:jobId] (Library folders)
@@ -651,10 +659,17 @@ Content_Agent/
         │   ├── logger.ts               ← Structured JSON logger (info/warn/error) — use instead of console.log per code style rules
         │   ├── jobStore.ts             ← jobsMemory + getJobFromStore/setJobInStore (extracted so lib/
         │   │                              pipeline* does not import from routes/jobs/ownership)
+        │   ├── jobAssemble.ts          ← AssembledJob + assembleJobFromDB (workers + ownership)
+        │   ├── contentHelpers.ts       ← readOutputs/sanitizeContentDeep/parseAIJson
+        │   ├── profileStore.ts         ← getUserProfile/saveUserProfile cache-aside helpers
+        │   ├── articleExtract.ts       ← fetchAndExtractArticle + buildSourceMaterial
+        │   ├── repurposeJobs.ts        ← createJobsForPlatforms (feed monitors + repurpose batch)
+        │   ├── pipelineDirect.ts       ← gated runPipelineDirect (create/regenerate/multiply/repurpose)
         │   ├── injectionPatterns.ts    ← Shared prompt-injection regex list (rateLimit + sanitizeSearchText)
         │   ├── persistJob.ts           ← Insert pending + terminal agent outputs to contentJobs/contentOutputs
         │   ├── persistJobSweeps.ts     ← Stale in-flight + publishing sweeps (extracted under 400-line cap)
-        │   ├── pipelineRun.ts          ← runContentPipeline Orchestrator→Critic loop (extracted under 400-line cap)
+        │   ├── pipelineRun.ts          ← runContentPipeline orchestrator/research/predict; write loop in pipelineWriteLoop
+        │   ├── pipelineWriteLoop.ts    ← Writer→Formatter→Critic loop (separate validation vs critic budgets; FALLBACK best-draft rules)
         │   ├── pipelineTypes.ts        ← PipelineJob / SkipResearchOpts / output types
         │   ├── jobEviction.ts          ← Generation-safe 10-min memory eviction after terminal persist
         │   ├── queue.ts                ← BullMQ Queue + createRedisConnection()
@@ -737,6 +752,13 @@ cd client && npm run lint
 cd server && npm run seed
 ```
 
+**Security CI (GitHub Actions on `main` push/PR):** `npm audit` (high+), TruffleHog
+(`--only-verified`), Semgrep (typescript/javascript/nodejs/owasp/react), Trivy
+(fs CRITICAL + config CRITICAL/HIGH). Optional PR review:
+`.github/workflows/claude-security-review.yml` when repo secret `CLAUDE_API_KEY` is set.
+Staging-only LLM red-team (PyRIT / Nuclei): `.github/security/llm-redteam.md` — not every PR.
+Details: `CONTRIBUTING.md` → Automated security CI.
+
 **Minimum env vars to run:**
 `DATABASE_URL`, `GEMINI_API_KEY`, `CLERK_SECRET_KEY`, `VITE_CLERK_PUBLISHABLE_KEY`, `VITE_API_BASE_URL=http://localhost:3001`
 
@@ -811,9 +833,14 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   `content:run:{jobId}` (SET NX + Lua release/renew in `lib/contentJobLock.ts`,
   same pattern as feed-monitor checks) before running the pipeline; contention
   delays via BullMQ `moveToDelayed` + `DelayedError` instead of completing as a
-  successful skip. Process-local `inFlightJobIds` remains defense-in-depth for
-  co-hosted slots. Multiply Adapt serializes on `multiply:{rootId}:{platform}`.
-  Direct-mode waiter queue is capped at 20 (`pipelineDirect.ts`).
+  successful skip. A lost lock (renew returned 0, or renew failed for a full
+  TTL) is `lock_lost`, not a user delete: the worker releases and requeues on
+  that same delay path so the durable row stays non-terminal. If another holder
+  is running, the retry waits and then no-ops once the row is terminal; if the
+  key simply expired, the retry re-acquires it. Process-local
+  `inFlightContentJobIds` remains defense-in-depth for co-hosted slots. Multiply
+  Adapt serializes on `multiply:{rootId}:{platform}`. Direct-mode waiter queue
+  is capped at 20 (`pipelineDirect.ts`).
 - **Supported deploy: co-host the content worker inside the API process** (`index.ts`
   calls `startWorker()`). **SSE fan-out (2026-11-14):** when Redis is configured,
   `sseManager.sendEvent` publishes to `sse:job:{jobId}` and every API process
@@ -834,9 +861,15 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   in `persistJob.ts`, also covers no-Redis / direct mode; also sweeps stuck
   `scheduled_posts.publishStatus='publishing'`) mark abandoned in-flight rows
   `failed` and emit terminal SSE. Result also times out a silent non-terminal job after
-  20 min by `createdAt` (durable pending never 404s). **Pipeline business failures are
+  20 min by `createdAt` (durable pending never 404s). While `backgroundRepersist`
+  is retrying a finished job that exists only in one process's memory, that
+  process sets Redis `content:persist-pending:{jobId}` (12 min TTL, renewed each
+  attempt). Other processes' stale sweeps skip the row until the save succeeds
+  or retries are abandoned and the marker is cleared. **Pipeline business failures are
   intentionally NOT retried** — `contentWorker` swallows errors after `runAndPersistPipeline`
-  has already persisted `status:'failed'` + terminal SSE. **Live `kill -9` verification on
+  has already persisted `status:'failed'` + terminal SSE. Lock loss is the
+  exception: it is rethrown and requeued, not swallowed as a failed generation.
+  **Live `kill -9` verification on
   staging is still outstanding** — run the checklist below and record the outcome in
   `CHANGELOG.md`.
 
@@ -851,8 +884,9 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
      `pending` with a spinning UI.
   5. Record date + outcome in `CHANGELOG.md` and replace this paragraph with the result.
 - Demo: 5 generations/hour per IP (one sample per landing-page platform)
-- Writer enforces 45-60 word limit per carousel slide body; critic also
-  re-checks carousel body length and caps `platformCompliance` when out of range
+- Writer targets 45–60 words per carousel slide body (shorter on some slides);
+  the formatter truncates to the critic's per-slide maxima (60 / 55 / 30) and
+  the critic caps `platformCompliance` when a body is still out of range
   (L11, 2026-10-02)
 - Content Multiplication reuses existing research — Multiplier shows research age
   from `job.createdAt` and flags ≥7 days as stale (F13, 2026-10-02)
@@ -872,8 +906,10 @@ const finalOutput = job.outputs.find(o => o.outputType === 'final');
   `publishHour` / etc.) behind `routes/scheduledPosts.ts` + BullMQ `scheduled-publish`
   (`publishWorker.ts` → `socialPublish.ts`). Day-only `scheduledDate` + optional local
   `publishHour` (0–23, default 9, L10/F12) + `timezoneOffsetMinutes` compute the delay.
-  Reminder-only rows (no platform) skip the worker. Result PostPanel schedules into the
-  same table (`POST /api/social/schedule` in-memory Map removed 2026-11).
+  The offset is for that local date and hour (DST), not the offset at schedule time.
+  Omitting `publishPlatform` on update keeps the stored platform; explicit `null` clears
+  auto-publish. Reminder-only rows (no platform) skip the worker. Result PostPanel
+  schedules into the same table (`POST /api/social/schedule` in-memory Map removed 2026-11).
 ---
 
 ## 10. Docs Reference
@@ -907,12 +943,13 @@ only record of what changed.
 
 ## 11. Carousel Theme & Template Reference
 
-> **Two parallel systems coexist today** — see `CAROUSEL_TEMPLATE_PLAN.md` for the full
-> history/rationale. Both are live; the template system (added 2026-08-06) is the
-> Canva-like, visually-distinct system users actually see when they pick a template on
-> Create. The legacy 9-color-theme system still exists as the fallback for carousels
-> generated before the template system shipped, and is a candidate for retirement once the
-> template system is proven stable (`CAROUSEL_TEMPLATE_PLAN.md` §2.4 — not done yet).
+> **Two parallel systems coexist today.** Both are live; the template system (added
+> 2026-08-06) is the Canva-like, visually-distinct system users actually see when they
+> pick a template on Create. The legacy 9-color-theme system still exists as the
+> fallback for carousels generated before the template system shipped, and is a
+> candidate for retirement once the template system is proven stable.
+> (`CAROUSEL_TEMPLATE_PLAN.md` is not in the repo — treat this section as the live
+> reference.)
 
 ### 11a. Template system (current, primary)
 

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type ContentMutationKind = 'idle' | 'save' | 'restore';
 
@@ -17,10 +17,18 @@ export interface ContentMutationLock {
 
 // WHY: save PATCH and version restore both write the final output — overlapping
 // them races setJobData (lost update). Shared lock + generation gate both UIs.
-export function useContentMutationLock(): ContentMutationLock {
+export function useContentMutationLock(jobId?: string): ContentMutationLock {
   const lockRef = useRef<ContentMutationKind>('idle');
   const genRef = useRef(0);
   const [lock, setLock] = useState<ContentMutationKind>('idle');
+
+  // WHY: navigating Result A→B while a save is in flight must drop the lock and
+  // bump gen so A's late setJobData/setSaveError are stale and restoreDisabled clears.
+  useEffect(() => {
+    lockRef.current = 'idle';
+    genRef.current += 1;
+    setLock('idle');
+  }, [jobId]);
 
   const isBusy = useCallback((): boolean => lockRef.current !== 'idle', []);
 

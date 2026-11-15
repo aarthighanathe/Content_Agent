@@ -91,8 +91,21 @@ vi.mock('../../src/lib/queue.js', () => ({
   addJobToQueue: (...args: unknown[]) => addJobToQueueMock(...args),
 }));
 
-vi.mock('../../src/routes/users.js', () => ({
-  getUserProfile: vi.fn().mockResolvedValue({ brandVoice: 'professional', phrasesUse: '', phrasesAvoid: '', contentDna: null }),
+// WHY profileStore (not routes/users): repurpose imports getUserProfile from
+// lib/profileStore.js after the routes→lib extract — mocking users.js was a no-op.
+vi.mock('../../src/lib/profileStore.js', () => ({
+  getUserProfile: vi.fn().mockResolvedValue({
+    brandVoice: 'professional',
+    phrasesUse: '',
+    phrasesAvoid: '',
+    contentDna: null,
+  }),
+}));
+
+// WHY: insertPendingJobRow hits Neon when DATABASE_URL is injected from .env —
+// hermetic suite must not depend on a live DB / FK user row.
+vi.mock('../../src/lib/persistJob.js', () => ({
+  insertPendingJobRow: vi.fn().mockResolvedValue(true),
 }));
 
 // WHY mock budget helpers: tests run without Redis; real reserveGenerationBudget

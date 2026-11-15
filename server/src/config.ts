@@ -122,7 +122,7 @@ function parseEnv() {
   // flow. Reject when NODE_ENV=production (even if APP_URL still defaults to
   // localhost — Render can omit APP_URL and leave the zod default) OR when
   // APP_URL is a non-localhost host (staging/preview with NODE_ENV=development).
-  let appHost = '';
+  let appHost: string;
   try {
     appHost = new URL(result.data.APP_URL).hostname.toLowerCase();
   } catch {

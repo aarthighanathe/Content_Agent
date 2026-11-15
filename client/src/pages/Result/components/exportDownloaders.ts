@@ -92,7 +92,9 @@ export async function exportPNG(
         templateId,
         paletteId,
       },
-      { responseType: 'blob', signal },
+      // WHY: timeout 0 — Puppeteer renders of 8+ slides outlast the 60s default; the
+      // caller's AbortSignal is the cancel path.
+      { responseType: 'blob', signal, timeout: 0 },
     );
     const exportWarning = response.headers?.['x-export-warning'];
     if (typeof exportWarning === 'string' && exportWarning.length > 0) {
@@ -106,8 +108,8 @@ export async function exportPNG(
     // WHY: responseType:'blob' turns JSON error bodies into Blobs, so the modal
     // used to show a blank "Error" with no reason after a partial render failure.
     const fromBody = await messageFromExportBlobError(err);
-    if (fromBody) throw new Error(fromBody);
-    throw err instanceof Error ? err : new Error('Export failed');
+    if (fromBody) throw new Error(fromBody, { cause: err });
+    throw err instanceof Error ? err : new Error('Export failed', { cause: err });
   }
 }
 

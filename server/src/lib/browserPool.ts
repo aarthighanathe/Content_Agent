@@ -34,6 +34,9 @@ export const RENDER_TIMEOUT_MS = 60_000;
 // paths (replaceBrokenBrowser, initPool's allSettled) already know how to handle.
 const BROWSER_LAUNCH_TIMEOUT_MS = 10_000;
 
+// WHY: --no-sandbox is required on Render/Docker-style hosts (no user namespaces /
+// unprivileged root). SECURITY: mitigated by only rendering server-generated HTML
+// with JavaScript disabled and script/xhr/fetch/websocket request interception.
 const LAUNCH_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -366,6 +369,11 @@ export async function closeBrowserPool() {
   await Promise.allSettled(
     _pool.filter((e): e is PoolEntry & { browser: Browser } => e.browser !== null).map((e) => e.browser.close()),
   );
+  // WHY: reset so a later acquire (tests / rare re-init) does not see closed
+  // Browser handles still sitting in _pool as if they were live.
+  _pool.length = 0;
+  _poolReady = false;
+  _initPromise = null;
 }
 
 // WHY: shutdown is coordinated centrally in index.ts (HTTP server drain → BullMQ

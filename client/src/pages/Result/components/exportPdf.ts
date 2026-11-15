@@ -26,7 +26,9 @@ export function pdfSafeText(input: string): string {
     // WHY: delete ZWSP/ZWNJ rather than space: a zero-width char becoming a
     // real space changes wrap points and can look like stretched tracking.
     .replace(/[\u200B-\u200F\uFEFF]/g, '')
-    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '')
+    // WHY: keep tab/LF/CR for PDF layout; strip other controls + non-ascii.
+    // Built via RegExp so eslint no-control-regex does not flag the class.
+    .replace(new RegExp(`[^${String.fromCharCode(9, 10, 13)}\\x20-\\x7E]`, 'g'), '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')

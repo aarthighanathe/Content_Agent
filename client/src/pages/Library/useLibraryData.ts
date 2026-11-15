@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import {
   getCollections,
@@ -13,16 +13,16 @@ import {
   fetchAllMatchingJobPages,
   fetchAllCollectionJobPages,
   libraryHasInFlight,
-  pollLibraryInFlightPage,
+  libraryJobsQueryKey,
+  collectionJobsQueryKey,
   MAX_LIBRARY_JOB_PAGES,
-  type LibraryJobsPayload,
 } from './libraryFetch';
+import { useLibraryInFlightPoll } from './useLibraryInFlightPoll';
 import { buildLibraryCsv, downloadLibraryCsv, exportCapNote } from './libraryExport';
 import { useLibraryMutations } from './useLibraryMutations';
 
 export function useLibraryData() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   // WHY: gated like Dashboard: avoid unauthenticated library fetches on hard refresh
   // before Clerk has hydrated the JWT into the Axios interceptor.
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
@@ -86,6 +86,31 @@ export function useLibraryData() {
     return () => clearTimeout(t);
   }, [debouncedSearch, platformFilter, sort, tagFilter, activeCollectionId]);
 
+  // WHY: clear selection when filters change — otherwise selectedIds from a prior
+  // filter/folder survive and bulk-delete can hit jobs no longer visible on screen.
+  // WHY: also close bulkDeleteConfirm — otherwise the modal stays open over an
+  // empty selection after filter/folder change.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [debouncedSearch, platformFilter, sort, tagFilter, activeCollectionId]);
+
+  // WHY: leaving Manage must drop the selection — Done previously left ids
+  // selected so re-entering Manage could bulk-delete a stale set.
+  // WHY: close bulkDeleteConfirm too — confirm opened in Manage must not linger
+  // after Done clears the selection.
+  useEffect(() => {
+    if (manageMode) return undefined;
+    const t = setTimeout(() => {
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [manageMode]);
+
   const jobsQueryOptions: GetJobsOptions = {
     search: debouncedSearch,
     platform: platformFilter,
@@ -96,46 +121,12 @@ export function useLibraryData() {
   // groups (see jobsForTopicPage). Refetching on every page click would re-download
   // the same job set. Filters still re-query.
   // WHY: no refetchInterval (M9): in-flight used to re-pull ≤20 pages every 4s —
-  // page-1 poll below; full multi-page on settle / manual refresh.
-  const libraryJobsQueryKey = [
-    'library', 'jobs', debouncedSearch, platformFilter, sort, tagFilter,
-  ] as const;
+  // newest-page poll in useLibraryInFlightPoll; full multi-page on settle.
   const jobsQuery = useQuery({
-    queryKey: libraryJobsQueryKey,
+    queryKey: libraryJobsQueryKey(debouncedSearch, platformFilter, sort, tagFilter),
     queryFn: () => fetchAllMatchingJobPages(jobsQueryOptions),
     enabled: authLoaded && isSignedIn,
   });
-
-  const inFlightJobs = libraryHasInFlight(jobsQuery.data?.jobs ?? []);
-  useEffect(() => {
-    if (!authLoaded || !isSignedIn || !inFlightJobs) return undefined;
-    const pollOptions: GetJobsOptions = {
-      search: debouncedSearch,
-      platform: platformFilter,
-      sort,
-      tag: tagFilter || undefined,
-    };
-    const queryKey = [
-      'library', 'jobs', debouncedSearch, platformFilter, sort, tagFilter,
-    ] as const;
-    let cancelled = false;
-    const tick = async (): Promise<void> => {
-      try {
-        const prev = queryClient.getQueryData<LibraryJobsPayload>(queryKey);
-        const { merged, settled } = await pollLibraryInFlightPage(pollOptions, prev);
-        if (cancelled) return;
-        queryClient.setQueryData(queryKey, merged);
-        if (settled) {
-          void queryClient.invalidateQueries({ queryKey: [...queryKey] });
-        }
-      } catch { /* next tick retries */ }
-    };
-    const id = setInterval(() => { void tick(); }, 4000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [
-    authLoaded, isSignedIn, inFlightJobs, queryClient,
-    debouncedSearch, platformFilter, sort, tagFilter,
-  ]);
 
   // WHY: a separate active-collection query rather than folding into
   // jobsQueryOptions: collections are a different data source. GET /:id/jobs
@@ -149,7 +140,7 @@ export function useLibraryData() {
   const collections = useMemo(() => collectionsQuery.data?.collections || [], [collectionsQuery.data]);
 
   const collectionJobsQuery = useQuery({
-    queryKey: ['library', 'collectionJobs', activeCollectionId],
+    queryKey: collectionJobsQueryKey(activeCollectionId ?? ''),
     queryFn: () => fetchAllCollectionJobPages(activeCollectionId as string),
     enabled: authLoaded && isSignedIn && activeCollectionId !== null,
   });
@@ -162,6 +153,19 @@ export function useLibraryData() {
   // useLibraryMutations — that split previously left these names undefined
   // in this hook and broke `tsc -b` / Library at runtime.
   const inCollectionView = activeCollectionId !== null;
+  const libraryInFlight = libraryHasInFlight(jobsQuery.data?.jobs ?? []);
+  const collectionInFlight = inCollectionView
+    && libraryHasInFlight(collectionJobsQuery.data?.jobs ?? []);
+  useLibraryInFlightPoll({
+    enabled: authLoaded && !!isSignedIn,
+    libraryInFlight,
+    collectionInFlight,
+    activeCollectionId,
+    debouncedSearch,
+    platformFilter,
+    sort,
+    tagFilter,
+  });
   const jobs: LibraryJob[] = useMemo(
     () => (inCollectionView ? collectionJobsQuery.data?.jobs : jobsQuery.data?.jobs) || [],
     [inCollectionView, collectionJobsQuery.data, jobsQuery.data],
@@ -169,7 +173,9 @@ export function useLibraryData() {
   const total = inCollectionView
     ? (collectionJobsQuery.data?.total ?? jobs.length)
     : (jobsQuery.data?.total || 0);
-  const jobsLoading = inCollectionView ? collectionJobsQuery.isLoading : jobsQuery.isLoading;
+  // WHY: isPending, not isLoading: while Clerk hydrates the query is disabled
+  // and isLoading is false — that would flash an empty Library before fetch.
+  const jobsLoading = inCollectionView ? collectionJobsQuery.isPending : jobsQuery.isPending;
   const jobsError = inCollectionView ? collectionJobsQuery.isError : jobsQuery.isError;
 
   const {
@@ -214,30 +220,9 @@ export function useLibraryData() {
   }
 
   const [exporting, setExporting] = useState(false);
-
-  async function exportCSV() {
-    // WHY: try/catch (#45): Blob/download can throw in restricted environments.
-    setExporting(true);
-    try {
-      let toExport: LibraryJob[];
-      let hitCap = false;
-      if (selectedIds.size > 0) {
-        toExport = jobs.filter((j) => selectedIds.has(j.id));
-      } else {
-        const all = await fetchAllMatchingJobs();
-        toExport = all.jobs;
-        hitCap = all.hitCap;
-      }
-      downloadLibraryCsv(buildLibraryCsv(toExport));
-      flashToast(
-        `Exported ${toExport.length} row${toExport.length !== 1 ? 's' : ''} to CSV${exportCapNote(hitCap)}`,
-      );
-    } catch {
-      flashToast('Export failed — please try again.', true);
-    } finally {
-      setExporting(false);
-    }
-  }
+  // WHY: ref gate before setExporting — a double-click sees exporting===false twice
+  // before paint and would fire two CSV downloads.
+  const exportingRef = useRef(false);
 
   function toggleSelect(id: string) {
     setSelectedIds(prev => {
@@ -259,7 +244,7 @@ export function useLibraryData() {
       const q = debouncedSearch.toLowerCase();
       if (q) {
         list = list.filter((j) =>
-          j.topic.toLowerCase().includes(q)
+          (j.topic || '').toLowerCase().includes(q)
           || (j.tag || '').toLowerCase().includes(q),
         );
       }
@@ -287,6 +272,40 @@ export function useLibraryData() {
     }
     return list;
   }, [jobs, tagFilter, inCollectionView, debouncedSearch, platformFilter, sort]);
+
+  async function exportCSV() {
+    if (exportingRef.current) return;
+    exportingRef.current = true;
+    // WHY: try/catch (#45): Blob/download can throw in restricted environments.
+    setExporting(true);
+    try {
+      let toExport: LibraryJob[];
+      let hitCap = false;
+      if (selectedIds.size > 0) {
+        // WHY: jobsForPaging (not raw jobs) — selection is relative to the filtered
+        // list the user sees, including client-side folder filters.
+        toExport = jobsForPaging.filter((j) => selectedIds.has(j.id));
+      } else if (inCollectionView) {
+        // WHY: folder CSV must export filtered collection membership, not the
+        // global library — fetchAllMatchingJobs ignored the open folder.
+        toExport = jobsForPaging;
+        hitCap = total > jobs.length;
+      } else {
+        const all = await fetchAllMatchingJobs();
+        toExport = all.jobs;
+        hitCap = all.hitCap;
+      }
+      downloadLibraryCsv(buildLibraryCsv(toExport));
+      flashToast(
+        `Exported ${toExport.length} row${toExport.length !== 1 ? 's' : ''} to CSV${exportCapNote(hitCap)}`,
+      );
+    } catch {
+      flashToast('Export failed — please try again.', true);
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
+    }
+  }
 
   const topicPage = useMemo(
     () => jobsForTopicPage(jobsForPaging, page),
@@ -341,7 +360,16 @@ export function useLibraryData() {
   }, [page, totalPages]);
 
   const platformFilters = ['all', ...Object.keys(platformMeta)];
-  const platformCounts = jobsQuery.data?.platformCounts || {};
+  // WHY: folder view must count platforms from collection jobs — server
+  // platformCounts are library-wide and mislabel the folder filter chips.
+  const platformCounts = useMemo((): Record<string, number> => {
+    if (!inCollectionView) return jobsQuery.data?.platformCounts || {};
+    const counts: Record<string, number> = {};
+    for (const j of jobs) {
+      counts[j.platform] = (counts[j.platform] || 0) + 1;
+    }
+    return counts;
+  }, [inCollectionView, jobsQuery.data?.platformCounts, jobs]);
 
   // WHY: server tagCounts when not in a collection: filtering only the current page
   // misssed tagged jobs on other pages. Collection view falls back to page-local tags.
@@ -367,14 +395,16 @@ export function useLibraryData() {
     deleteJobError, setDeleteJobError, bulkDeleteError, setBulkDeleteError,
     failedJobIds, setFailedJobIds,
     toast,
-    jobs, totalPages, total, jobsLoading, jobsError, jobsQuery,
+    jobs, totalPages, total, jobsLoading, jobsError, jobsQuery, collectionJobsQuery,
     deleteJobMutation, bulkDeleteJobsMutation, tagJobMutation,
     handleConfirmBulkDelete, exportCSV, exporting,
     handleSelectPage, handleClearSelection, handleSelectAllMatching,
     pageFullySelected, allMatchingSelected, matchingCount, hasActiveFilter,
     toggleSelect, filteredJobs, platformFilters, platformCounts, pageTags,
     flashToast,
-    collections, collectionsLoading: collectionsQuery.isLoading,
+    collections, collectionsLoading: collectionsQuery.isPending,
+    collectionsError: collectionsQuery.isError,
+    refetchCollections: () => { collectionsQuery.refetch().catch(() => {}); },
     activeCollectionId, setActiveCollectionId,
     createCollectionMutation, deleteCollectionMutation, addToCollectionMutation,
     removeFromCollectionMutation,

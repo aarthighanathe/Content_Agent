@@ -3,20 +3,19 @@
  * Tests the validation layer of POST /api/jobs/create and /api/jobs/batch
  * without touching real DB, Redis, or LLM services.
  *
- * Strategy: we test the validation logic by extracting it as a pure function
- * that mirrors what the route handler does, since standing up the full server
- * requires all external services (Clerk, Neon, Redis).
+ * WHY import createJobSchema / shared enums: a hand-rolled VALID_PLATFORMS copy
+ * here drifted from schemas/jobs.ts before — safeParse against the real zod
+ * schemas is the same gate parseBody() uses on the routes.
  */
 import { describe, it, expect } from 'vitest';
-
-// ─── Inline the validation logic from jobs.ts ─────────────────────────────────
-
-interface CreateJobInput {
-  topic?: string;
-  platform?: string;
-  tone?: string;
-  targetAudience?: string;
-}
+import { z } from 'zod';
+import {
+  createJobSchema,
+  VALID_PLATFORMS,
+  toneEnum,
+  templateIdEnum,
+  TOPIC_MAX_LENGTH,
+} from '../../src/schemas/jobs.js';
 
 interface ValidationResult {
   valid: boolean;
@@ -25,66 +24,48 @@ interface ValidationResult {
   code?: string;
 }
 
-const VALID_PLATFORMS = [
-  'instagram_carousel',
-  'linkedin_post',
-  'twitter_thread',
-  'instagram_caption',
-  'video_script',
-];
-
-function validateCreateJob(input: CreateJobInput): ValidationResult {
-  const { topic, platform, tone, targetAudience } = input;
-
-  if (!topic || !platform || !tone || !targetAudience) {
-    return {
-      valid: false,
-      status: 400,
-      error: 'Missing required fields: topic, platform, tone, targetAudience',
-      code: 'VALIDATION_ERROR',
-    };
-  }
-
-  if (!VALID_PLATFORMS.includes(platform)) {
-    return {
-      valid: false,
-      status: 400,
-      error: `Invalid platform. Must be one of: ${VALID_PLATFORMS.join(', ')}`,
-      code: 'VALIDATION_ERROR',
-    };
-  }
-
-  return { valid: true };
+function fromZod(
+  result: { success: true } | { success: false; error: z.ZodError },
+): ValidationResult {
+  if (result.success) return { valid: true };
+  const firstIssue = result.error.issues[0];
+  return {
+    valid: false,
+    status: 400,
+    error:
+      typeof firstIssue?.message === 'string' && firstIssue.message.length > 0
+        ? firstIssue.message
+        : 'Invalid request body',
+    code: 'VALIDATION_ERROR',
+  };
 }
 
-interface BatchJobItem {
-  topic?: string;
-  platform?: string;
+function validateCreateJob(input: unknown): ValidationResult {
+  return fromZod(createJobSchema.safeParse(input));
 }
 
-interface BatchJobInput {
-  items?: BatchJobItem[];
-  tone?: string;
-  targetAudience?: string;
-}
+// WHY: mirrors routes/jobs/create.ts POST /batch inline schema — enums/caps
+// imported from schemas/jobs so VALID_* is not duplicated in this test file.
+const batchSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        topic: z.string().min(3).max(TOPIC_MAX_LENGTH).trim(),
+        platform: z.enum(VALID_PLATFORMS),
+        tone: toneEnum.optional(),
+        targetAudience: z.string().max(300).trim().optional(),
+      }),
+    )
+    .min(1)
+    .max(7),
+  tone: toneEnum.optional(),
+  targetAudience: z.string().max(300).trim().optional(),
+  templateId: templateIdEnum.optional(),
+  paletteId: z.string().max(50).optional(),
+});
 
-function validateBatchJobs(input: BatchJobInput): ValidationResult {
-  const { items } = input;
-  if (!items || !Array.isArray(items) || items.length === 0) {
-    return { valid: false, status: 400, error: 'items array required', code: 'VALIDATION_ERROR' };
-  }
-  if (items.length > 7) {
-    return { valid: false, status: 400, error: 'Maximum 7 jobs per batch', code: 'VALIDATION_ERROR' };
-  }
-  for (const item of items) {
-    if (!item.topic || !item.platform) {
-      return { valid: false, status: 400, error: 'Each item requires topic and platform', code: 'VALIDATION_ERROR' };
-    }
-    if (!VALID_PLATFORMS.includes(item.platform)) {
-      return { valid: false, status: 400, error: `Invalid platform: ${item.platform}`, code: 'VALIDATION_ERROR' };
-    }
-  }
-  return { valid: true };
+function validateBatchJobs(input: unknown): ValidationResult {
+  return fromZod(batchSchema.safeParse(input));
 }
 
 // ─── POST /api/jobs/create validation ────────────────────────────────────────
@@ -157,10 +138,10 @@ describe('POST /api/jobs/create — input validation', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('TC-006b — all 5 valid platforms pass validation', () => {
-    VALID_PLATFORMS.forEach(platform => {
+  it('TC-006b — all valid platforms pass validation', () => {
+    VALID_PLATFORMS.forEach((platform) => {
       const result = validateCreateJob({
-        topic: 'test',
+        topic: 'test topic',
         platform,
         tone: 'casual',
         targetAudience: 'everyone',
@@ -181,7 +162,7 @@ describe('POST /api/jobs/create — input validation', () => {
 
   it('null fields fail validation', () => {
     const result = validateCreateJob({
-      topic: null as any,
+      topic: null,
       platform: 'linkedin_post',
       tone: 'casual',
       targetAudience: 'everyone',
@@ -217,7 +198,7 @@ describe('POST /api/jobs/batch — input validation', () => {
 
   it('valid batch of 1 passes', () => {
     const result = validateBatchJobs({
-      items: [{ topic: 'AI', platform: 'linkedin_post' }],
+      items: [{ topic: 'AI trends', platform: 'linkedin_post' }],
     });
     expect(result.valid).toBe(true);
   });
@@ -233,7 +214,7 @@ describe('POST /api/jobs/batch — input validation', () => {
 
   it('item with invalid platform fails', () => {
     const result = validateBatchJobs({
-      items: [{ topic: 'AI', platform: 'tiktok' }],
+      items: [{ topic: 'AI trends', platform: 'tiktok' }],
     });
     expect(result.valid).toBe(false);
   });

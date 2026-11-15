@@ -60,7 +60,11 @@ export function MobileMenu({ open, isSignedIn, onClose, id = 'landing-mobile-men
             background: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
             border: '1px solid var(--rule)',
             borderRadius: 9,
-            padding: '9px 11px',
+            // WHY: 9×11 pad + 20px icon was ~40 tall — under 44px mobile target.
+            padding: 0,
+            minWidth: 44,
+            minHeight: 44,
+            boxSizing: 'border-box',
             color: 'var(--text-secondary)',
             cursor: 'pointer',
             display: 'flex',

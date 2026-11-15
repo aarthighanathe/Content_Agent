@@ -25,8 +25,10 @@ import { isValidTone } from '../../lib/persistJob.js';
 import { cancelJobEviction } from '../../lib/jobEviction.js';
 import { logger } from '../../lib/logger.js';
 import { readOutputs } from '../content/shared.js';
+import { getLatestQualityScore } from '../../lib/qualityScore.js';
 import { claimJobForRegenerate, releaseRegenerateClaim } from '../../lib/regenerateClaim.js';
 import { createMultiplyAdaptJob } from './multiplyAdapt.js';
+import { pruneOldVersions } from './versions.js';
 
 function isMemoryInProgress(jobId: string): boolean {
   const mem = getJobFromStore(jobId) || jobsMemory.get(jobId);
@@ -67,12 +69,8 @@ const cachedResearchSchema = z.object({
   suggestedHashtags: z.array(z.string()),
   competitorHooks: z.array(z.string()),
   sourceUrls: z.array(z.string()),
-  rawResults: z.array(z.object({
-    title: z.string().optional(),
-    url: z.string().optional(),
-    content: z.string().optional(),
-    score: z.number().optional(),
-  })).optional(),
+  // WHY: rawResults omitted from schema — historical rows may carry unsanitized
+  // Tavily hits; we never rehydrate them (see parseCachedResearch).
 });
 
 interface CachedResearchBundle {
@@ -83,7 +81,10 @@ interface CachedResearchBundle {
 function parseCachedResearch(raw: unknown): ResearchResult | undefined {
   const parsed = cachedResearchSchema.safeParse(raw);
   if (!parsed.success) return undefined;
-  return { ...parsed.data, rawResults: parsed.data.rawResults ?? [] };
+  // WHY: always empty — same as contentJobPayload.parseSkipResearch. Pass-1
+  // cleared new research, but Adapt still reads old DB rows; copying those
+  // rawResults would re-persist unsanitized Tavily via skipResearch.
+  return { ...parsed.data, rawResults: [] };
 }
 
 function isOrchestratorResult(value: unknown): value is OrchestratorResult {
@@ -139,6 +140,48 @@ async function loadCachedResearchBundle(
   return null;
 }
 
+function regenerateContextFields(
+  job: MemoryJob | AssembledJob,
+): { sourceMaterial?: string; competitorContext?: string } {
+  const rec = job as unknown as Record<string, unknown>;
+  const out: { sourceMaterial?: string; competitorContext?: string } = {};
+  if (typeof rec.sourceMaterial === 'string' && rec.sourceMaterial) {
+    out.sourceMaterial = rec.sourceMaterial.slice(0, 6000);
+  }
+  if (typeof rec.competitorContext === 'string' && rec.competitorContext) {
+    out.competitorContext = rec.competitorContext.slice(0, 2000);
+  }
+  return out;
+}
+
+async function snapshotBeforeRegenerate(
+  jobId: string,
+  userId: string,
+  existingJob: MemoryJob | AssembledJob,
+  feedback: string | undefined,
+): Promise<void> {
+  if (!db) return;
+  const existingOutputs = readOutputs(existingJob);
+  const finalOutput = existingOutputs.find((o) => o.outputType === 'final');
+  if (!finalOutput) return;
+  // WHY: .find() took the first critique — retries append worse/older cards
+  // first; prefer final.qualityScore / latest matching critique (CORR-004).
+  const score = getLatestQualityScore(existingOutputs);
+  try {
+    await db.insert(jobOutputVersions).values({
+      jobId,
+      content: finalOutput.content,
+      qualityScore: score,
+      label: feedback ? `Before regenerate: ${feedback.slice(0, 80)}` : 'Before regenerate',
+    });
+    // WHY: prune is best-effort (swallows its own errors) so history stays bounded.
+    await pruneOldVersions(jobId);
+  } catch (dbErr) {
+    logger.error('[DB] Failed to snapshot version before regenerate', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
+    Sentry.captureException(dbErr, { tags: { route: 'POST /:jobId/regenerate', action: 'version-snapshot' } });
+  }
+}
+
 // POST /:jobId/regenerate
 router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequest, res: Response) => {
   // WHY: claim may succeed then enqueue throw — catch must release pending claim
@@ -190,6 +233,10 @@ router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequ
       sourcePlatform: existingJob.sourcePlatform ?? undefined,
       sourceUrl: existingJob.sourceUrl ?? null,
       sourceCompetitorAnalysisId: existingJob.sourceCompetitorAnalysisId ?? null,
+      // WHY: rehydrate durable create/repurpose context (memory copy, else DB column) —
+      // omitting it regenerated Repurpose/Competitor-lens jobs without their source.
+      // SECURITY: re-capped here; writer/orchestrator still XML-wrap both as data.
+      ...regenerateContextFields(existingJob),
       status: 'pending', retryCount: 0,
       createdAt: typeof existingJob.createdAt === 'string' ? existingJob.createdAt : existingJob.createdAt?.toISOString(),
       updatedAt: new Date().toISOString(),
@@ -246,42 +293,6 @@ router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequ
       };
     }
 
-    // WHY: snapshot AFTER the atomic claim: a rejected regenerate used to leave
-    // a spurious 'Before regenerate' version behind for a run that never started.
-    // Still precedes any pipeline start (direct mode begins below; a queued
-    // worker only overwrites outputs at terminal persist), so nothing is lost.
-    // WHY: snapshot here, not in persistJobToDB: persistJobToDB unconditionally
-    // deletes+re-inserts contentOutputs on every persist (every job
-    // completion, not just regenerates) — changing that shared path is a much
-    // larger blast radius than needed just to keep regenerate history. This is
-    // the one call site that actually destroys a previous result the user
-    // might want back, so the snapshot lives here, immediately before the
-    // in-memory job (and eventually its DB row) gets overwritten by the new run.
-    // WHY: best-effort, not blocking regenerate on failure: losing the ability
-    // to look back at a previous version is worse UX than blocking a
-    // regeneration the user explicitly asked for — same "don't fail the whole
-    // request over a non-critical side write" stance as the scheduled_posts
-    // cleanup in manage.ts's DELETE /:jobId.
-    if (db) {
-      const existingOutputs = readOutputs(existingJob);
-      const finalOutput = existingOutputs.find((o) => o.outputType === 'final');
-      if (finalOutput) {
-        const critique = existingOutputs.find((o) => o.outputType === 'critique');
-        const score = typeof critique?.qualityScore === 'number' ? critique.qualityScore : null;
-        try {
-          await db.insert(jobOutputVersions).values({
-            jobId,
-            content: finalOutput.content,
-            qualityScore: score,
-            label: feedback ? `Before regenerate: ${feedback.slice(0, 80)}` : 'Before regenerate',
-          });
-        } catch (dbErr) {
-          logger.error('[DB] Failed to snapshot version before regenerate', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
-          Sentry.captureException(dbErr, { tags: { route: 'POST /:jobId/regenerate', action: 'version-snapshot' } });
-        }
-      }
-    }
-
     cancelJobEviction(jobId);
     setJobInStore(jobId, job);
 
@@ -301,6 +312,19 @@ router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequ
       });
     }
 
+    // WHY: after enqueue (or direct-mode handoff) never roll claim back to done —
+    // a snapshot/SSE throw used to release pending while BullMQ still owned the
+    // job, so the worker ran against a terminal row / wiped the regenerate.
+    claimedForRollback = null;
+
+    // WHY: snapshot only after enqueue succeeded: an 'active' 409 rollback used to leave a
+    // spurious 'Before regenerate' version for a run that never started. Still safe — the
+    // snapshot reads the pre-run `existingJob` captured above, and a queued worker only
+    // overwrites contentOutputs at terminal persist; direct mode starts below.
+    // WHY: not in persistJobToDB (it rewrites outputs on every persist — larger blast radius).
+    // WHY: best-effort: losing history is better than blocking a user-requested regenerate.
+    await snapshotBeforeRegenerate(jobId, userId, existingJob, feedback);
+
     sseManager.sendEvent(jobId, { type: 'progress', stage: 'planning', progress: 2, agent: 'system', message: 'Regeneration started…' });
 
     if (queueResult === 'unavailable') {
@@ -311,7 +335,6 @@ router.post('/:jobId/regenerate', applyGenerationRateLimit, async (req: AuthRequ
         logger.error('Regenerate pipeline failed', { jobId, error: err instanceof Error ? err.message : String(err) });
       });
     }
-    claimedForRollback = null;
     return res.json({ success: true });
   } catch (error) {
     if (claimedForRollback) {
@@ -362,10 +385,23 @@ router.post('/:jobId/multiply', applyGenerationRateLimit, async (req: AuthReques
       userId,
       targetPlatform,
       cachedResearch: cached.research,
-      cachedOrchestrator: cached.orchestrator,
       res,
     });
     if (result.kind === 'headers_sent') return;
+    if (result.kind === 'persist_failed') {
+      return res.status(503).json({
+        error: 'Could not save the new job — try again shortly',
+        code: 'SERVICE_UNAVAILABLE',
+        retryable: true,
+      });
+    }
+    if (result.kind === 'lock_unavailable' || result.kind === 'family_incomplete') {
+      return res.status(503).json({
+        error: 'Adapt is temporarily unavailable — try again shortly',
+        code: 'SERVICE_UNAVAILABLE',
+        retryable: true,
+      });
+    }
     if (result.kind === 'reused') {
       return res.status(200).json({ jobId: result.jobId, reused: true });
     }

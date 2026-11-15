@@ -41,11 +41,13 @@ export function PlatformPicker({
             into a multi-select the moment a second one is clicked. */}
         <button
           type="button"
+          className="repurpose-mode-toggle"
           onClick={onToggleMultiPlatform}
           disabled={loading}
           style={{
             fontSize: 11, fontWeight: 600, background: 'transparent', border: 'none',
-            color: 'var(--accent)', cursor: 'pointer', padding: 0,
+            color: 'var(--accent)', cursor: 'pointer', padding: '10px 4px',
+            minHeight: 44, boxSizing: 'border-box',
           }}
         >
           {multiPlatform ? 'Switch to single platform' : 'Repurpose to multiple platforms'}

@@ -71,7 +71,7 @@ function safeEqualString(a: string, b: string): boolean {
 // SECURITY: mirrors config.ts — a non-localhost APP_URL (staging/preview) is treated like
 // production even when NODE_ENV=development, so nonce replay checks fail closed there.
 function isNonceFailOpenAllowed(): boolean {
-  let host = '';
+  let host: string;
   try {
     host = new URL(env.APP_URL).hostname.toLowerCase();
   } catch {

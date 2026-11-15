@@ -1,5 +1,6 @@
 import { timeAgo } from '../../lib/utils';
 import type { LibraryJob } from './libraryHelpers';
+import { displayLibraryTopic } from './libraryHelpers';
 import type { Collection } from '../../types/collection';
 import { LibraryFamilyChip } from './LibraryFamilyChip';
 
@@ -41,7 +42,7 @@ export function LibraryFamilyCard({
   return (
     <article className="lib-family" style={{ animationDelay: `${index * 0.03}s` }}>
       <header className="lib-family-hd">
-        <h3 className="lib-family-title">{topic}</h3>
+        <h3 className="lib-family-title">{displayLibraryTopic(topic)}</h3>
         <div className="lib-family-side">
           <span className="lib-family-count">{jobs.length}</span>
           <span className="lib-family-ago" title={newest.createdAt}>

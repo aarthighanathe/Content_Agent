@@ -6,7 +6,7 @@ import { platformMeta } from '../../lib/platformMeta';
 import { timeAgo, isSafeHttpUrl } from '../../lib/utils';
 import { QualityTierBadge } from '../../components/QualityTierBadge';
 import type { LibraryJob } from './libraryHelpers';
-import { statusConfig, getQualityScore } from './libraryHelpers';
+import { statusConfig, getQualityScore, displayLibraryTopic } from './libraryHelpers';
 import type { Collection } from '../../types/collection';
 import { LibraryJobMenu } from './LibraryJobMenu';
 
@@ -55,7 +55,7 @@ export function LibraryJobCard({
         <div
           role="checkbox"
           aria-checked={selected}
-          aria-label={`Select "${job.topic}"`}
+          aria-label={`Select "${displayLibraryTopic(job.topic)}"`}
           style={{ flexShrink: 0 }}
           onClick={(e) => { e.stopPropagation(); onToggleSelect(job.id); }}
         >
@@ -73,7 +73,7 @@ export function LibraryJobCard({
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <p className="lib-card-topic">
-          {job.topic}
+          {displayLibraryTopic(job.topic)}
         </p>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6,
@@ -95,6 +95,8 @@ export function LibraryJobCard({
               href={job.sourceUrl}
               target="_blank"
               rel="noopener noreferrer"
+              className="lib-source-link"
+              aria-label="Open source article"
               title={`Repurposed from: ${job.sourceUrl}`}
               onClick={(e) => e.stopPropagation()}
               style={{ display: 'inline-flex', color: 'var(--text-muted)', flexShrink: 0 }}

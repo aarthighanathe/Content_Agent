@@ -48,7 +48,7 @@ export function LandingStyles() {
       .lnav-link:hover { color:var(--color-text-primary); }
 
       /* ── Hamburger button ── */
-      .lnav-hamburger { display:none; background:color-mix(in srgb, var(--text-primary) 4%, transparent); border:1px solid color-mix(in srgb, var(--text-primary) 10%, transparent); border-radius:9px; padding:9px 11px; color:color-mix(in srgb, var(--text-primary) 70%, transparent); cursor:pointer; align-items:center; justify-content:center; transition:background .2s; }
+      .lnav-hamburger { display:none; background:color-mix(in srgb, var(--text-primary) 4%, transparent); border:1px solid color-mix(in srgb, var(--text-primary) 10%, transparent); border-radius:9px; padding:9px 11px; min-width:44px; min-height:44px; box-sizing:border-box; color:color-mix(in srgb, var(--text-primary) 70%, transparent); cursor:pointer; align-items:center; justify-content:center; transition:background .2s; }
       .lnav-hamburger:hover { background:color-mix(in srgb, var(--text-primary) 8%, transparent); }
 
       /* ── Mobile menu overlay ── */
@@ -185,7 +185,8 @@ export function LandingStyles() {
         .aurora-orb{display:none}
         .demo-section{padding:60px 22px !important}
         .demo-platforms{gap:6px !important}
-        .demo-plat-btn{padding:7px 10px; font-size:11px}
+        /* WHY: demo chips were shrunk to ~34px on tablet — keep 44px touch target. */
+        .demo-plat-btn{padding:10px 12px; font-size:12px; min-height:44px; box-sizing:border-box}
         .demo-result-footer{flex-direction:column !important; align-items:flex-start !important; gap:12px !important}
         .demo-result-footer a{width:100% !important; text-align:center}
         .quality-wrap{padding:40px 28px !important}

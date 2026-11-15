@@ -3,10 +3,11 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
 import { setJobInStore, getJobFromStore, jobsMemory } from '../../lib/jobStore.js';
 import { db } from '../../db/index.js';
-import { contentJobs, contentOutputs, scheduledPosts, collectionJobs } from '../../db/schema.js';
+import { contentJobs, contentOutputs } from '../../db/schema.js';
 import { eq, and, inArray } from 'drizzle-orm';
-import { requireJobOwnership, requireAuthUserId } from './ownership.js';
-import type { PipelineJob } from '../../lib/pipeline.js';
+import { requireJobOwnership, requireAuthUserId, toClientJob } from './ownership.js';
+import { isValidUUID } from '../../lib/uuid.js';
+import type { MemoryJob } from '../../lib/jobStore.js';
 import {
   parseBody,
   patchContentSchema,
@@ -21,6 +22,10 @@ import { readOutputs, sanitizeContentDeep } from '../content/shared.js';
 import { getLatestQualityScore } from '../../lib/qualityScore.js';
 import { isJobInFlightStatus } from '../../lib/jobInFlight.js';
 import { clearJobStageThrottle } from '../../lib/persistJob.js';
+import {
+  softDeleteJobWithCleanup,
+  PublishInProgressError,
+} from '../../lib/jobSoftDelete.js';
 
 const router = Router({ mergeParams: true });
 
@@ -34,7 +39,7 @@ type Database = NonNullable<typeof db>;
 async function updateJobWithCacheAside(
   jobId: string,
   dbUpdate: (database: Database) => Promise<void>,
-  memoryUpdate: (job: PipelineJob) => void
+  memoryUpdate: (job: MemoryJob) => void
 ): Promise<void> {
   if (db) {
     await dbUpdate(db);
@@ -68,6 +73,10 @@ async function updateJobWithCacheAside(
 router.get('/:jobId/status', async (req: AuthRequest, res: Response) => {
   try {
     const jobId = req.params.jobId as string;
+    // WHY: same 404 as requireJobOwnership — a non-UUID must not reach Postgres (22P02 → 503).
+    if (!isValidUUID(jobId)) {
+      return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
+    }
     const userId = requireAuthUserId(req, res);
     if (!userId) return;
 
@@ -79,6 +88,9 @@ router.get('/:jobId/status', async (req: AuthRequest, res: Response) => {
       }
       const memOutputs = readOutputs(memJob);
       const score = getLatestQualityScore(memOutputs) ?? undefined;
+      const memUpdatedAt = typeof memJob.updatedAt === 'string' && memJob.updatedAt
+        ? memJob.updatedAt
+        : undefined;
       return res.json({
         id: jobId,
         status: memJob.status,
@@ -87,6 +99,8 @@ router.get('/:jobId/status', async (req: AuthRequest, res: Response) => {
         hasFinal: memOutputs.some((o) => o.outputType === 'final'),
         score,
         topic: memJob.topic,
+        // WHY: Result poll ages "lost" from last activity, not createdAt (reload mid-regen).
+        ...(memUpdatedAt ? { updatedAt: memUpdatedAt } : {}),
       });
     }
 
@@ -96,30 +110,42 @@ router.get('/:jobId/status', async (req: AuthRequest, res: Response) => {
         const ownedCols = await db.query.contentJobs.findFirst({
           where: (j, { eq: jeq, and: jand }) =>
             jand(jeq(j.id, jobId), jeq(j.userId, userId), jeq(j.deleted, 0)),
-          columns: { status: true, topic: true },
+          columns: { status: true, topic: true, updatedAt: true },
         });
         if (!ownedCols) {
           return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
         }
-        const hasFinal = await db.query.contentOutputs.findFirst({
-          where: (o, { eq: jeq, and: jand }) => jand(jeq(o.jobId, jobId), jeq(o.outputType, 'final')),
-          columns: { id: true },
-        });
-        const lastCrit = await db.query.contentOutputs.findFirst({
-          where: (o, { eq: jeq, and: jand }) => jand(jeq(o.jobId, jobId), jeq(o.outputType, 'critique')),
-          orderBy: (o, { desc }) => [desc(o.createdAt)],
-          columns: { qualityScore: true },
+        // WHY: load final+critique scalars and run getLatestQualityScore — same
+        // prefer-final-else-latest-critique contract as Result / Library (CORR-004).
+        // A critique-only ORDER BY missed final.qualityScore after critic retries.
+        const scoreRows = await db.query.contentOutputs.findMany({
+          where: (o, { eq: jeq, and: jand, inArray: jin }) =>
+            jand(jeq(o.jobId, jobId), jin(o.outputType, ['final', 'critique'])),
+          orderBy: (o, { asc }) => [asc(o.createdAt)],
+          columns: { outputType: true, qualityScore: true },
         });
         return res.json({
           id: jobId,
           status: ownedCols.status,
           stage: ownedCols.status,
           progress: ownedCols.status === 'done' ? 100 : 0,
-          hasFinal: !!hasFinal,
-          score: typeof lastCrit?.qualityScore === 'number' ? lastCrit.qualityScore : undefined,
+          hasFinal: scoreRows.some((o) => o.outputType === 'final'),
+          score: getLatestQualityScore(scoreRows) ?? undefined,
           topic: ownedCols.topic,
+          updatedAt: ownedCols.updatedAt.toISOString(),
         });
-      } catch { /* fall through to 404 */ }
+      } catch (dbErr: unknown) {
+        // WHY (B-M2): DB error is not a miss — retryable 503, not a permanent 404.
+        logger.warn('[DB] GET /:jobId/status lookup failed', {
+          jobId,
+          error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+        });
+        return res.status(503).json({
+          error: 'Service temporarily unavailable',
+          code: 'DB_UNAVAILABLE',
+          retryable: true,
+        });
+      }
     }
 
     return res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
@@ -137,7 +163,8 @@ router.get('/:jobId', async (req: AuthRequest, res: Response) => {
     if (!userId) return;
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
-    return res.json(job);
+    // SECURITY: strip source article / competitor prompt context (toClientJob).
+    return res.json(toClientJob(job));
   } catch (error) {
     return res.status(500).json({ error: 'Failed to fetch job', code: 'SERVER_ERROR', retryable: true });
   }
@@ -152,15 +179,17 @@ router.delete('/:jobId', async (req: AuthRequest, res: Response) => {
     const job = await requireJobOwnership(jobId, userId, res);
     if (!job) return;
 
-    // WHY: cache-aside (DB write first, jobsMemory updated only on confirmed
-    // success): enforced by updateJobWithCacheAside helper — see that function's
-    // WHY: comment for the full rationale (Neon cold-start-stall bug).
+    // WHY: one transaction so a cleanup failure rolls back the soft-delete.
+    // Otherwise the API returned success while calendar rows and folder
+    // memberships stayed behind. Redis cancels run after commit — a queue
+    // remove cannot join the Postgres transaction.
+    // WHY: 409 while publishing — see softDeleteJobWithCleanup.
+    let publishIds: string[] = [];
     try {
       await updateJobWithCacheAside(
         jobId,
-        async (db) => {
-          await db.update(contentJobs).set({ deleted: 1 })
-            .where(and(eq(contentJobs.id, jobId), eq(contentJobs.userId, userId)));
+        async () => {
+          publishIds = await softDeleteJobWithCleanup(jobId, userId);
         },
         (memJob) => { memJob.deleted = 1; },
       );
@@ -168,46 +197,36 @@ router.delete('/:jobId', async (req: AuthRequest, res: Response) => {
       // later recreate/regenerate of the same id (unlikely) starts clean.
       clearJobStageThrottle(jobId);
     } catch (dbErr) {
+      if (dbErr instanceof PublishInProgressError) {
+        return res.status(409).json({
+          error: 'This post is being published right now — try again shortly',
+          code: 'PUBLISH_IN_PROGRESS',
+          retryable: true,
+        });
+      }
       logger.error('[DB] DELETE job failed', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
       Sentry.captureException(dbErr, { tags: { route: 'DELETE /:jobId', action: 'db-write' } });
       return res.status(500).json({ error: 'Failed to delete job — please try again', code: 'DB_WRITE_FAILED', retryable: true });
     }
 
-    // WHY: best-effort after soft-delete succeeds: orphaned schedule/collection
-    // rows or a still-queued BullMQ job are annoying / costly, not worth failing
-    // the whole delete once deleted=1 is durable.
-    // SECURITY: cancel BullMQ delayed publish jobs BEFORE deleting rows so a
-    // soft-delete race cannot still post (SEC-011).
-    // COST: cancel waiting content-generation jobs so soft-delete stops spend
-    // before the next pipeline stage (active jobs still abort via isSoftDeleted).
+    // COST: cancel waiting content-generation jobs so soft-delete stops spend.
+    // Active jobs still abort via isSoftDeleted. Failure is logged only —
+    // the durable row is already consistent.
     await cancelContentJob(jobId).catch((err: unknown) => {
       logger.warn('[Queue] cancelContentJob after delete failed', {
         jobId,
         error: err instanceof Error ? err.message : String(err),
       });
     });
-    if (db) {
-      try {
-        const scheduled = await db
-          .select({ id: scheduledPosts.id })
-          .from(scheduledPosts)
-          .where(and(eq(scheduledPosts.jobId, jobId), eq(scheduledPosts.userId, userId)));
-        await Promise.allSettled(scheduled.map((row) => cancelPublishJob(row.id)));
-        await db.delete(scheduledPosts)
-          .where(and(eq(scheduledPosts.jobId, jobId), eq(scheduledPosts.userId, userId)));
-      } catch (dbErr) {
-        logger.error('[DB] Failed to clean up scheduled_posts on job delete', { jobId, userId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
-        Sentry.captureException(dbErr, { tags: { route: 'DELETE /:jobId', action: 'scheduled-posts-cleanup' } });
-      }
-      try {
-        await db.delete(collectionJobs).where(eq(collectionJobs.jobId, jobId));
-      } catch (dbErr) {
-        logger.error('[DB] Failed to clean up collection_jobs on job delete', {
+    const cancelResults = await Promise.allSettled(publishIds.map((id) => cancelPublishJob(id)));
+    for (let i = 0; i < cancelResults.length; i += 1) {
+      const result = cancelResults[i];
+      if (result?.status === 'rejected') {
+        logger.warn('[Queue] cancelPublishJob after delete failed', {
           jobId,
-          userId,
-          error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+          scheduledPostId: publishIds[i],
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
         });
-        Sentry.captureException(dbErr, { tags: { route: 'DELETE /:jobId', action: 'collection-jobs-cleanup' } });
       }
     }
 
@@ -340,8 +359,8 @@ router.patch('/:jobId/content', async (req: AuthRequest, res: Response) => {
     try {
       await updateJobWithCacheAside(
         jobId,
-        async (database) => {
-          const terminal = await database.update(contentJobs)
+        async (database) => database.transaction(async (tx) => {
+          const terminal = await tx.update(contentJobs)
             .set({ updatedAt: new Date() })
             .where(and(
               eq(contentJobs.id, jobId),
@@ -353,20 +372,39 @@ router.patch('/:jobId/content', async (req: AuthRequest, res: Response) => {
           if (terminal.length === 0) {
             throw new Error('JOB_IN_PROGRESS');
           }
-          const existing = await database.select({ id: contentOutputs.id })
+          const existing = await tx.select({ id: contentOutputs.id })
             .from(contentOutputs)
             .where(and(eq(contentOutputs.jobId, jobId), eq(contentOutputs.outputType, 'final')))
             .limit(1);
-          if (existing.length > 0) {
-            await database.update(contentOutputs)
+          if (existing.length > 0 && existing[0]) {
+            await tx.update(contentOutputs)
               .set({ content })
               .where(eq(contentOutputs.id, existing[0].id));
+          } else {
+            // WHY: insert-if-missing (mirror versions.ts restore) — a terminal
+            // job with no final row used to return success with zero writes.
+            await tx.insert(contentOutputs).values({
+              jobId,
+              agentName: 'writer',
+              outputType: 'final',
+              content,
+            });
           }
-        },
+        }),
         (memJob) => {
           if (isJobInFlightStatus(memJob.status)) return;
-          const finalOutput = readOutputs(memJob).find((o) => o.outputType === 'final');
-          if (finalOutput) { finalOutput.content = content; }
+          const memOutputs = readOutputs(memJob);
+          const finalOutput = memOutputs.find((o) => o.outputType === 'final');
+          if (finalOutput) {
+            finalOutput.content = content;
+          } else if ('outputs' in memJob) {
+            // WHY: push rather than skip — mirrors DB insert-if-missing above.
+            // `'outputs' in` narrows MemoryJob to PersistedJobResult.
+            memJob.outputs = [
+              ...memOutputs,
+              { agentName: 'writer', outputType: 'final', content },
+            ];
+          }
         },
       );
     } catch (dbErr) {

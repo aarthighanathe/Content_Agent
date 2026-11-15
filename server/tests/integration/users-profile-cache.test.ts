@@ -171,7 +171,7 @@ describe('getUserProfile / saveUserProfile', () => {
 
       expect(result.success).toBe(true);
       expect(updateWhereMock).toHaveBeenCalledTimes(1);
-      expect(userProfiles.get(REAL_USER_ID)?.brandName).toBe('New Name');
+      expect(userProfiles.get(REAL_USER_ID)?.profile.brandName).toBe('New Name');
     });
 
     it('on DB write failure: returns { success: false }, leaves the Map untouched, and reports to Sentry', async () => {
@@ -179,11 +179,14 @@ describe('getUserProfile / saveUserProfile', () => {
       const { saveUserProfile, userProfiles } = await import('../../src/routes/users.js');
       userProfiles.clear();
       userProfiles.set(REAL_USER_ID, {
-        brandName: 'Original Name',
-        brandVoice: 'professional',
-        phrasesUse: '',
-        phrasesAvoid: '',
-        industry: '',
+        profile: {
+          brandName: 'Original Name',
+          brandVoice: 'professional',
+          phrasesUse: '',
+          phrasesAvoid: '',
+          industry: '',
+        },
+        expiresAt: Date.now() + 60_000,
       });
 
       updateWhereMock.mockRejectedValueOnce(new Error('connection terminated (Neon cold start)'));
@@ -195,7 +198,7 @@ describe('getUserProfile / saveUserProfile', () => {
       // unconditionally BEFORE attempting the DB write, so a DB failure still
       // left the Map holding the new (unpersisted) value. The fix must leave
       // the Map holding the last DURABLE value instead.
-      expect(userProfiles.get(REAL_USER_ID)?.brandName).toBe('Original Name');
+      expect(userProfiles.get(REAL_USER_ID)?.profile.brandName).toBe('Original Name');
       expect(Sentry.captureException).toHaveBeenCalledTimes(1);
     });
 
@@ -207,7 +210,7 @@ describe('getUserProfile / saveUserProfile', () => {
 
       expect(result.success).toBe(true);
       expect(dbMock.update).not.toHaveBeenCalled();
-      expect(userProfiles.get('demo')?.brandName).toBe('Demo Brand');
+      expect(userProfiles.get('demo')?.profile.brandName).toBe('Demo Brand');
     });
   });
 });

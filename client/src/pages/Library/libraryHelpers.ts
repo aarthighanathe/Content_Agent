@@ -48,6 +48,14 @@ export function getQualityScore(job: LibraryJob): number | null {
   return getLatestQualityScore(job.outputs);
 }
 
+// WHY: blank-topic fallback: failed/legacy rows can have empty topic while
+// Result still shows a titleFallback — Library was rendering an empty card
+// line that read as "LinkedIn —" with no name.
+export function displayLibraryTopic(topic: string | null | undefined): string {
+  const trimmed = (topic ?? '').trim();
+  return trimmed.length > 0 ? trimmed : 'Untitled';
+}
+
 export interface LibraryJobGroup {
   key: string;
   topic: string;

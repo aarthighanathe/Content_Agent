@@ -1,13 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import './Result/Result.css';
 import { useJobData }    from './Result/hooks/useJobData';
 import { useExport }     from './Result/hooks/useExport';
 import { useMultiplier } from './Result/hooks/useMultiplier';
 import { useSocial }     from './Result/hooks/useSocial';
 import { ResultHeader }   from './Result/components/ResultHeader';
-import { LoadingView }    from './Result/components/LoadingView';
-import { ErrorState }     from '../components/ErrorState';
+import { ResultStatusBlocks } from './Result/components/ResultStatusBlocks';
 import { ContentColumn }  from './Result/components/ContentColumn';
 import { InsightsSidebar } from './Result/components/InsightsSidebar';
 import { ActionDrawer }   from './Result/components/ActionDrawer';
@@ -16,6 +15,7 @@ import { ExportModal }    from './Result/components/ExportModal';
 import { useQualityAside } from './Result/hooks/useQualityAside';
 import { useResultTemplate } from './Result/hooks/useResultTemplate';
 import { useResultContentMutations } from './Result/hooks/useResultContentMutations';
+import { useResultAccountSwitch } from './Result/hooks/useResultAccountSwitch';
 import { Copy, RotateCcw, Download, MoreHorizontal } from 'lucide-react';
 import { deriveResultContent } from './Result/lib/resultDerived';
 
@@ -62,6 +62,16 @@ export default function ResultPage() {
   // Result workspace itself has room (≥1100px). See Result.css @container rp.
   const { layoutWide, asideAnimating, beginAsideToggle } = useQualityAside(rpRef);
 
+  useResultAccountSwitch({
+    jobId,
+    setActionDrawerOpen,
+    setActionDrawerTab,
+    setFeedbackPrefill,
+    setExportModalOpen,
+    setSaveError,
+    setCurrentSlide,
+  });
+
   useEffect(() => {
     try {
       localStorage.setItem('ca_insights_sidebar_collapsed', String(sidebarCollapsed));
@@ -83,15 +93,12 @@ export default function ResultPage() {
     stageMessage,
     isCarousel,
   } = deriveResultContent(jobData);
+  // WHY: terminal done/completed with no final must not keep LoadingView forever.
+  const showEmptyDone = isDone && !content && !regenerating && !loadError && !isFailed;
+  const showLoading = (!content || regenerating) && !isFailed && !loadError && !showEmptyDone;
 
   const {
-    templateId,
-    paletteId,
-    brandName,
-    handle,
-    colorSystem,
-    designPreset,
-    onTemplateSwitch,
+    templateId, paletteId, brandName, handle, colorSystem, designPreset, onTemplateSwitch,
   } = useResultTemplate(jobId, jobData, colorTheme, isCarousel, content, setSaveError);
 
   const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -99,11 +106,7 @@ export default function ResultPage() {
   const { multiplyJobs, handleMultiply } = useMultiplier(jobId);
   const social = useSocial(content, jobId);
   const {
-    handleContentSave,
-    handleRestoreBegin,
-    handleRestored,
-    handleRestoreEnd,
-    restoreDisabled,
+    handleContentSave, handleRestoreBegin, handleRestored, handleRestoreEnd, restoreDisabled,
   } = useResultContentMutations(jobId, setJobData, loadJob, setSaveError);
 
   async function handleInsertHashtags(tags: string[]): Promise<void> {
@@ -179,69 +182,29 @@ export default function ResultPage() {
         }}
       />
 
-      {loadError && !regenerating && (
-        <ErrorState
-          title={
-            loadError === 'not_found'
-              ? 'Job not found'
-              : loadError === 'lost'
-                ? 'Generation lost'
-                : 'Could not load job'
-          }
-          message={
-            loadError === 'not_found'
-              ? 'This job may have been deleted or you may not have access to it.'
-              : loadError === 'lost'
-                ? 'This generation was lost after a server restart. Please create it again.'
-                : 'We could not load this job. Check your connection and try again.'
-          }
-          retryLabel={loadError === 'lost' ? undefined : 'Retry'}
-          onRetry={loadError === 'lost' ? undefined : () => { void loadJob(); }}
-        />
-      )}
-      {(loadError === 'not_found' || loadError === 'lost') && (
-        <p style={{ textAlign: 'center', marginTop: '-0.5rem' }}>
-          <Link to={loadError === 'lost' ? '/create' : '/library'}>
-            {loadError === 'lost' ? 'Create again' : 'Back to Library'}
-          </Link>
-        </p>
-      )}
-
-      {((!content || regenerating) && !isFailed && !loadError) && (
-        <LoadingView
-          regenerating={regenerating}
-          currentStage={currentStage}
-          stageMessage={stageMessage}
-          progress={progress}
-          agentLogs={jobData?.agentLogs}
-        />
-      )}
-
-      {/* WHY: outside content gate: regenerate 409 JOB_IN_PROGRESS must show even
-          if the loading/failed branches are active. */}
-      {actionError && !regenerating && (
-        <div className="toast toast-error" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} role="alert">
-          {actionError}
-        </div>
-      )}
-
-      {/* WHY: !loadError: the "lost"/"not_found" path already renders ErrorState
-          above — pairing it with status:'failed' used to stack a second
-          "Generation failed" + fake Regen (QA-C2-001). */}
-      {isFailed && !loadError && (
-        <ErrorState
-          title="Generation failed"
-          message={jobData?.error || 'An error occurred. Please try again.'}
-          retryLabel="Try again"
-          onRetry={() => onRegenerate()}
-        />
-      )}
+      <ResultStatusBlocks
+        jobId={jobId}
+        loadError={loadError}
+        regenerating={regenerating}
+        showEmptyDone={showEmptyDone}
+        showLoading={showLoading}
+        isFailed={isFailed}
+        actionError={actionError}
+        currentStage={currentStage}
+        stageMessage={stageMessage}
+        progress={progress}
+        jobData={jobData}
+        onLoadJob={() => { void loadJob(); }}
+        onRegenerate={() => onRegenerate()}
+      />
 
       {content && !regenerating && (
         <>
           {isPartialFinal && (
             <div
               className="toast"
+              role="status"
+              data-testid="partial-draft-banner"
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.5rem',
                 background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 12%, transparent)',
@@ -249,11 +212,12 @@ export default function ResultPage() {
                 color: 'var(--text-secondary)',
               }}
             >
+              <strong>Partial draft.</strong>{' '}
               Quality score stayed below the approval threshold — this is the best draft from the revision loop. You can regenerate with feedback.
             </div>
           )}
           {saveError && (
-            <div className="toast toast-error" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div className="toast toast-error" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} role="alert">
               {saveError}
             </div>
           )}
@@ -288,6 +252,7 @@ export default function ResultPage() {
             <ContentColumn
               className={mobileTab === 'insights' ? 'rp-off' : undefined}
               jobData={jobData}
+              platform={jobData?.platform}
               content={content}
               currentSlide={currentSlide}
               setCurrentSlide={setCurrentSlide}
@@ -316,24 +281,25 @@ export default function ResultPage() {
           {/* Mobile sticky footer action bar */}
           {isDone && (
             <div className="rp-footer-bar">
-              <button className="rp-footer-bar-btn" onClick={copyAllText} title="Copy all">
+              <button type="button" className="rp-footer-bar-btn" onClick={copyAllText} title="Copy all">
                 <Copy size={16} />
                 <span className="rp-footer-label">Copy</span>
               </button>
               <div className="rp-footer-sep" />
               {/* WHY: the desktop Regen button unmounts while a run is in
                   progress, but this bar stays mounted, so disable it here too. */}
-              <button className="rp-footer-bar-btn" onClick={() => onRegenerate()} disabled={regenerating} title="Regenerate">
+              <button type="button" className="rp-footer-bar-btn" onClick={() => onRegenerate()} disabled={regenerating} title="Regenerate">
                 <RotateCcw size={16} />
                 <span className="rp-footer-label">Regen</span>
               </button>
               <div className="rp-footer-sep" />
-              <button className="rp-footer-bar-btn primary" onClick={() => setExportModalOpen(true)} title="Export content">
+              <button type="button" className="rp-footer-bar-btn primary" onClick={() => setExportModalOpen(true)} title="Export content">
                 <Download size={16} />
                 <span className="rp-footer-label">Export</span>
               </button>
               <div className="rp-footer-sep" />
               <button
+                type="button"
                 className="rp-footer-bar-btn"
                 onClick={() => {
                   setActionDrawerTab(null);

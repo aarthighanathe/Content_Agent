@@ -13,8 +13,16 @@ import { AuthRequest } from '../../middleware/auth.js';
 import { requireAuthUserId } from '../jobs/ownership.js';
 import { parseBody, postSocialSchema } from '../../schemas/index.js';
 import { socialRateLimit } from '../../middleware/rateLimit.js';
-import { publishToSocialPlatform } from '../../lib/socialPublish.js';
-import { dbGetTokens, dbDeleteToken, dbGetToken, ensureFreshSocialToken, PLATFORM_LABELS } from '../../lib/socialTokens.js';
+import { publishToSocialPlatform, TwitterPartialThreadError } from '../../lib/socialPublish.js';
+import {
+  dbGetTokens,
+  dbDeleteToken,
+  dbGetToken,
+  ensureFreshSocialToken,
+  PLATFORM_LABELS,
+  TwitterTokenPersistError,
+} from '../../lib/socialTokens.js';
+import { toClientPublishError } from '../../lib/clientErrors.js';
 import { env } from '../../config.js';
 import oauthRoutes from './oauth.js';
 
@@ -60,7 +68,16 @@ router.delete('/disconnect/:platform', async (req: AuthRequest, res: Response, n
     }
     const userId = requireAuthUserId(req, res);
     if (!userId) return;
-    await dbDeleteToken(userId, platform);
+    try {
+      await dbDeleteToken(userId, platform);
+    } catch {
+      // NOTE: dbDeleteToken already logged the cause; never claim success if the token survived.
+      return res.status(503).json({
+        error: 'Could not disconnect right now. Please try again.',
+        code: 'DISCONNECT_FAILED',
+        retryable: true,
+      });
+    }
     return res.json({ ok: true });
   } catch (error: unknown) {
     next(error);
@@ -92,6 +109,46 @@ router.post('/post', socialRateLimit, async (req: AuthRequest, res: Response, ne
       res.json({ ok: true, postId, postUrl, platform });
       return;
     } catch (err: unknown) {
+      // WHY: tweets 1..K are already live; retryable:true made the client
+      // republish the whole thread (Calendar publishWorker already treats this
+      // as terminal posted — mirror that for manual POST /post).
+      const partial = err instanceof TwitterPartialThreadError
+        || (err instanceof Error && err.name === 'TwitterPartialThreadError')
+        ? err as TwitterPartialThreadError
+        : null;
+      if (
+        partial
+        && typeof partial.postedCount === 'number'
+        && typeof partial.totalCount === 'number'
+        && typeof partial.rootId === 'string'
+        && typeof partial.lastId === 'string'
+        && typeof partial.postUrl === 'string'
+      ) {
+        return res.status(409).json({
+          error:
+            `Posted ${partial.postedCount} of ${partial.totalCount} tweets. `
+            + 'Finish the thread manually — do not republish.',
+          code: 'PARTIAL_THREAD_POSTED',
+          retryable: false,
+          postedCount: partial.postedCount,
+          totalCount: partial.totalCount,
+          rootId: partial.rootId,
+          lastId: partial.lastId,
+          postUrl: partial.postUrl,
+        });
+      }
+      // WHY: refresh rotated tokens but DB upsert exhausted — retryable 500
+      // would keep using a dead refresh token; Calendar maps via
+      // toClientPublishError — mirror that for manual POST /post.
+      const tokenPersist = err instanceof TwitterTokenPersistError
+        || (err instanceof Error && err.name === 'TwitterTokenPersistError');
+      if (tokenPersist && err instanceof Error) {
+        return res.status(409).json({
+          error: toClientPublishError(err.message),
+          code: 'TWITTER_RECONNECT_REQUIRED',
+          retryable: false,
+        });
+      }
       console.error(`[social] Failed to post to ${platform}:`, err);
       res.status(500).json({ error: 'Failed to post content', code: 'POST_FAILED', retryable: true });
       return;

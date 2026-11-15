@@ -13,10 +13,12 @@ interface VoiceCardProps {
   onPhrasesUseChange: (v: string) => void;
   phrasesAvoid: string;
   onPhrasesAvoidChange: (v: string) => void;
+  inputsDisabled?: boolean;
 }
 
 export function VoiceCard({
-  selectedVoices, onToggleVoice, phrasesUse, onPhrasesUseChange, phrasesAvoid, onPhrasesAvoidChange,
+  selectedVoices, onToggleVoice, phrasesUse, onPhrasesUseChange,
+  phrasesAvoid, onPhrasesAvoidChange, inputsDisabled = false,
 }: VoiceCardProps) {
   return (
     // WHY: --accent-2, not fixed violet: this violet was decorative color variety chosen
@@ -36,7 +38,17 @@ export function VoiceCard({
           return (
             <button
               key={voice}
-              style={{ background: sel ? 'color-mix(in srgb, var(--accent-2) 12%, transparent)' : 'var(--bg-card)', border: `1.5px solid ${sel ? 'var(--accent-2)' : 'var(--rule)'}`, color: sel ? 'var(--accent-2)' : 'var(--text-secondary)', fontSize: 13, padding: '7px 16px', borderRadius: 24, cursor: 'pointer', transition: 'all .18s', fontWeight: sel ? 600 : 400, boxShadow: sel ? '0 0 10px color-mix(in srgb, var(--accent-2) 15%, transparent)' : 'none' }}
+              type="button"
+              disabled={inputsDisabled}
+              style={{
+                // WHY: 7px pad ≈38px tall — under 44px mobile touch target.
+                background: sel ? 'color-mix(in srgb, var(--accent-2) 12%, transparent)' : 'var(--bg-card)',
+                border: `1.5px solid ${sel ? 'var(--accent-2)' : 'var(--rule)'}`,
+                color: sel ? 'var(--accent-2)' : 'var(--text-secondary)',
+                fontSize: 13, padding: '7px 16px', minHeight: 44, borderRadius: 24,
+                cursor: 'pointer', transition: 'all .18s', fontWeight: sel ? 600 : 400,
+                boxShadow: sel ? '0 0 10px color-mix(in srgb, var(--accent-2) 15%, transparent)' : 'none',
+              }}
               onClick={() => onToggleVoice(voice)}
               aria-pressed={sel}
             >{voice}</button>
@@ -44,23 +56,28 @@ export function VoiceCard({
         })}
       </div>
 
-      <label style={label}>Phrases to use</label>
+      {/* WHY: htmlFor + id: placeholders alone were the accessible name before. */}
+      <label htmlFor="brand-phrases-use" style={label}>Phrases to use</label>
       {/* WHY: maxLength 1000: matches brandVoiceSchema — without it the browser lets the
           user type past the server cap and Save fails with a generic error (QA-BRAND-003). */}
       <textarea
+        id="brand-phrases-use"
         className="input"
         placeholder="e.g., data-driven, innovative, game-changer"
         value={phrasesUse}
         maxLength={1000}
+        disabled={inputsDisabled}
         onChange={e => onPhrasesUseChange(e.target.value)}
         style={{ minHeight: 72, marginBottom: 14 }}
       />
-      <label style={label}>Phrases to avoid</label>
+      <label htmlFor="brand-phrases-avoid" style={label}>Phrases to avoid</label>
       <textarea
+        id="brand-phrases-avoid"
         className="input"
         placeholder="e.g., synergy, disruption, pivot, guru"
         value={phrasesAvoid}
         maxLength={1000}
+        disabled={inputsDisabled}
         onChange={e => onPhrasesAvoidChange(e.target.value)}
         style={{ minHeight: 72 }}
       />

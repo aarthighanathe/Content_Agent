@@ -101,9 +101,10 @@ export function FeedHealthCard() {
       <Link
         to="/repurpose"
         style={{
+          // WHY: Manage text alone was ~18px tall — below 44px mobile touch target.
           display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0,
+          minHeight: 44, padding: '0 4px', marginTop: 4,
           fontSize: 11.5, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600,
-          marginTop: 8,
         }}
       >
         Manage <ChevronRight size={13} />

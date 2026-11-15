@@ -59,10 +59,14 @@ export function DeleteAccountModal({
           This permanently deletes all your content jobs, brand voice settings, and connected
           social accounts. This action cannot be undone.
         </p>
-        <label style={{ display: 'block', fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 7 }}>
+        <label
+          htmlFor="delete-account-confirm"
+          style={{ display: 'block', fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 7 }}
+        >
           Type <strong style={{ color: 'var(--text-secondary)' }}>DELETE</strong> to confirm
         </label>
         <input
+          id="delete-account-confirm"
           autoFocus
           type="text"
           className="input"
@@ -71,9 +75,13 @@ export function DeleteAccountModal({
           placeholder="DELETE"
           style={{ marginBottom: 14 }}
         />
-        {error && <div style={{ fontSize: 11.5, color: 'var(--color-error)', marginBottom: 12 }}>{error}</div>}
+        {error && (
+          <div role="alert" style={{ fontSize: 11.5, color: 'var(--color-error)', marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button className="btn-secondary" onClick={onClose} disabled={deleting}>Cancel</button>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={deleting}>Cancel</button>
           <Button
             variant="danger"
             onClick={onConfirm}

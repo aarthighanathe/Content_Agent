@@ -46,6 +46,13 @@ vi.mock('../../src/db/index.js', () => ({ db: null }));
 vi.mock('../../src/db/schema.js', () => ({ competitorAnalyses: {} }));
 vi.mock('../../src/lib/sse.js', () => ({ sseManager: { sendEvent: vi.fn() } }));
 vi.mock('../../src/lib/pipeline.js', () => ({ runAndPersistPipeline: vi.fn() }));
+// WHY: create/batch refuse enqueue when insert returns false (CORR-001). With
+// db:null the real helper always returns false — mock success so these tests
+// stay on validation/response-shape, not the persist-fail path.
+const insertPendingJobRow = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+vi.mock('../../src/lib/persistJob.js', () => ({
+  insertPendingJobRow: (...args: unknown[]) => insertPendingJobRow(...args),
+}));
 const jobsMemoryMock = vi.hoisted(() => new Map());
 vi.mock('../../src/routes/jobs/ownership.js', () => ({
   setJobInStore: (jobId: string, data: unknown) => {
@@ -99,6 +106,7 @@ function makeItem(topic: string, platform = 'linkedin_post') {
 describe('POST /api/jobs/batch (real route)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    insertPendingJobRow.mockResolvedValue(true);
     // WHY false: forces every batch item down the direct-pipeline fallback
     // path (mocked to a no-op above) rather than a real BullMQ enqueue,
     // keeping this test focused on the route's own validation/response shape.

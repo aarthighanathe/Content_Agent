@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../../../store';
 import { getJob, regenerateJob, getStreamToken } from '../../../api';
@@ -19,6 +20,10 @@ export function useJobData(jobId: string | undefined) {
   // Subscribing to currentJob here re-rendered Result on every SSE tick twice (store + jobData).
   const connectToStream    = useAppStore((s) => s.connectToStream);
   const disconnectStream   = useAppStore((s) => s.disconnectStream);
+  const { userId } = useAuth();
+  // WHY: live id for regenerate after await — ignore success/error UI if switched.
+  const userIdRef = useRef(userId ?? null);
+  userIdRef.current = userId ?? null;
   const queryClient = useQueryClient();
   const [jobData, setJobData]           = useState<JobData>(null);
   const [loadError, setLoadError]       = useState<'not_found' | 'error' | 'lost' | null>(null);
@@ -68,14 +73,23 @@ export function useJobData(jobId: string | undefined) {
     setRegenerating(false);
   }, []);
 
+  // WHY: ref mirror of jobId so async regenerate continuations can detect navigation.
+  const jobIdRef = useRef(jobId);
+
   useEffect(() => {
+    jobIdRef.current = jobId;
+    // WHY: stale SSE timestamp from job A would suppress job B's REST poll silence gate.
+    lastSSEEventAt.current = 0;
+    // WHY: runs per jobId (cleanup on change too) — a pending reconnect for the old job
+    // must not fire after navigation.
     return () => {
       if (regenerateReconnectTimer.current) {
         clearTimeout(regenerateReconnectTimer.current);
         regenerateReconnectTimer.current = null;
       }
+      regenerateReconnecting.current = false;
     };
-  }, []);
+  }, [jobId]);
 
   const loadJob = useCallback(async () => {
     if (!jobId) return;
@@ -118,6 +132,8 @@ export function useJobData(jobId: string | undefined) {
     bootstrapJobRef.current = null;
     setJobData(null);
     setLoadError(null);
+    // WHY: regenerate toast from job A must not linger on job B.
+    setActionError(null);
     regeneratingRef.current = false;
     setRegenerating(false);
     terminalRefreshDone.current = false;
@@ -126,7 +142,9 @@ export function useJobData(jobId: string | undefined) {
     consecutivePoll404s.current = 0;
     pollInFlightRef.current = false;
     void loadJob();
-  }, [jobId, loadJob]);
+    // WHY: also on userId — account switch must drop the previous user's jobData
+    // and re-fetch under the new JWT (ownership 404 → not_found, not stale body).
+  }, [jobId, userId, loadJob]);
 
   useEffect(() => {
     if (!jobData?.createdAt) return;
@@ -210,7 +228,8 @@ export function useJobData(jobId: string | undefined) {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       disconnectStream();
     };
-  }, [jobId, connectToStream, disconnectStream, mergeSSEIntoJobData]);
+    // WHY: userId — drop the previous account's EventSource and re-mint under the new JWT.
+  }, [jobId, userId, connectToStream, disconnectStream, mergeSSEIntoJobData]);
 
   // WHY: jobData (not Zustand currentJob): sole progress source after M1 — when SSE
   // marks the job done, refresh full outputs from REST once.
@@ -222,8 +241,20 @@ export function useJobData(jobId: string | undefined) {
       terminalRefreshDone.current = false;
       return;
     }
+    // WHY: belt-and-suspenders with handleRegenerate's stage reset — while a regenerate
+    // is in flight, a leftover stage:'done' alone must not count as terminal; only a real
+    // status transition (SSE/poll) may end it.
+    if (regeneratingRef.current && status !== 'done' && status !== 'failed') return;
     if (terminalRefreshDone.current) return;
     terminalRefreshDone.current = true;
+    // WHY: opened an already-finished job (no SSE this session, final output loaded):
+    // the initial fetch is current, so skip the redundant refetch + list invalidation.
+    const alreadyComplete = lastSSEEventAt.current === 0
+      && !regeneratingRef.current
+      && (status === 'failed'
+        || (Array.isArray(jobData?.outputs)
+          && jobData.outputs.some((o) => o.outputType === 'final')));
+    if (alreadyComplete) return;
     const t = setTimeout(() => {
       loadJob();
       clearRegenerating();
@@ -236,10 +267,17 @@ export function useJobData(jobId: string | undefined) {
       ]).catch(() => {});
     }, 0);
     return () => clearTimeout(t);
-  }, [jobId, jobData?.stage, jobData?.status, loadJob, queryClient, clearRegenerating]);
+  }, [jobId, jobData, loadJob, queryClient, clearRegenerating]);
+
+  const terminalWithFinal = jobData?.status === 'failed' || (
+    jobData?.status === 'done'
+    && Array.isArray(jobData.outputs)
+    && jobData.outputs.some((o) => o.outputType === 'final')
+  );
 
   useJobStatusPoll({
     jobId,
+    terminalWithFinal,
     loadError,
     regenerating,
     lastSSEEventAt,
@@ -257,16 +295,33 @@ export function useJobData(jobId: string | undefined) {
     // stop a double-tap from two surfaces (toolbar / footer / FeedbackPanel).
     if (!jobId || regeneratingRef.current) return;
     regeneratingRef.current = true;
+    const startedFor = jobId;
+    // WHY: capture at start — success/error UI must not paint after account switch.
+    const requestUserId = userIdRef.current;
     setRegenerating(true);
     setActionError(null);
     terminalRefreshDone.current = false;
+    // WHY: clear silence gate — leftover lastSSEEventAt from the prior run kept
+    // REST poll skipped for up to ~10s if post-regenerate SSE was slow.
+    lastSSEEventAt.current = 0;
     // WHY: keep previous outputs until POST succeeds: clearing first left the
     // page on "Generating…" with no error when regenerate failed (rate limit /
     // network), and the old post only returned when the poll was allowed to run.
     const previous = jobData;
     try {
       await regenerateJob(jobId, feedback);
-      setJobData((p): JobData => (p ? { ...p, status: 'pending', outputs: [] } : p));
+      if (jobIdRef.current !== startedFor) return;
+      if (userIdRef.current !== requestUserId) {
+        clearRegenerating();
+        return;
+      }
+      // WHY: reset stage/progress/message too — a leftover stage:'done' made the
+      // terminal-refresh effect fire immediately and clear `regenerating` early.
+      setJobData((p): JobData => (
+        p
+          ? { ...p, status: 'pending', stage: 'pending', progress: 0, message: '', outputs: [] }
+          : p
+      ));
 
       // WHY: a local named function, not inlining connectToStream's onError:
       // openStream needs to call itself again on a fresh-token reconnect,
@@ -283,9 +338,21 @@ export function useJobData(jobId: string | undefined) {
         } catch {
           streamToken = undefined;
         }
-        if (!isMountedRef.current || !streamToken) return;
+        // WHY: navigation / account switch during the token await must not let
+        // this job's late stream replace the new session's connection.
+        if (
+          !isMountedRef.current
+          || !streamToken
+          || jobIdRef.current !== startedFor
+          || userIdRef.current !== requestUserId
+        ) return;
         connectToStream(jobId, streamToken, mergeSSEIntoJobData, () => {
-          if (!isMountedRef.current || regenerateReconnecting.current) return;
+          if (
+            !isMountedRef.current
+            || jobIdRef.current !== startedFor
+            || userIdRef.current !== requestUserId
+            || regenerateReconnecting.current
+          ) return;
           regenerateReconnecting.current = true;
           if (regenerateReconnectTimer.current) {
             clearTimeout(regenerateReconnectTimer.current);
@@ -293,7 +360,13 @@ export function useJobData(jobId: string | undefined) {
           regenerateReconnectTimer.current = setTimeout(() => {
             regenerateReconnectTimer.current = null;
             regenerateReconnecting.current = false;
-            if (isMountedRef.current) void openStream();
+            if (
+              isMountedRef.current
+              && jobIdRef.current === startedFor
+              && userIdRef.current === requestUserId
+            ) {
+              void openStream();
+            }
           }, 15000);
         });
       };
@@ -302,6 +375,11 @@ export function useJobData(jobId: string | undefined) {
       // SSE events after a Regenerate were received but never merged into jobData.
       await openStream();
     } catch (err) {
+      if (jobIdRef.current !== startedFor) return;
+      if (userIdRef.current !== requestUserId) {
+        clearRegenerating();
+        return;
+      }
       if (previous) setJobData(previous);
       clearRegenerating();
       setActionError(

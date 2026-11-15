@@ -1,20 +1,27 @@
 import { Response } from 'express';
 import { db } from '../../db/index.js';
-import type { PipelineOutput, PipelineLog } from '../../lib/pipeline.js';
-import type { ContentJob, ContentOutput, AgentLog } from '../../db/schema.js';
 import type { AuthRequest } from '../../middleware/auth.js';
 import { isValidUUID } from '../../lib/uuid.js';
+import { logger } from '../../lib/logger.js';
 import {
   jobsMemory,
   getJobFromStore,
   setJobInStore,
   type MemoryJob,
 } from '../../lib/jobStore.js';
+import {
+  assembleJobFromDB,
+  toClientJob,
+  type AssembledJob,
+} from '../../lib/jobAssemble.js';
 
 export { isValidUUID };
 // WHY: re-export: route modules historically import jobsMemory/getJobFromStore/
 // MemoryJob from ownership — keep that import path stable after the lib extract.
 export { jobsMemory, getJobFromStore, setJobInStore, type MemoryJob };
+// WHY: re-export: assembleJobFromDB lives in lib/ so workers can use it without
+// importing this Express ownership module; route call sites keep this path.
+export { assembleJobFromDB, toClientJob, type AssembledJob };
 
 /**
  * Shared guard for any route that needs both a reachable DB and a real UUID
@@ -56,117 +63,29 @@ export function requireAuthUserId(req: AuthRequest, res: Response): string | nul
   return userId;
 }
 
-// The shape assembleJobFromDB reconstructs once a job has aged out of memory —
-// same field set callers already read off a MemoryJob (id/userId/topic/... plus
-// outputs/logs/criticResult), just sourced from Postgres instead of the Map.
-export interface AssembledJob {
-  id: string;
-  userId: string;
-  topic: string;
-  platform: string;
-  tone: string | null;
-  targetAudience: string | null;
-  // WHY: undefined, not columns off contentJobs: brand_voice/phrases_use/
-  // phrases_avoid/content_dna live on the `users` table, not per-job — a job
-  // row never snapshots them. regenerate/multiply (manage.ts) already prefer
-  // a fresh getUserProfile(userId) lookup over these fields for exactly that
-  // reason (current user settings, not a stale per-job copy); the fields
-  // stay declared here only so those call sites can read them uniformly off
-  // either a MemoryJob or an AssembledJob without a type-narrowing branch.
-  brandVoice?: string;
-  phrasesUse?: string;
-  phrasesAvoid?: string;
-  contentDna?: unknown;
-  tag: string | null;
-  sourceJobId: string | null;
-  sourcePlatform: string | null;
-  // WHY: added here (found while wiring Repurpose's sourceUrl persistence):
-  // sourceCompetitorAnalysisId was added to the contentJobs DB column and to
-  // persistJob.ts's INSERT earlier the same day, but never added to this DTO —
-  // meaning the "based on competitor analysis" lineage silently disappeared
-  // once a job aged out of jobsMemory and had to be reassembled from the DB
-  // via assembleJobFromDB below, same bug class as FUNCTIONAL_AUDIT_2026-07.md
-  // finding #11 (fixed for sourceJobId, missed for this one).
-  sourceCompetitorAnalysisId: string | null;
-  sourceUrl: string | null;
-  templateId: string | null;
-  paletteId: string | null;
-  status: string;
-  retryCount: number;
-  deleted: number;
-  createdAt: Date;
-  updatedAt: Date;
-  outputs: PipelineOutput[];
-  logs: PipelineLog[];
-  criticResult: unknown;
-}
-
-// WHY: Pick, not the full ContentOutput/AgentLog: callers of assembleJobFromDB
-// query relations with different column subsets (manage.ts's list endpoint
-// omits `content` on outputs to keep the paginated list response light — see
-// GET / — while requireJobOwnership's single-job lookup selects every
-// column). Picking only the fields actually read here means either query
-// shape satisfies this type; content stays optional so the light-weight list
-// query remains valid.
-type DBOutputRow = Pick<ContentOutput, 'agentName' | 'outputType' | 'qualityScore' | 'partial'> &
-  Partial<Pick<ContentOutput, 'content'>>;
-type DBLogRow = Pick<AgentLog, 'agentName' | 'action' | 'inputSummary' | 'outputSummary' | 'durationMs'>;
-type DBJobWithRelations = ContentJob & { outputs: DBOutputRow[]; logs?: AgentLog[] | DBLogRow[] };
-
-export function assembleJobFromDB(dbJob: DBJobWithRelations): AssembledJob {
-  const outputs: PipelineOutput[] = (dbJob.outputs || []).map((o) => ({
-    agentName: o.agentName,
-    outputType: o.outputType,
-    content: 'content' in o ? o.content : undefined,
-    qualityScore: o.qualityScore ?? undefined,
-    partial: o.partial === 1,
-  }));
-  const logs: PipelineLog[] = (dbJob.logs || []).map((l) => ({
-    agentName: l.agentName,
-    action: l.action,
-    inputSummary: l.inputSummary ?? '',
-    outputSummary: l.outputSummary ?? '',
-    durationMs: l.durationMs ?? 0,
-  }));
-  // WHY: last critique (CORR-004): align assembleJobFromDB with Result/Library.
-  const criticOutputs = (dbJob.outputs || []).filter(
-    (o) => o.outputType === 'critique' && o.agentName === 'critic',
-  );
-  const criticOutput = criticOutputs.length > 0 ? criticOutputs[criticOutputs.length - 1] : undefined;
-  return {
-    id: dbJob.id,
-    userId: dbJob.userId,
-    topic: dbJob.topic,
-    platform: dbJob.platform,
-    tone: dbJob.tone,
-    targetAudience: dbJob.targetAudience,
-    tag: dbJob.tag,
-    sourceJobId: dbJob.sourceJobId,
-    sourcePlatform: dbJob.sourcePlatform,
-    sourceCompetitorAnalysisId: dbJob.sourceCompetitorAnalysisId,
-    sourceUrl: dbJob.sourceUrl,
-    templateId: dbJob.templateId,
-    paletteId: dbJob.paletteId,
-    status: dbJob.status,
-    retryCount: dbJob.retryCount,
-    deleted: dbJob.deleted,
-    createdAt: dbJob.createdAt,
-    updatedAt: dbJob.updatedAt,
-    outputs,
-    logs,
-    criticResult: criticOutput?.content ?? null,
-  };
+/** Thrown by lookupOwnedJob when the DB lookup itself fails (distinct from a miss). */
+export class OwnershipLookupError extends Error {
+  constructor(cause: unknown) {
+    super('Ownership lookup failed');
+    this.name = 'OwnershipLookupError';
+    this.cause = cause;
+  }
 }
 
 /**
  * Soft ownership lookup — same memory → DB order as requireJobOwnership, but
  * never writes a response. Used when walking Adapt ancestry: a deleted parent
  * must stop the walk, not 404 the child the user actually owns.
+ * WHY (B-M2): DB errors throw OwnershipLookupError instead of returning null —
+ * a Neon blip must not look like a permanent, non-retryable 404.
  */
 export async function lookupOwnedJob(
   jobId: string,
   requestingUserId: string,
 ): Promise<MemoryJob | AssembledJob | null> {
+  // WHY: invalid UUID → miss (404), not a Postgres driver 503 from a bad id.
+  if (!isValidUUID(jobId)) return null;
+
   // NOTE: check both in-memory stores — BullMQ worker uses jobStore, direct
   // pipeline uses jobsMemory. Both must be checked so every code path works.
   const memJob = getJobFromStore(jobId) || jobsMemory.get(jobId);
@@ -183,7 +102,9 @@ export async function lookupOwnedJob(
         with: { outputs: true, logs: true },
       });
       if (dbJob) return assembleJobFromDB(dbJob);
-    } catch { /* treat as miss */ }
+    } catch (err: unknown) {
+      throw new OwnershipLookupError(err);
+    }
   }
   return null;
 }
@@ -197,16 +118,37 @@ export async function lookupOwnedJob(
  * SECURITY: Returns 404 (not 403) on ownership mismatch — a 403 would confirm
  * that the job exists but belongs to someone else, leaking enumeration info.
  *
- * FLOW: Returns the job object on success, or calls res.status(404).json()
- * and returns null — callers check for null and return immediately.
+ * FLOW: Returns the job object on success, or writes 404 (miss/wrong owner) /
+ * 503 retryable (DB error) and returns null — callers return immediately.
  */
 export async function requireJobOwnership(
   jobId: string,
   requestingUserId: string,
   res: Response,
 ): Promise<MemoryJob | AssembledJob | null> {
-  const job = await lookupOwnedJob(jobId, requestingUserId);
-  if (job) return job;
+  // WHY: same 404-as-miss as lookupOwnedJob — reject before any store/DB hit.
+  if (!isValidUUID(jobId)) {
+    res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
+    return null;
+  }
+  try {
+    const job = await lookupOwnedJob(jobId, requestingUserId);
+    if (job) return job;
+  } catch (err: unknown) {
+    if (err instanceof OwnershipLookupError) {
+      logger.warn('[DB] Ownership lookup failed', {
+        jobId,
+        error: err.cause instanceof Error ? err.cause.message : String(err.cause),
+      });
+      res.status(503).json({
+        error: 'Service temporarily unavailable',
+        code: 'DB_UNAVAILABLE',
+        retryable: true,
+      });
+      return null;
+    }
+    throw err;
+  }
   res.status(404).json({ error: 'Job not found', code: 'NOT_FOUND', retryable: false });
   return null;
 }

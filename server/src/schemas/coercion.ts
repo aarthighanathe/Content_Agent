@@ -17,6 +17,15 @@ import { z } from 'zod';
 // and .catch('') supplies the empty default we actually want.
 export const CS = () => z.string().catch('');
 
+// WHY: slice after catch, not z.string().max(n).catch(''): a too-long icon or
+// label must keep a prefix so the slide still matches slideDataSchema. max()
+// would fail the string and catch('') would wipe the field.
+export function boundedCS(max: number): z.ZodType<string> {
+  return z.string().catch('').transform((value) => (
+    value.length > max ? value.slice(0, max) : value
+  ));
+}
+
 // WHY: z.coerce.number for CN: numeric strings like "18" from the LLM should
 // become 18 (critic previously used bare z.number().catch(0), which treated
 // "18" as invalid and stored 0). Coerce is correct for numbers; the string

@@ -31,7 +31,8 @@ export function RecentGenerations({ jobs, loading, onNavigate, onRequestDelete }
         <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg,var(--rule),transparent)' }} />
         <Link
           to="/library"
-          style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: 'color-mix(in srgb, var(--accent) 50%, transparent)', letterSpacing: 0.5, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4, transition: 'color .18s' }}
+          className="dash-view-all"
+          style={{ fontFamily: "var(--font-mono)", fontSize: 9.5, color: 'color-mix(in srgb, var(--accent) 50%, transparent)', letterSpacing: 0.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, transition: 'color .18s' }}
           onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent)')}
           onMouseLeave={(e) => (e.currentTarget.style.color = 'color-mix(in srgb, var(--accent) 50%, transparent)')}
         >

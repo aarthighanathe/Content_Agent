@@ -201,7 +201,14 @@ export function LiveDemo() {
             </div>
             <div className="demo-platforms" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
               {demoPlatforms.map((p) => (
-                <button key={p.id} className={`demo-plat-btn${demoPlatform === p.id ? ' active' : ''}`} onClick={() => setDemoPlatform(p.id)} aria-pressed={demoPlatform === p.id}>
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`demo-plat-btn${demoPlatform === p.id ? ' active' : ''}`}
+                  onClick={() => setDemoPlatform(p.id)}
+                  aria-pressed={demoPlatform === p.id}
+                  disabled={demoLoading}
+                >
                   {p.icon} {p.label}
                 </button>
               ))}

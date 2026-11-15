@@ -103,6 +103,11 @@ export function mergeSSEEventIntoJob(
     else if (data.stage === 'failed') next.status = 'failed';
     next.stage = data.stage;
   }
+  if (data.type === 'state') {
+    // WHY: state events carry authoritative status; stage alone can lag a terminal status.
+    const stateStatus = (data as { status?: unknown }).status;
+    if (stateStatus === 'done' || stateStatus === 'failed') next.status = stateStatus;
+  }
   if (typeof data.progress === 'number') next.progress = data.progress;
   if (data.message) next.message = data.message;
   if (data.agent) {

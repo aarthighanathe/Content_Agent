@@ -9,118 +9,10 @@ import { RedisStore } from 'rate-limit-redis';
 import type { AuthRequest } from './auth.js';
 import { getRedisClient } from '../lib/redisClient.js';
 import { logger } from '../lib/logger.js';
-import { getInjectionTestPatterns } from '../lib/injectionPatterns.js';
 
-// SECURITY: short-circuit prompt injection before Gemini — patterns live in
-// lib/injectionPatterns.ts (shared with sanitizeSearchText) so reject + redact
-// cannot drift apart again.
-const INJECTION_PATTERNS = getInjectionTestPatterns();
-
-function containsInjection(value: string): boolean {
-  return INJECTION_PATTERNS.some((re) => re.test(value));
-}
-
-function stripHtml(value: string): string {
-  return value.replace(/<[^>]+>/g, '').trim();
-}
-
-/**
- * Sanitizes and validates all LLM-facing text fields on the request body.
- * Applied to all generation routes: /api/jobs/create, /api/jobs/batch,
- * /api/content/* (including /ideate's focusTopic), /api/demo/jobs/create
- */
-export function sanitizeGenerationInput(req: Request, res: Response, next: NextFunction): void {
-  // NOTE: topic=500 vs schemas/jobs.ts's TOPIC_MAX_LENGTH=250: this middleware runs
-  // BEFORE zod validation as a generous outer pre-filter (reject obviously-abusive
-  // payloads early, cheaply), not the source of truth for the real business-rule cap.
-  // createJobSchema (and jobs/create.ts's batch route, and the client's Create form's
-  // maxLength) all enforce the tighter 250 downstream — don't "fix" this by making
-  // them match; they're deliberately different layers with different jobs.
-  // WHY: these caps equal (not undercut) the zod schema maxes: a lower cap here
-  // rejected input the schema explicitly allows (e.g. 10k-char voice samples,
-  // 300-char profile URLs) with a misleading length error before zod ran.
-  const LIMITS: Record<string, number> = {
-    topic: 500,
-    targetAudience: 300,
-    brandVoice: 300,
-    brandName: 100,
-    phrasesUse: 1000,
-    phrasesAvoid: 1000,
-    custom_feedback: 1000,
-    feedback: 1000,
-    handle: 300,
-    industry: 200,
-    samples: 10000,
-    focusTopic: 200,
-    competitorContext: 300,
-    prompt: 2000,
-  };
-
-  // Returns cleaned string, or null after writing a 400 (caller must return).
-  function sanitizeField(raw: unknown, fieldPath: string, maxLen: number): string | null {
-    if (typeof raw !== 'string') {
-      res.status(400).json({
-        error: `Field "${fieldPath}" must be a string`,
-        code: 'VALIDATION_ERROR',
-        retryable: false,
-      });
-      return null;
-    }
-
-    const cleaned = stripHtml(raw);
-
-    if (cleaned.length > maxLen) {
-      res.status(400).json({
-        error: `Field "${fieldPath}" exceeds maximum length of ${maxLen} characters (got ${cleaned.length})`,
-        code: 'VALIDATION_ERROR',
-        retryable: false,
-      });
-      return null;
-    }
-
-    if (containsInjection(cleaned)) {
-      res.status(400).json({
-        error: `Field "${fieldPath}" contains disallowed content. Please rephrase your request.`,
-        code: 'VALIDATION_ERROR',
-        retryable: false,
-      });
-      return null;
-    }
-
-    return cleaned;
-  }
-
-  for (const [field, maxLen] of Object.entries(LIMITS)) {
-    const raw = req.body?.[field];
-    if (raw === undefined || raw === null) continue;
-    const cleaned = sanitizeField(raw, field, maxLen);
-    if (cleaned === null) return;
-    req.body[field] = cleaned;
-  }
-
-  // SECURITY: batch / nested payloads (items[].topic, items[].targetAudience)
-  // used to skip the top-level-only loop above — walk them with the same caps.
-  const nestedFields: Array<{ key: string; maxLen: number }> = [
-    { key: 'topic', maxLen: LIMITS.topic },
-    { key: 'targetAudience', maxLen: LIMITS.targetAudience },
-    { key: 'content', maxLen: 8000 },
-    { key: 'feedback', maxLen: LIMITS.feedback },
-  ];
-  if (Array.isArray(req.body?.items)) {
-    for (let i = 0; i < req.body.items.length; i++) {
-      const item = req.body.items[i] as Record<string, unknown> | null;
-      if (!item || typeof item !== 'object') continue;
-      for (const { key, maxLen } of nestedFields) {
-        if (item[key] === undefined || item[key] === null) continue;
-        const cleaned = sanitizeField(item[key], `items[${i}].${key}`, maxLen);
-        if (cleaned === null) return;
-        item[key] = cleaned;
-      }
-    }
-  }
-
-  next();
-}
+// WHY: re-export so existing `from './rateLimit.js'` imports keep working after
+// sanitizeGenerationInput moved out to stay under the 400-line cap.
+export { sanitizeGenerationInput } from './sanitizeGenerationInput.js';
 
 // SECURITY: CLAUDE.md hard-bans in-memory rate limiters (MemoryStore resets on
 // restart and isn't shared across instances — trivially bypassable, and on a
@@ -341,6 +233,18 @@ export const socialRateLimit = buildRateLimiter({
   max: 30,
   message: 'Too many social connection requests. Please try again later.',
   code: 'RATE_LIMITED',
+});
+
+// SECURITY: GET /:jobId/stream skips authMiddleware (EventSource can't send headers), so
+// this limiter is IP-keyed and runs before verifySSEToken to cap token-guessing / Redis
+// lookup spam from a single address. Redis-backed + fail-closed like every other limiter.
+export const sseStreamRateLimit = buildRateLimiter({
+  prefix: 'sse-stream',
+  windowMs: 60 * 1000,
+  max: 120,
+  message: 'Too many stream connection attempts. Please wait a moment and try again.',
+  code: 'RATE_LIMITED',
+  keyGenerator: (req: Request) => ipKeyGenerator(req.ip ?? '') || (req.socket?.remoteAddress ?? 'unknown') || 'unknown',
 });
 
 /**

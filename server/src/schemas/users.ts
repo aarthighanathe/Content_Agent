@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toneEnum } from './jobs.js';
 
 // WHY: brandVoice max 150 (was 50): VoiceCard.tsx sends up to 6 selected tone
 // labels joined with ", " (e.g. "Professional, Casual, Witty, Educational,
@@ -21,5 +22,6 @@ export const analyzeVoiceSchema = z.object({
 
 export const onboardingSchema = z.object({
   brandName: z.string().max(100).optional(),
-  preferredTone: z.string().max(50).optional(),
+  // SECURITY: enum-only — preferredTone is copied into users.brandVoice, which is injected into LLM prompts.
+  preferredTone: toneEnum.optional(),
 });

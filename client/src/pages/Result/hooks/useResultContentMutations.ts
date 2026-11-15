@@ -1,4 +1,4 @@
-import { useRef, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { updateJobContent } from '../../../api';
 import type { PlatformContent, ContentJob } from '../../../types/job';
@@ -24,22 +24,34 @@ export function useResultContentMutations(
   setSaveError: (message: string) => void,
 ): ResultContentMutations {
   const queryClient = useQueryClient();
-  const contentMutation = useContentMutationLock();
+  const contentMutation = useContentMutationLock(jobId);
   const restoreGenRef = useRef<number | null>(null);
+  // WHY: ref mirror so a save that outlives A→B navigation cannot write A's
+  // content/error onto B (closure jobId alone stays the started-for id).
+  const jobIdRef = useRef(jobId);
+
+  useEffect(() => {
+    jobIdRef.current = jobId;
+    restoreGenRef.current = null;
+  }, [jobId]);
 
   async function handleContentSave(newContent: SlideData[] | PlatformContent): Promise<void> {
     if (!jobId) return;
+    const startedFor = jobId;
+    const stillThisJob = (): boolean => jobIdRef.current === startedFor;
     const gen = contentMutation.acquire('save');
     if (gen == null) {
-      setSaveError('Another content update is in progress — try again in a moment.');
+      if (stillThisJob()) {
+        setSaveError('Another content update is in progress — try again in a moment.');
+      }
       throw new Error('content_mutation_busy');
     }
-    setSaveError('');
+    if (stillThisJob()) setSaveError('');
     try {
       // WHY: unknown->PlatformContent[] cast: updateJobContent's declared param type
       // predates carousel slide editing — SlideData[] is caller-guarded here.
       await updateJobContent(jobId, newContent as unknown as PlatformContent | PlatformContent[]);
-      if (contentMutation.isStale(gen)) return;
+      if (contentMutation.isStale(gen) || !stillThisJob()) return;
       Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] }),
@@ -55,7 +67,7 @@ export function useResultContentMutations(
         return p;
       });
     } catch (err) {
-      if (!contentMutation.isStale(gen)) {
+      if (!contentMutation.isStale(gen) && stillThisJob()) {
         setSaveError('Failed to save your edit — please try again.');
       }
       throw err;

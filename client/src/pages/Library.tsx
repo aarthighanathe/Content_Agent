@@ -66,6 +66,8 @@ export default function LibraryPage() {
             : null
         }
         collectionsLoading={lib.collectionsLoading}
+        collectionsError={lib.collectionsError}
+        onRetryCollections={lib.refetchCollections}
       />
 
       {lib.showAnalytics && !lib.jobsLoading && !lib.jobsError && (
@@ -74,7 +76,12 @@ export default function LibraryPage() {
 
       <ContentTab
         jobsError={lib.jobsError}
-        onRetryJobs={() => lib.jobsQuery.refetch().catch(() => {})}
+        onRetryJobs={() => {
+          // WHY: folder view loads collectionJobsQuery, not jobsQuery — Retry on
+          // the main list key left the folder error stuck after a failed fetch.
+          const q = lib.activeCollectionId != null ? lib.collectionJobsQuery : lib.jobsQuery;
+          q.refetch().catch(() => {});
+        }}
         isLoading={lib.jobsLoading}
         filteredJobs={lib.filteredJobs}
         search={lib.search}

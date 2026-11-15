@@ -41,7 +41,10 @@ import { startPublishWorker, stopPublishWorker } from './workers/publishWorker.j
 import { startFeedMonitorWorker, stopFeedMonitorWorker } from './workers/feedMonitorWorker.js';
 import { closeBrowserPool, stopPngCacheSweep } from './lib/carousel.js';
 import { closeDb } from './db/index.js';
+import { drainDirectPipelines } from './lib/pipelineDirect.js';
 import { startStaleJobSweep, stopStaleJobSweep } from './lib/persistJob.js';
+import { stopSSERedisSubscriber } from './lib/sseRedis.js';
+import { stopJobEvictions } from './lib/jobEviction.js';
 import { demoJobRateLimit, sanitizeGenerationInput, contentRateLimit, imageRateLimit } from './middleware/rateLimit.js';
 
 const app = express();
@@ -118,11 +121,13 @@ app.use(cors({
   // from JS unless listed here, which used to make incomplete ZIPs look fine.
   exposedHeaders: ['X-Export-Warning'],
 }));
-// WHY: a larger parser mounted first on only this route: PATCH /:jobId/content
-// carries edited slide JSON (schema cap 200kB serialized, plus JSON overhead).
-// express.json skips a request whose body is already parsed, so the global
-// 256kb parser below never re-reads it — every other route gets the tight cap.
-app.use(/^\/api\/jobs\/[^/]+\/content$/, express.json({ limit: '1mb' }));
+// WHY: a larger parser mounted first on only these routes. express.json skips a
+// request whose body is already parsed, so the global 256kb parser below never
+// re-reads them. PATCH /content and carousel export both carry raster data URLs
+// up to the schema caps (~3MB per slide, ~8MB combined). 1mb/4mb parsers 413'd
+// a slide the schema would have accepted.
+app.use(/^\/api\/jobs\/[^/]+\/content$/, express.json({ limit: '10mb' }));
+app.use(/^\/api\/jobs\/[^/]+\/export\/carousel-png$/, express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '256kb' }));
 app.use(clerkMiddleware({
   publishableKey: env.CLERK_PUBLISHABLE_KEY,
@@ -363,6 +368,14 @@ async function shutdown(signal: string) {
 
   server.close(() => logger.info('HTTP server closed'));
 
+  // WHY: direct-mode runs are not BullMQ-managed; bounded wait so they can persist
+  // before closeDb, well under the 30s force-exit.
+  try {
+    await drainDirectPipelines(12_000);
+  } catch (err) {
+    console.error('Error draining direct pipelines:', err);
+  }
+
   try {
     await stopWorker();
     logger.info('BullMQ worker closed');
@@ -398,6 +411,9 @@ async function shutdown(signal: string) {
   // how the browser pool above is closed rather than left to the 'exit' handler.
   stopPngCacheSweep();
   stopStaleJobSweep();
+  stopJobEvictions();
+  // WHY: dedicated ioredis subscriber must quit or the process can hang on exit.
+  stopSSERedisSubscriber();
 
   clearTimeout(forceExit);
   process.exit(0);

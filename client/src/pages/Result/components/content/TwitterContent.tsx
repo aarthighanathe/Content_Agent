@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Pencil, Copy } from 'lucide-react';
 import { Button } from '../../../../components/Button';
+import { useTrackedTimeout } from '../../../../hooks/useTrackedTimeout';
 import type { PlatformContent } from '../../../../types/job';
 import { ContentEditShell } from './ContentEditShell';
 
@@ -35,6 +36,7 @@ export function TwitterContent({ content, onSave }: Props) {
   const [editForm, setEditForm]     = useState<PlatformContent>({});
   const [promoting, setPromoting]   = useState(false);
   const [copied, setCopied]         = useState(false);
+  const pendingTimers = useTrackedTimeout();
   // WHY: same A/B persist model as LinkedInContent: a view-only toggle left
   // Copy / Export / header Copy on tweet A while the card showed B (QA-D3-001).
   const [pair, setPair] = useState<HookPair>(() => pairFromContent(content));
@@ -119,7 +121,7 @@ export function TwitterContent({ content, onSave }: Props) {
       .join('\n\n');
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      pendingTimers.set(() => setCopied(false), 2000);
     }).catch(() => {});
   }
 

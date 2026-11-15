@@ -132,6 +132,7 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
             href={safeSourceUrl}
             target="_blank"
             rel="noopener noreferrer"
+            className="idea-card-source"
             onClick={(e) => e.stopPropagation()}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6,
@@ -143,7 +144,7 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
         )}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      <div className="idea-card-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         <button
           type="button"
           className="idea-card-action-btn"
@@ -220,11 +221,28 @@ export function IdeaCard({ idea, index, saved, onUse, onDismiss, onToggleSave, o
           <ArrowRight size={14} />
         </button>
       </div>
-      {/* WHY: a local keyframe, not reusing Ideate.tsx's @keyframes spin: that
-          one only exists in the DOM while the page-level `loading` state is
-          true (its <style> block is inside the loading-skeletons branch) — a
-          per-card regenerate spin needs to work independently of that. */}
-      <style>{`@keyframes idea-card-spin { to { transform: rotate(360deg); } }`}</style>
+      {/* WHY: local keyframes + mobile touch targets: page-level spin only exists
+          while Ideate's loading branch mounts its <style>; 44×44 hit areas on
+          coarse pointers — icon-only 14px+padding was ~22px on phones. */}
+      <style>{`
+        @keyframes idea-card-spin { to { transform: rotate(360deg); } }
+        @media (max-width: 768px) {
+          .idea-card-actions { gap: 4px; }
+          .idea-card-action-btn {
+            min-width: 44px !important;
+            min-height: 44px !important;
+            align-items: center;
+            justify-content: center;
+            padding: 0 !important;
+          }
+          /* WHY: source link was ~17px tall — hard to tap between body text. */
+          .idea-card-source {
+            min-height: 44px;
+            padding: 0 2px;
+            box-sizing: border-box;
+          }
+        }
+      `}</style>
     </div>
   );
 }

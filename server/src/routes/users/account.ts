@@ -19,12 +19,13 @@ import {
   jobOutputVersions,
   feedMonitors,
 } from '../../db/schema.js';
-import { eq, inArray, desc, sql } from 'drizzle-orm';
-import { userProfiles } from './profileStore.js';
+import { and, eq, inArray, desc, ne, sql } from 'drizzle-orm';
+import { invalidateUserProfileCache } from './profileStore.js';
 import { invalidateAuthCache } from '../../middleware/auth.js';
 import { cancelContentJob } from '../../lib/queue.js';
 import { cancelPublishJob } from '../../lib/publishQueue.js';
 import { logger } from '../../lib/logger.js';
+import { PublishInProgressError } from '../../lib/jobSoftDelete.js';
 
 const router = Router();
 
@@ -162,53 +163,77 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    // WHY: soft-delete first so in-flight pipelines see deleted=1 in memory/DB
-    // and abort via isSoftDeleted before we hard-delete rows mid-write.
-    try {
-      await db.update(contentJobs).set({ deleted: 1 }).where(eq(contentJobs.userId, userId));
-    } catch (softErr) {
-      logger.warn('[Account] Soft-delete before account deletion failed', {
-        userId,
-        error: softErr instanceof Error ? softErr.message : String(softErr),
+    // WHY: refuse while any scheduled_posts row is publishing — wiping that
+    // row mid-post leaves a live social post with no durable Calendar row.
+    // Early non-locking check; the FOR UPDATE inside the txn is the real guard.
+    const publishingRows = await db
+      .select({ id: scheduledPosts.id })
+      .from(scheduledPosts)
+      .where(and(
+        eq(scheduledPosts.userId, userId),
+        eq(scheduledPosts.publishStatus, 'publishing'),
+      ));
+    if (publishingRows.length > 0) {
+      res.status(409).json({
+        error: 'A post is being published right now — try again shortly',
+        code: 'PUBLISH_IN_PROGRESS',
+        retryable: true,
       });
-    }
-    for (const [, job] of jobsMemory.entries()) {
-      if (job.userId === userId) {
-        job.deleted = 1;
-      }
+      return;
     }
 
-    // WHY: cancel queue jobs BEFORE the hard delete: a waiting BullMQ content/publish
-    // job would otherwise still run for a deleted user, burning Gemini/Tavily
-    // quota or posting to a social account after the user asked to be erased.
-    // Best-effort (allSettled): a Redis hiccup must not block account deletion;
-    // workers re-resolve the missing rows and fail harmlessly.
-    try {
-      const [ownedJobs, ownedPosts] = await Promise.all([
-        db.select({ id: contentJobs.id }).from(contentJobs).where(eq(contentJobs.userId, userId)),
-        db.select({ id: scheduledPosts.id }).from(scheduledPosts).where(eq(scheduledPosts.userId, userId)),
-      ]);
-      await Promise.allSettled([
-        ...ownedJobs.map((j) => cancelContentJob(j.id)),
-        ...ownedPosts.map((p) => cancelPublishJob(p.id)),
-      ]);
-    } catch (cancelErr) {
-      logger.warn('[Account] Failed to cancel queued jobs before deletion', {
-        userId,
-        error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
-      });
-    }
+    // WHY: soft-delete + cancel MUST NOT run before the publishing lock.
+    // Pre-txn soft-delete left deleted=1 (and cancelled queues) even when
+    // FOR UPDATE later threw PublishInProgressError → irreversible library wipe
+    // on a 409. Soft-delete lives inside the same txn after FOR UPDATE; cancel
+    // + memory flags run only after commit.
+    let ownedJobIds: string[] = [];
+    let ownedPostIds: string[] = [];
 
     // WHY: wrap every table's deletion in one transaction — a partial failure
     // (e.g. jobs deleted but outputs/logs left behind due to a mid-way error)
     // would orphan rows referencing a userId that no longer exists.
     await db.transaction(async (tx) => {
+      // WHY: FOR UPDATE + exclude-publishing delete — same TOCTOU fix as
+      // softDeleteJobWithCleanup; early check above is not enough alone.
+      const lockedPosts = await tx
+        .select({
+          id: scheduledPosts.id,
+          publishStatus: scheduledPosts.publishStatus,
+        })
+        .from(scheduledPosts)
+        .where(eq(scheduledPosts.userId, userId))
+        .for('update');
+      if (lockedPosts.some((row) => row.publishStatus === 'publishing')) {
+        throw new PublishInProgressError();
+      }
+
+      // WHY: after lock succeeds — rolls back with the txn on PublishInProgressError
+      // (leftover check below) so a 409 never leaves the library soft-deleted.
+      await tx.update(contentJobs).set({ deleted: 1 }).where(eq(contentJobs.userId, userId));
+
       const jobRows = await tx.select({ id: contentJobs.id }).from(contentJobs).where(eq(contentJobs.userId, userId));
       const jobIds = jobRows.map((j) => j.id);
+      ownedJobIds = jobIds;
+      ownedPostIds = lockedPosts.map((p) => p.id);
 
       // WHY: scheduled_posts.job_id/user_id are FKs with ON DELETE no action —
       // must be deleted before contentJobs/users or the transaction aborts.
-      await tx.delete(scheduledPosts).where(eq(scheduledPosts.userId, userId));
+      // SECURITY: never delete publish_status='publishing' (live post in flight).
+      await tx.delete(scheduledPosts).where(and(
+        eq(scheduledPosts.userId, userId),
+        ne(scheduledPosts.publishStatus, 'publishing'),
+      ));
+      const leftoverPublishing = await tx
+        .select({ id: scheduledPosts.id })
+        .from(scheduledPosts)
+        .where(and(
+          eq(scheduledPosts.userId, userId),
+          eq(scheduledPosts.publishStatus, 'publishing'),
+        ));
+      if (leftoverPublishing.length > 0) {
+        throw new PublishInProgressError();
+      }
 
       // WHY: explicit, not automatic: feed_monitors.userId has NO FK constraint
       // at all (schema.ts's own WHY comment — the worker runs outside a
@@ -253,9 +278,24 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
       await tx.delete(users).where(eq(users.id, userId));
     });
 
+    // WHY: only after commit — a waiting BullMQ content/publish job must not
+    // keep running for a deleted user; cancel was previously pre-txn and fired
+    // even on PublishInProgressError 409.
+    try {
+      await Promise.allSettled([
+        ...ownedJobIds.map((id) => cancelContentJob(id)),
+        ...ownedPostIds.map((id) => cancelPublishJob(id)),
+      ]);
+    } catch (cancelErr) {
+      logger.warn('[Account] Failed to cancel queued jobs after deletion', {
+        userId,
+        error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
+      });
+    }
+
     // Clear in-memory state so a re-signup with the same Clerk identity
     // doesn't inherit stale brand-voice data from before the deletion.
-    userProfiles.delete(userId);
+    invalidateUserProfileCache(userId);
     for (const [jobId, job] of jobsMemory.entries()) {
       if (job.userId === userId) jobsMemory.delete(jobId);
     }
@@ -271,6 +311,14 @@ router.delete('/me', async (req: AuthRequest, res: Response) => {
     res.json({ success: true });
     return;
   } catch (error) {
+    if (error instanceof PublishInProgressError) {
+      res.status(409).json({
+        error: 'A post is being published right now — try again shortly',
+        code: 'PUBLISH_IN_PROGRESS',
+        retryable: true,
+      });
+      return;
+    }
     Sentry.captureException(error, { tags: { route: 'DELETE /me' } });
     res.status(500).json({ error: 'Failed to delete account', code: 'SERVER_ERROR', retryable: true });
     return;

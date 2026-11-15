@@ -160,6 +160,27 @@ describe('processPublishJob (real module)', () => {
     }));
   });
 
+  it('an unverified LinkedIn accept is stored as posted, not failed', async () => {
+    scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1', userId: 'user-1' };
+    contentJobRow = { id: 'job-1', userId: 'user-1', deleted: 0 };
+    outputRows = [{ agentName: 'writer', outputType: 'final', content: { hook: 'H', body: 'B', cta: 'C' } }];
+    dbGetToken.mockResolvedValue({ accessToken: 'token-abc' });
+    publishToSocialPlatform.mockResolvedValue({
+      postId: 'linkedin-unverified',
+      postUrl: 'https://www.linkedin.com/feed/',
+      unverified: true,
+    });
+
+    const { processPublishJob } = await import('../../src/workers/publishWorker.js');
+    await processPublishJob(makeJob({ scheduledPostId: 'sp-1' }));
+
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      publishStatus: 'posted',
+      postUrl: 'https://www.linkedin.com/feed/',
+      publishError: expect.stringContaining('posted-unverified:'),
+    }));
+  });
+
   it('a publish-API failure is durably recorded as "failed", not rethrown as an unhandled rejection', async () => {
     scheduledPostRow = { id: 'sp-1', publishStatus: 'pending', publishPlatform: 'linkedin', jobId: 'job-1', userId: 'user-1' };
     contentJobRow = { id: 'job-1', userId: 'user-1', deleted: 0 };

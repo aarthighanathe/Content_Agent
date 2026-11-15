@@ -13,31 +13,39 @@ import { scheduledPosts, contentJobs } from '../db/schema.js';
 import { and, eq } from 'drizzle-orm';
 import { dbGetToken, ensureFreshSocialToken, PLATFORM_LABELS } from '../lib/socialTokens.js';
 import { publishToSocialPlatform } from '../lib/socialPublish.js';
-import { readOutputs } from '../routes/content/shared.js';
-import { assembleJobFromDB } from '../routes/jobs/ownership.js';
-import { toClientPublishError } from '../lib/clientErrors.js';
+import { readOutputs } from '../lib/contentHelpers.js';
+import { assembleJobFromDB } from '../lib/jobAssemble.js';
+import { toClientPublishError, POSTED_UNVERIFIED_ERROR_PREFIX } from '../lib/clientErrors.js';
+import {
+  markPosted,
+  markPartialThread,
+  markPostedUnverified,
+  markPartialThreadUnverified,
+  releaseClaim,
+  type PartialThreadInfo,
+} from '../lib/publishStatus.js';
 
-// WHY: exported: tests/unit/publishWorker.test.ts calls this directly with a
-// mocked db/dbGetToken/publishToSocialPlatform, exercising the row-not-found /
-// already-non-pending / missing-platform early returns and the
-// failure-durably-recorded-not-rethrown contract the review flagged as untested.
-async function markPosted(scheduledPostId: string, postUrl: string | null | undefined): Promise<boolean> {
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      // eslint-disable-next-line no-await-in-loop -- WHY: sequential retries with backoff are the point
-      await db!.update(scheduledPosts)
-        .set({ publishStatus: 'posted', publishedAt: new Date(), postUrl: postUrl ?? null, publishError: null })
-        .where(eq(scheduledPosts.id, scheduledPostId));
-      return true;
-    } catch (err) {
-      logger.warn('[PublishWorker] markPosted failed', {
-        scheduledPostId, attempt, error: err instanceof Error ? err.message : String(err),
-      });
-      // eslint-disable-next-line no-await-in-loop -- WHY: backoff between retries
-      await new Promise((r) => setTimeout(r, 250 * attempt));
-    }
+// WHY: structural guard by error name, not instanceof: keeps this worker
+// decoupled from the concrete class identity across module boundaries.
+function asPartialThread(err: unknown): PartialThreadInfo | null {
+  if (!(err instanceof Error) || err.name !== 'TwitterPartialThreadError') return null;
+  const e = err as Error & Partial<PartialThreadInfo>;
+  if (
+    typeof e.postedCount !== 'number'
+    || typeof e.totalCount !== 'number'
+    || typeof e.rootId !== 'string'
+    || typeof e.lastId !== 'string'
+    || typeof e.postUrl !== 'string'
+  ) {
+    return null;
   }
-  return false;
+  return {
+    postedCount: e.postedCount,
+    totalCount: e.totalCount,
+    rootId: e.rootId,
+    lastId: e.lastId,
+    postUrl: e.postUrl,
+  };
 }
 
 export async function processPublishJob(job: Job): Promise<void> {
@@ -45,12 +53,16 @@ export async function processPublishJob(job: Job): Promise<void> {
   const scheduledPostId = data && typeof data === 'object' && typeof (data as { scheduledPostId?: unknown }).scheduledPostId === 'string'
     ? (data as { scheduledPostId: string }).scheduledPostId
     : '';
-  if (!scheduledPostId || !db) return;
+  if (!scheduledPostId) return;
+  // WHY: throw (not silent return) so BullMQ retries and the failed handler runs
+  // instead of the job "completing" with the row still pending.
+  if (!db) throw new Error('Database unavailable');
 
   // WHY: tracked outside try: once the pending→publishing claim wins, a retry
   // could double-post, so only pre-claim (transient DB) errors may rethrow.
   let claimWon = false;
   let posted = false;
+  let tokenLookupFailed = false;
 
   try {
     const [row] = await db.select().from(scheduledPosts).where(eq(scheduledPosts.id, scheduledPostId)).limit(1);
@@ -97,23 +109,66 @@ export async function processPublishJob(job: Job): Promise<void> {
     const finalOutput = readOutputs(assembled).find((o) => o.outputType === 'final');
     if (!finalOutput) throw new Error('No final content to publish');
 
-    const conn = await dbGetToken(jobRow.userId, platform);
+    let conn: Awaited<ReturnType<typeof dbGetToken>>;
+    try {
+      conn = await dbGetToken(jobRow.userId, platform);
+    } catch (tokenErr: unknown) {
+      // WHY: a transient DB error is not "Not connected" — nothing was posted,
+      // so hand the row back to pending and let BullMQ retry instead of failing forever.
+      tokenLookupFailed = true;
+      throw tokenErr;
+    }
     if (!conn?.accessToken) {
       throw new Error(`Not connected to ${PLATFORM_LABELS[platform] || platform}`);
     }
 
     const freshConn = await ensureFreshSocialToken(jobRow.userId, platform, conn);
-    const { postUrl } = await publishToSocialPlatform(platform as 'linkedin' | 'twitter', finalOutput.content, freshConn);
+    // WHY: re-check soft-delete immediately before the provider call — manage
+    // DELETE may have raced after the earlier jobRow read (MEDIUM 5).
+    const [jobStillLive] = await db.select({
+      deleted: contentJobs.deleted,
+      userId: contentJobs.userId,
+    })
+      .from(contentJobs)
+      .where(eq(contentJobs.id, row.jobId))
+      .limit(1);
+    if (
+      !jobStillLive
+      || jobStillLive.deleted === 1
+      || jobStillLive.userId !== row.userId
+    ) {
+      await db.update(scheduledPosts)
+        .set({
+          publishStatus: 'failed',
+          publishError: 'Source job unavailable',
+          publishedAt: null,
+        })
+        .where(eq(scheduledPosts.id, scheduledPostId));
+      return;
+    }
+    const published = await publishToSocialPlatform(
+      platform as 'linkedin' | 'twitter',
+      finalOutput.content,
+      freshConn,
+    );
 
     posted = true;
     // WHY: retry the DB write: the post is already live; a lone transient Neon
     // error here would otherwise leave 'publishing' → stale sweep → 'failed'
     // and invite a manual re-schedule that double-posts.
-    const marked = await markPosted(scheduledPostId, postUrl);
+    // WHY: unverified still counts as posted. LinkedIn 2xx with no id must not
+    // land in the catch below, which stores failed and invites a second post.
+    const unverifiedError = published.unverified
+      ? `${POSTED_UNVERIFIED_ERROR_PREFIX} the post may be live`
+        + `${published.postUrl ? ` (${published.postUrl})` : ''}. `
+        + 'Check your social account — do not reschedule.'
+      : null;
+    const marked = await markPosted(scheduledPostId, published.postUrl, unverifiedError);
     if (!marked) {
       logger.error('[PublishWorker] Posted but could not record status — left as publishing', {
-        scheduledPostId, platform, postUrl,
+        scheduledPostId, platform, postUrl: published.postUrl,
       });
+      await markPostedUnverified(scheduledPostId, published.postUrl);
       return;
     }
     logger.info('[PublishWorker] Published scheduled post', { scheduledPostId, jobId: row.jobId, platform });
@@ -125,6 +180,30 @@ export async function processPublishJob(job: Job): Promise<void> {
     // so BullMQ's retry (attempts 3, backoff) is safe for transient DB errors.
     if (!claimWon) throw err;
     if (posted) return; // already live — never mark failed or retry
+
+    const partial = asPartialThread(err);
+    if (partial) {
+      // WHY: no 'partial' enum value (avoids a migration): record 'posted' so the
+      // Calendar/reschedule path never republishes the whole thread, and keep the
+      // count + root URL + last tweet id so the user can finish it manually.
+      logger.error('[PublishWorker] Partial Twitter thread posted', {
+        scheduledPostId, ...partial,
+      });
+      const markedPartial = await markPartialThread(scheduledPostId, partial);
+      if (!markedPartial) {
+        await markPartialThreadUnverified(scheduledPostId, partial);
+      }
+      return;
+    }
+
+    if (tokenLookupFailed) {
+      const attempts = job.opts?.attempts ?? 1;
+      const isLastAttempt = (job.attemptsMade ?? 0) + 1 >= attempts;
+      if (!isLastAttempt) {
+        const released = await releaseClaim(scheduledPostId);
+        if (released) throw err;
+      }
+    }
     try {
       await db.update(scheduledPosts)
         .set({
@@ -139,6 +218,35 @@ export async function processPublishJob(job: Job): Promise<void> {
     }
     // WHY: not rethrow post-claim: the failure is durably recorded above and a
     // retry could re-post.
+  }
+}
+
+// WHY: pre-claim errors are rethrown for retry; once BullMQ exhausts attempts nothing else
+// touches the row, so it would stay 'pending' forever. Guarded on status 'pending' so it
+// never clobbers a claimed/posted row.
+export async function handleFailedPublishJob(job: Job | undefined, err: Error): Promise<void> {
+  if (!job || !db) return;
+  const attempts = job.opts?.attempts ?? 1;
+  if ((job.attemptsMade ?? 0) < attempts) return;
+  const data: unknown = job.data;
+  const id = data && typeof data === 'object'
+    ? (data as { scheduledPostId?: unknown }).scheduledPostId
+    : undefined;
+  if (typeof id !== 'string' || !id) return;
+  try {
+    const updated = await db.update(scheduledPosts)
+      .set({ publishStatus: 'failed', publishError: toClientPublishError(err.message), publishedAt: null })
+      .where(and(eq(scheduledPosts.id, id), eq(scheduledPosts.publishStatus, 'pending')))
+      .returning({ id: scheduledPosts.id });
+    if (updated.length > 0) {
+      logger.warn('[PublishWorker] Marked pending post failed after retries exhausted', {
+        scheduledPostId: id,
+      });
+    }
+  } catch (dbErr: unknown) {
+    logger.error('[PublishWorker] Failed to mark exhausted job failed', {
+      scheduledPostId: id, error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+    });
   }
 }
 
@@ -161,6 +269,14 @@ export function startPublishWorker(): Worker | null {
       logger.info('[PublishWorker] Job completed', { jobId: job.id });
     });
 
+    worker.on('failed', (job, err) => {
+      void handleFailedPublishJob(job, err).catch((handlerErr: unknown) => {
+        logger.error('[PublishWorker] failed handler threw', {
+          error: handlerErr instanceof Error ? handlerErr.message : String(handlerErr),
+        });
+      });
+    });
+
     worker.on('error', (err) => {
       // WHY: swallow transient Redis reconnect noise: Upstash/Render blips show
       // up as ECONNRESET / Connection is closed while ioredis is already
@@ -174,7 +290,7 @@ export function startPublishWorker(): Worker | null {
       ) {
         return;
       }
-      console.error('[PublishWorker] Worker error:', err.message);
+      logger.error('[PublishWorker] Worker error', { error: err.message });
       Sentry.captureException(err, { tags: { action: 'publish-worker-error' } });
     });
 

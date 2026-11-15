@@ -10,11 +10,20 @@ import { z } from 'zod';
 import { AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/index.js';
 import { collections, collectionJobs, contentJobs } from '../db/schema.js';
-import { requireJobOwnership, requireDbUser } from './jobs/ownership.js';
+import {
+  requireJobOwnership,
+  requireDbUser,
+  assembleJobFromDB,
+  toClientJob,
+} from './jobs/ownership.js';
 import { parseBody, createCollectionSchema, addJobToCollectionSchema } from '../schemas/index.js';
 import { isValidUUID } from '../lib/uuid.js';
+import { jobMutationRateLimit } from '../middleware/rateLimit.js';
 
 const router = Router();
+
+// WHY: unbounded POST / let one user create unlimited rows; 50 is far above real folder use.
+const MAX_COLLECTIONS_PER_USER = 50;
 
 // WHY: hard page bound — GET :id/jobs used to load every membership + full
 // job rows unbounded; large Library folders stalled Neon and the response.
@@ -32,10 +41,17 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
         id: collections.id,
         name: collections.name,
         createdAt: collections.createdAt,
-        jobCount: sql<number>`cast(count(${collectionJobs.id}) as int)`,
+        // WHY: count live jobs only. A leftover collection_jobs row for a
+        // soft-deleted job must not inflate the folder badge.
+        jobCount: sql<number>`cast(count(${contentJobs.id}) as int)`,
       })
       .from(collections)
       .leftJoin(collectionJobs, eq(collectionJobs.collectionId, collections.id))
+      .leftJoin(contentJobs, and(
+        eq(contentJobs.id, collectionJobs.jobId),
+        eq(contentJobs.userId, userId),
+        eq(contentJobs.deleted, 0),
+      ))
       .where(eq(collections.userId, userId))
       .groupBy(collections.id)
       .orderBy(collections.createdAt);
@@ -48,13 +64,25 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 // POST /api/collections — create a new named collection.
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', jobMutationRateLimit, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const userId = requireDbUser(req, res, 'Collections');
     if (!userId) return;
 
     const body = parseBody(createCollectionSchema, req.body, res);
     if (!body) return;
+
+    const [countRow] = await db!
+      .select({ total: sql<number>`cast(count(*) as int)` })
+      .from(collections)
+      .where(eq(collections.userId, userId));
+    if ((countRow?.total ?? 0) >= MAX_COLLECTIONS_PER_USER) {
+      return res.status(409).json({
+        error: `Collection limit reached (${MAX_COLLECTIONS_PER_USER}) — delete one first`,
+        code: 'COLLECTION_LIMIT',
+        retryable: false,
+      });
+    }
 
     const [row] = await db!
       .insert(collections)
@@ -195,9 +223,12 @@ router.get('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFuncti
     });
     // WHY: re-map by page order — findMany does not preserve insertion order.
     const jobMap = new Map(dbJobs.map((j) => [j.id, j]));
+    // SECURITY: assemble (normalizes outputs.partial to boolean) then strip
+    // sourceMaterial/competitorContext — same client shape as GET /jobs.
     const orderedJobs = jobIds
       .map((id) => jobMap.get(id))
-      .filter((j): j is NonNullable<typeof j> => j !== undefined);
+      .filter((j): j is NonNullable<typeof j> => j !== undefined)
+      .map((job) => toClientJob(assembleJobFromDB(job)));
 
     res.json({
       jobs: orderedJobs,
@@ -213,7 +244,7 @@ router.get('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFuncti
 });
 
 // POST /api/collections/:id/jobs — add a job to a collection.
-router.post('/:id/jobs', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/jobs', jobMutationRateLimit, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const userId = requireDbUser(req, res, 'Collections');
     if (!userId) return;

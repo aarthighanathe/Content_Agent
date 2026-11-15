@@ -12,6 +12,12 @@ router.use('/', meRouter);          // GET /me
 router.use('/', onboardingRouter);  // GET /onboarding, POST /onboarding
 router.use('/', accountRouter);     // GET /me/export, DELETE /me
 
-export { userProfiles, getUserProfile, saveUserProfile, seedUserProfilesFromDB } from './users/profileStore.js';
+export {
+  userProfiles,
+  getUserProfile,
+  saveUserProfile,
+  seedUserProfilesFromDB,
+  invalidateUserProfileCache,
+} from './users/profileStore.js';
 export type { UserProfile } from './users/profileStore.js';
 export default router;

@@ -20,7 +20,8 @@ interface QualityTrendChartProps {
 // adjacent radar-polygon vertices.
 const DIMENSION_META: Record<keyof DimensionAverages, { label: string; short: string; color: string }> = {
   hookStrength:       { label: 'Hook strength',       short: 'Hook',      color: '#F59E0B' },
-  platformCompliance: { label: 'Platform fit',         short: 'Platform',  color: '#6366F1' },
+  // WHY: short "Fit" not "Platform" — 220px radar SVG clipped "Platfo…" on phones.
+  platformCompliance: { label: 'Platform fit',         short: 'Fit',       color: '#6366F1' },
   brandVoiceMatch:    { label: 'Brand voice',          short: 'Voice',     color: '#EC4899' },
   valueDelivery:      { label: 'Value delivery',       short: 'Value',     color: '#34D399' },
   ctaClarity:         { label: 'CTA clarity',          short: 'CTA',       color: '#38BDF8' },
@@ -33,10 +34,12 @@ function polarPoint(cx: number, cy: number, radius: number, angleRad: number): [
 }
 
 function RadarChart({ averages }: { averages: DimensionAverages }) {
-  const size = 220;
+  // WHY: 240 + slightly smaller ring leaves room for mono labels inside the SVG
+  // (220 clipped edge labels like "Platform" on narrow Dashboard cards).
+  const size = 240;
   const cx = size / 2;
   const cy = size / 2;
-  const maxRadius = 82;
+  const maxRadius = 78;
   const rings = [0.25, 0.5, 0.75, 1];
   const angleStep = (Math.PI * 2) / DIMENSION_ORDER.length;
   const startAngle = -Math.PI / 2;
@@ -217,10 +220,12 @@ export function QualityTrendChart({ loading, dimensionAverages, dimensionTrend }
         title="Content fitness"
         trailing={
           !loading && hasAnyData ? (
-            <div style={{ display: 'flex', gap: 4, background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 8, padding: 2 }}>
+            <div className="dash-fitness-toggle" style={{ display: 'flex', gap: 4, background: 'var(--bg-raised)', border: '1px solid var(--rule)', borderRadius: 8, padding: 2 }}>
               {(['radar', 'trend'] as const).map((m) => (
                 <button
                   key={m}
+                  type="button"
+                  className="dash-fitness-toggle-btn"
                   onClick={() => setMode(m)}
                   disabled={m === 'trend' && !hasTrendData}
                   style={{

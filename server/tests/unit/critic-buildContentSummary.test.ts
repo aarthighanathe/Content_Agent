@@ -37,10 +37,35 @@ describe('buildContentSummary (real module)', () => {
     expect(firstLine).not.toContain('A'.repeat(121));
   });
 
-  it('carousel content caps at 8 slides even if more are provided', () => {
-    const slides = Array.from({ length: 10 }, (_, i) => ({ type: 'content', headline: `Slide ${i}`, body: 'b' }));
+  it('carousel content caps at 8 lines but keeps a trailing CTA beyond slide 8', () => {
+    const slides = [
+      ...Array.from({ length: 8 }, (_, i) => ({
+        type: 'content',
+        headline: `Slide ${i + 1}`,
+        body: 'b',
+      })),
+      { type: 'cta', headline: 'Follow for more', body: 'Save this.' },
+    ];
+    const summary = buildContentSummary(slides, 'instagram_carousel');
+    const lines = summary.split('\n');
+    expect(lines).toHaveLength(8);
+    expect(lines[0]).toContain('[CONTENT 1]');
+    expect(lines[6]).toContain('[CONTENT 7]');
+    // WHY: 9th appended CTA must reach the critic (was sliced away at index 8).
+    expect(lines[7]).toContain('[CTA 9]');
+    expect(lines[7]).toContain('Follow for more');
+    expect(summary).not.toContain('[CONTENT 8]');
+  });
+
+  it('carousel with exactly 8 slides still includes all eight', () => {
+    const slides = Array.from({ length: 8 }, (_, i) => ({
+      type: i === 7 ? 'cta' : 'content',
+      headline: `Slide ${i + 1}`,
+      body: 'b',
+    }));
     const summary = buildContentSummary(slides, 'instagram_carousel');
     expect(summary.split('\n')).toHaveLength(8);
+    expect(summary).toContain('[CTA 8]');
   });
 
   it('twitter_thread: formats each tweet with its number and truncates text to 280 chars', () => {

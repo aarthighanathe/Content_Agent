@@ -172,15 +172,32 @@ export function IdeateControls({
         .ideate-count-dropdown, .ideate-count-dropdown > div { display: flex; align-items: stretch; }
         .ideate-count-dropdown > div { flex-direction: column; }
         .ideate-count-dropdown > div > button { flex: 1; }
+        /* WHY ≤768 (not only 480): tablet chips/dropdown stayed ~30–41px. */
+        @media (max-width: 768px) {
+          .ideate-focus-input { min-height: 44px; }
+          .ideate-focus-input input { min-height: 44px; box-sizing: border-box; }
+          .ideate-platform-chips button {
+            min-height: 44px;
+            min-width: 44px;
+            padding: 10px 12px !important;
+          }
+          .ideate-count-dropdown > div > button { min-height: 44px; }
+          .ideate-controls-row15 label {
+            min-height: 44px;
+            padding: 4px 0;
+            box-sizing: border-box;
+          }
+          .ideate-generate-btn { min-height: 44px; }
+        }
         @media (max-width: 480px) {
           .ideate-controls { padding: 12px 14px !important; gap: 10px !important; border-radius: 12px !important; }
           .ideate-controls-row1 { gap: 8px !important; }
-          .ideate-focus-input input { padding: 7px 0 !important; font-size: 12.5px !important; }
+          .ideate-focus-input input { padding: 10px 0 !important; font-size: 12.5px !important; }
           .ideate-controls-row2 { gap: 8px !important; }
           .ideate-platform-label { display: none !important; }
-          .ideate-platform-chips { gap: 5px !important; }
-          .ideate-platform-chips button { padding: 4px 8px !important; font-size: 10.5px !important; }
-          .ideate-generate-btn { width: 100%; padding: 8px 16px !important; font-size: 12.5px !important; }
+          .ideate-platform-chips { gap: 6px !important; }
+          .ideate-platform-chips button { font-size: 12px !important; }
+          .ideate-generate-btn { width: 100%; padding: 10px 16px !important; font-size: 13px !important; }
         }
       `}</style>
     </div>

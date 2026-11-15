@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GripVertical, CheckCircle2, Sparkles, Calendar } from 'lucide-react';
 import { platformMeta } from '../../lib/platformMeta';
 import { SkeletonBlock } from '../../components/SkeletonCard';
@@ -27,18 +27,33 @@ interface CalendarSidebarProps {
   /** Mobile-only: whether the drawer sheet is open on ≤640px. */
   mobileOpen: boolean;
   onMobileClose: () => void;
+  /** Disable drag/schedule while a schedule mutation is in flight. */
+  isMutating?: boolean;
 }
 
 export function CalendarSidebar({
   open, loading, isError, jobs, unscheduled, hitFetchCap, dragJobId,
   onDragStart, onDragEnd, onCreateNew,
   viewYear, viewMonth, scheduledDays, onSchedule,
-  mobileOpen, onMobileClose,
+  mobileOpen, onMobileClose, isMutating = false,
 }: CalendarSidebarProps) {
   // WHY: local state (#12): the "which card's picker is open" state belongs to the
   // sidebar because it's purely a UI concern — the parent only needs to know about
   // confirmed schedule allocations, not which picker is currently open.
   const [pickerJobId, setPickerJobId] = useState<string | null>(null);
+  // WHY: only mount library UI in one surface — desktop + mobile both used to
+  // render `{inner}`, so two SchedulePickers each ran useFocusTrap + auto-focus.
+  const [isMobileViewport, setIsMobileViewport] = useState(() => (
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches
+  ));
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const onChange = (): void => setIsMobileViewport(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   function handleSchedule(dateKey: string, jobId: string) {
     onSchedule(dateKey, jobId);
@@ -96,12 +111,13 @@ export function CalendarSidebar({
             <div key={job.id} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               <div
                 className={`sc-card${dragJobId === job.id ? ' dragging' : ''}`}
-                draggable
-                onDragStart={() => onDragStart(job.id)}
+                draggable={!isMutating}
+                onDragStart={() => { if (!isMutating) onDragStart(job.id); }}
                 onDragEnd={onDragEnd}
                 // WHY: aria-label on the card (#12): screen readers need to announce
                 // the card's purpose since its visual affordance is a grip icon.
                 aria-label={`${job.topic} — ${cfg.label}. Draggable. Use the Schedule button to pick a date with keyboard.`}
+                style={isMutating ? { opacity: 0.65 } : undefined}
               >
                 <GripVertical size={13} style={{ color: 'var(--text-muted)', marginTop: 2, flexShrink: 0 }} aria-hidden />
                 {/* WHY: a platform-colored thumbnail, not raw content text: GET /jobs
@@ -137,12 +153,15 @@ export function CalendarSidebar({
                     button stops the card from being the only scheduling path — keyboard and
                     touch users can now access scheduling without drag-and-drop. */}
                 <button
+                  type="button"
                   className="sc-schedule-btn"
                   aria-label={`Schedule "${job.topic}" — pick a date`}
                   aria-expanded={isPickerOpen}
                   aria-haspopup="dialog"
+                  disabled={isMutating}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (isMutating) return;
                     setPickerJobId(isPickerOpen ? null : job.id);
                   }}
                   title="Pick a date to schedule this"
@@ -182,8 +201,14 @@ export function CalendarSidebar({
   return (
     <>
       {/* Desktop/tablet sidebar (unchanged behaviour — slide in/out with sidebarOpen) */}
-      <div className={`sc-sidebar${open ? '' : ' closed'}`}>
-        {inner}
+      {/* WHY: width:0 alone still leaves Schedule… buttons in the tab order;
+          inert + aria-hidden remove them from focus and the a11y tree when collapsed. */}
+      <div
+        className={`sc-sidebar${open ? '' : ' closed'}`}
+        aria-hidden={!open}
+        {...(!open ? { inert: true } : {})}
+      >
+        {!isMobileViewport ? inner : null}
       </div>
 
       {/* Mobile bottom-sheet drawer (#12): on ≤640px the sidebar collapses to width:0
@@ -191,11 +216,15 @@ export function CalendarSidebar({
           unreachable. Instead of fighting the CSS, we render a separate sheet element
           that slides up from the bottom of the screen when toggled, overlaying the
           calendar grid. This is the primary scheduling path on touch devices. */}
+      {/* WHY: inert/aria-hidden when closed — sheet stays display:flex + translateY(100%)
+          on ≤640px, so without this its Schedule… buttons stay tabbable (Pass-9 H3). */}
       <div
         className={`sc-mobile-sheet${mobileOpen ? ' open' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label="Content library — pick content to schedule"
+        aria-hidden={!mobileOpen}
+        {...(!mobileOpen ? { inert: true } : {})}
       >
         <div className="sc-mobile-sheet-handle" />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 12px', borderBottom: '1px solid var(--rule)' }}>
@@ -211,7 +240,7 @@ export function CalendarSidebar({
             ✕
           </button>
         </div>
-        {inner}
+        {isMobileViewport ? inner : null}
       </div>
 
       {mobileOpen && (

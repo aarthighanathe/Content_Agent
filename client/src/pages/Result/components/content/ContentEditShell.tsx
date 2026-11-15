@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { X, Save } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Button } from '../../../../components/Button';
@@ -31,11 +31,16 @@ interface ContentEditShellProps {
 export function ContentEditShell({ label, onClose, onSave, children }: ContentEditShellProps) {
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
+  // WHY: sync gate — disabled={saving} only flips after re-render; a second click
+  // could hit content_mutation_busy before the first await completed.
+  const savingRef = useRef(false);
 
   // WHY: the try/catch lives here, not in the 3 callers: a rejected save must keep the
   // form open with an inline error and a pending state, and doing it once covers
   // every platform.
   async function handleSave() {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError('');
     try {
@@ -44,6 +49,7 @@ export function ContentEditShell({ label, onClose, onSave, children }: ContentEd
     } catch {
       setError('Failed to save — please try again.');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }

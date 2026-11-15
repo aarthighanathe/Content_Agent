@@ -50,7 +50,9 @@ export interface ScheduledPostListResponse {
 export interface CreateScheduledPostInput {
   jobId: string;
   scheduledDate: string;
-  publishPlatform?: PublishPlatform;
+  // WHY: null clears auto-publish. Omit (undefined) lets the server keep the
+  // stored platform when this client does not have the row.
+  publishPlatform?: PublishPlatform | null;
   // WHY: sent alongside scheduledDate: scheduledDate is built from the
   // browser's LOCAL calendar day (calendarHelpers.ts), but the server used to
   // interpret it as a UTC calendar day when computing the auto-publish time —

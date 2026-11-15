@@ -21,7 +21,8 @@ interface Props {
   platform: CompetitorPlatform | '';
   industry: string;
   navigate: NavigateFunction;
-  profileQuery: Pick<UseQueryResult<Profile>, 'isLoading' | 'isError' | 'data'>;
+  // WHY: isPending (not isLoading) — gated profile query must not flash empty benchmark.
+  profileQuery: Pick<UseQueryResult<Profile>, 'isPending' | 'isError' | 'data'>;
 }
 
 export function CompetitorResults({
@@ -120,7 +121,7 @@ export function CompetitorResults({
                   in an otherwise 2-up grid, so spanning avoids leaving it stranded
                   alone in a half-empty row. */}
               <BenchmarkCard
-                isLoading={profileQuery.isLoading}
+                isLoading={profileQuery.isPending}
                 isError={profileQuery.isError}
                 totalPosts={profileQuery.data?.stats?.totalPosts}
                 dimensionAverages={profileQuery.data?.stats?.dimensionAverages}

@@ -66,7 +66,10 @@ export function IGCarouselPreview({ slides, colors, brandName, handle, currentSl
     const el = wrapRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const fit = (): void => {
-      const w = el.clientWidth;
+      // WHY: parent layout width, not only stage.clientWidth — before min-width:0
+      // the stage reported the slide's 470px and never converged on narrow columns.
+      const parentW = el.parentElement?.clientWidth ?? 0;
+      const w = Math.min(el.clientWidth || parentW, parentW || el.clientWidth);
       const h = el.clientHeight;
       if (w <= 0) return;
       const maxW = Math.min(IG_POST_W, Math.floor(w));

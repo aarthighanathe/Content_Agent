@@ -9,10 +9,21 @@ import { AuthRequest } from '../../middleware/auth.js';
 import { db } from '../../db/index.js';
 import { contentJobs, contentOutputs } from '../../db/schema.js';
 import { eq, and, sql, ilike, desc, asc, inArray } from 'drizzle-orm';
-import { jobsMemory, assembleJobFromDB, isValidUUID, type MemoryJob, type AssembledJob, requireAuthUserId } from './ownership.js';
+import {
+  jobsMemory,
+  getJobFromStore,
+  assembleJobFromDB,
+  toClientJob,
+  isValidUUID,
+  type MemoryJob,
+  type AssembledJob,
+  requireAuthUserId,
+} from './ownership.js';
 import { VALID_PLATFORMS } from '../../schemas/index.js';
 import { readOutputs } from '../content/shared.js';
 import { getLatestQualityScore } from '../../lib/qualityScore.js';
+import { isJobInFlightStatus } from '../../lib/jobInFlight.js';
+import { isLiveFailedResult } from '../../lib/pipelineRepersist.js';
 
 const router = Router({ mergeParams: true });
 
@@ -75,7 +86,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // WHY: skip the jobsMemory scan when durable in-flight DB rows already
     // cover pending work (create persists pending before setJobInStore) —
     // avoids O(all users' jobsMemory) on every Library page-1 fetch.
-    let runningMemJobs: MemoryJob[] = [];
+    const runningMemJobs: MemoryJob[] = [];
     const wantMemMerge = page === 1 && !search && !platformFilter && !tagFilter;
 
     if (db && isValidUUID(userId)) {
@@ -129,29 +140,40 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         }
 
         // WHY: two-step for sort=score: qualityScore lives on contentOutputs
-        // (type='critique'), not on contentJobs — a LEFT JOIN subquery fetches
-        // the per-job max score for ordering, then a relational findMany loads
+        // (final / critique), not on contentJobs — a LEFT JOIN subquery fetches
+        // the per-job score for ordering, then a relational findMany loads
         // the full output data for those specific IDs. This is the fix for
         // FUTURE_FEATURES.md's "sort=score not a true global sort" — it was
         // previously an in-memory re-sort of whatever page was already fetched.
-        // idx_content_outputs_job_type on (jobId, outputType) already covers the
-        // subquery's WHERE + GROUP BY — no new migration needed.
+        // idx_content_outputs_job_type / type_job cover the subquery filters.
         let assembledDbJobs: ReturnType<typeof assembleJobFromDB>[];
         if (sort === 'score') {
           // WHY: the innerJoin on contentJobs + userId WHERE: without it the score
-          // aggregate scanned EVERY critique row in the shared content_outputs table
-          // (all users), then filtered the page later. Joining to the caller's own
-          // jobs and filtering by userId + deleted in the subquery itself restricts
-          // the aggregate to this user's data (perf audit).
+          // aggregate scanned EVERY critique/final row in the shared content_outputs
+          // table (all users), then filtered the page later. Joining to the caller's
+          // own jobs and filtering by userId + deleted in the subquery itself
+          // restricts the aggregate to this user's data (perf audit).
+          // WHY: prefer latest final.qualityScore, else latest critique — same
+          // contract as getLatestQualityScore (CORR-004). MAX(critique) alone
+          // sorted by peak retry score and ignored the delivered final.
           const scoreSubq = db
             .select({
               jobId: contentOutputs.jobId,
-              score: sql<number>`MAX(COALESCE(${contentOutputs.qualityScore}, 0))`.as('score'),
+              score: sql<number>`COALESCE(
+                MAX(CASE WHEN ${contentOutputs.outputType} = 'final' THEN ${contentOutputs.qualityScore} END),
+                (
+                  array_agg(${contentOutputs.qualityScore} ORDER BY ${contentOutputs.createdAt} DESC)
+                  FILTER (
+                    WHERE ${contentOutputs.outputType} = 'critique'
+                    AND ${contentOutputs.qualityScore} IS NOT NULL
+                  )
+                )[1]
+              )`.as('score'),
             })
             .from(contentOutputs)
             .innerJoin(contentJobs, eq(contentJobs.id, contentOutputs.jobId))
             .where(and(
-              eq(contentOutputs.outputType, 'critique'),
+              inArray(contentOutputs.outputType, ['final', 'critique']),
               eq(contentJobs.userId, userId),
               eq(contentJobs.deleted, 0),
             ))
@@ -203,6 +225,17 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           });
           assembledDbJobs = dbJobs.map(assembleJobFromDB);
         }
+
+        // WHY: overlay memory-failed onto DB in-flight rows during
+        // backgroundFailedRepersist — Library must not show pending while Result
+        // already shows failed.
+        assembledDbJobs = assembledDbJobs.map((job) => {
+          const mem = getJobFromStore(job.id) || jobsMemory.get(job.id);
+          if (mem && isLiveFailedResult(mem) && isJobInFlightStatus(job.status)) {
+            return { ...job, status: 'failed' };
+          }
+          return job;
+        });
 
         let finalJobs: Array<MemoryJob | AssembledJob> = assembledDbJobs;
         let finalTotal = totalCount;
@@ -269,7 +302,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         }
 
         return res.json({
-          jobs: finalJobs,
+          // SECURITY: assembled rows still carry sourceMaterial for workers;
+          // this response must not.
+          jobs: finalJobs.map((job) => toClientJob(job)),
           total: finalTotal,
           page,
           totalPages: Math.ceil(finalTotal / limit),
@@ -277,12 +312,19 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           tagCounts,
         });
       } catch (dbErr) {
-        console.error('[DB] GET /jobs failed, falling back to memory:', dbErr);
+        // WHY: never return process-local jobsMemory as the Library list on a
+        // Neon blip — that looked like a full (tiny) library and hid durable rows.
+        console.error('[DB] GET /jobs failed:', dbErr);
+        return res.status(503).json({
+          error: 'Service temporarily unavailable',
+          code: 'DB_UNAVAILABLE',
+          retryable: true,
+        });
       }
     }
 
-    // WHY: single-pass collect — memory-only fallback must not allocate an
-    // array of every cross-user job before filtering by userId.
+    // WHY: single-pass collect — no-DB / local-dev memory path only (db unset).
+    // Must not allocate an array of every cross-user job before filtering.
     let allJobs: MemoryJob[] = [];
     for (const j of jobsMemory.values()) {
       if (j.deleted !== 1 && j.userId === userId) allJobs.push(j);
@@ -319,7 +361,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const total = allJobs.length;
     const jobs = allJobs.slice((page - 1) * limit, page * limit);
     return res.json({
-      jobs,
+      jobs: jobs.map((job) => toClientJob(job)),
       total,
       page,
       totalPages: Math.ceil(total / limit),

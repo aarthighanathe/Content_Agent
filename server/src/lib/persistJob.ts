@@ -7,6 +7,7 @@ import { logger } from './logger.js';
 // persistJob ↔ pipeline cycle (madge); types live here without the runtime edge.
 import type { PersistedJobResult, PipelineOutput } from './pipelineTypes.js';
 import { VALID_PLATFORMS, VALID_TONES } from '../schemas/jobs.js';
+import { contentForPersist } from './carouselPersist.js';
 import { isValidUUID } from './uuid.js';
 
 /** Thrown when persist is refused because the durable row is soft-deleted (M3). */
@@ -55,6 +56,18 @@ function isDBOutputType(o: PipelineOutput): o is PipelineOutput & { outputType: 
   return o.outputType === 'research' || o.outputType === 'draft' || o.outputType === 'critique' || o.outputType === 'final' || o.outputType === 'prediction';
 }
 
+// WHY: caps on write: sourceMaterial is untrusted article text and competitorContext is
+// client-influenced; bound DB growth and later prompt size when Regenerate rehydrates them.
+// 6000 > buildSourceMaterial's ~2500-char body plus its header lines.
+const MAX_PERSISTED_SOURCE_MATERIAL = 6000;
+// NOTE: 2000, not the 300 client-string cap: create.ts derives server-side context from up to
+// 4 stored gap/angle lines, which can exceed 300.
+const MAX_PERSISTED_COMPETITOR_CONTEXT = 2000;
+
+function capText(value: unknown, max: number): string | null {
+  return typeof value === 'string' && value.trim() ? value.slice(0, max) : null;
+}
+
 /**
  * Insert a durable `pending` row at job create time (CORR-001) so a mid-run
  * crash/redeploy leaves a Library-visible row instead of a permanent 404.
@@ -74,6 +87,8 @@ export async function insertPendingJobRow(job: {
   sourceUrl?: string | null;
   templateId?: string | null;
   paletteId?: string | null;
+  sourceMaterial?: string | null;
+  competitorContext?: string | null;
 }): Promise<boolean> {
   if (!db || !isValidUUID(job.userId)) return false;
   const tone = job.tone ?? '';
@@ -101,6 +116,8 @@ export async function insertPendingJobRow(job: {
       sourceUrl: job.sourceUrl || null,
       templateId: job.templateId || null,
       paletteId: job.paletteId || null,
+      sourceMaterial: capText(job.sourceMaterial, MAX_PERSISTED_SOURCE_MATERIAL),
+      competitorContext: capText(job.competitorContext, MAX_PERSISTED_COMPETITOR_CONTEXT),
       status: 'pending',
       retryCount: 0,
       deleted: 0,
@@ -181,6 +198,7 @@ export function clearJobStageThrottle(jobId: string): void {
 // WHY: re-exported: workers/index historically import sweeps from persistJob.js.
 export {
   markJobFailedIfInFlight,
+  markJobTerminalFailed,
   sweepStaleInFlightJobs,
   sweepStalePublishingPosts,
   startStaleJobSweep,
@@ -267,6 +285,8 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
           // template a carousel was created with.
           templateId: jobResult.templateId || null,
           paletteId: jobResult.paletteId || null,
+          sourceMaterial: capText(jobResult.sourceMaterial, MAX_PERSISTED_SOURCE_MATERIAL),
+          competitorContext: capText(jobResult.competitorContext, MAX_PERSISTED_COMPETITOR_CONTEXT),
           status: jobResult.status,
           retryCount: jobResult.retryCount || 0,
           // WHY: omit forcing deleted:0 from jobResult: a stale in-memory
@@ -288,6 +308,13 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
             ...(jobResult.templateId ? { templateId: jobResult.templateId } : {}),
             ...(jobResult.paletteId ? { paletteId: jobResult.paletteId } : {}),
             ...(jobResult.sourceUrl ? { sourceUrl: jobResult.sourceUrl } : {}),
+            // WHY: conditional like the fields above — a queue payload lacking these must not null a durable value.
+            ...(capText(jobResult.sourceMaterial, MAX_PERSISTED_SOURCE_MATERIAL)
+              ? { sourceMaterial: capText(jobResult.sourceMaterial, MAX_PERSISTED_SOURCE_MATERIAL) }
+              : {}),
+            ...(capText(jobResult.competitorContext, MAX_PERSISTED_COMPETITOR_CONTEXT)
+              ? { competitorContext: capText(jobResult.competitorContext, MAX_PERSISTED_COMPETITOR_CONTEXT) }
+              : {}),
             ...(jobResult.sourceJobId ? { sourceJobId: jobResult.sourceJobId } : {}),
             ...(jobResult.sourcePlatform && isValidPlatform(jobResult.sourcePlatform)
               ? { sourcePlatform: jobResult.sourcePlatform }
@@ -339,7 +366,7 @@ export async function persistJobToDB(jobResult: PersistedJobResult): Promise<voi
               jobId: jobResult.id,
               agentName: o.agentName,
               outputType: o.outputType,
-              content: o.content,
+              content: contentForPersist(jobResult.platform, o.outputType, o.content),
               qualityScore: o.qualityScore ?? null,
               partial: o.partial ? 1 : 0,
             }))

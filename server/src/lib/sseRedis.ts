@@ -64,7 +64,7 @@ export function startSSERedisSubscriber(
   }
 
   try {
-    const sub = base.duplicate();
+    const sub = base.duplicate({ maxRetriesPerRequest: null });
     _subscriber = sub;
 
     sub.on('error', (err: Error) => {

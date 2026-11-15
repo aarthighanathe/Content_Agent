@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useAuth } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { Copy, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '../../../../components/Button';
@@ -26,7 +27,10 @@ function canInsertInto(platform: string | undefined): boolean {
 }
 
 export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHashtags }: Props) {
+  const { isLoaded: authLoaded, isSignedIn, userId } = useAuth();
   const [inserting, setInserting] = useState(false);
+  // WHY: ref + inserting: inserting alone races a second click before re-render (Create pattern).
+  const insertingRef = useRef(false);
   const [insertMsg, setInsertMsg] = useState('');
   const [insertError, setInsertError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -36,14 +40,17 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
   // WHY: React Query (not mount useEffect + useState): server state needs cache/
   // dedupe across remounts of the drawer; remount previously re-hit the LLM.
   const hashtagContent = content as unknown as PlatformContent | PlatformContent[] | undefined;
+  // WHY: require jobData.id — after account switch jobData is cleared until
+  // ownership revalidation succeeds; do not research against a stale body.
+  const jobReady = Boolean(jobData?.id && jobData.topic && jobData.platform);
   const hashtagsQuery = useQuery({
-    queryKey: ['hashtags', jobData?.id, jobData?.topic, jobData?.platform],
+    queryKey: ['hashtags', userId ?? 'anon', jobData?.id, jobData?.topic, jobData?.platform],
     queryFn: () => researchHashtags({
       topic: jobData!.topic,
       platform: jobData!.platform,
       content: hashtagContent,
     }),
-    enabled: Boolean(jobData?.id && jobData.topic && jobData.platform),
+    enabled: authLoaded && isSignedIn && jobReady,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -53,11 +60,12 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
     || (hashtagsQuery.isError ? 'Failed to research hashtags — please try again.' : '');
 
   async function handleInsertAll(): Promise<void> {
-    if (!data || !onInsertHashtags) return;
+    if (!data || !onInsertHashtags || inserting || insertingRef.current) return;
     const tags = [...(data.broad || []), ...(data.niche || []), ...(data.branded || [])]
       .map((t) => t.trim())
       .filter(Boolean);
     if (tags.length === 0) return;
+    insertingRef.current = true;
     setInserting(true);
     setInsertMsg('');
     setInsertError('');
@@ -70,6 +78,7 @@ export function HashtagPanel({ jobData, content, onClose: _onClose, onInsertHash
       setInsertMsg('');
       setInsertError('Could not save hashtags — please try again.');
     } finally {
+      insertingRef.current = false;
       if (isMountedRef.current) setInserting(false);
     }
   }

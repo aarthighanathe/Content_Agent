@@ -1,6 +1,7 @@
-import { useMemo, useState, useRef } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
 import { Lightbulb } from 'lucide-react';
 import { generateIdeas, getCompetitorHistory, regenerateIdea } from '../api';
 import { getSubmitError } from '../lib/errorMessages';
@@ -14,6 +15,7 @@ import { SavedIdeasSection } from './Ideate/SavedIdeasSection';
 
 export default function IdeatePage() {
   const navigate = useNavigate();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   // WHY: store instead of local state: ideas must survive navigating to /create and back,
   // AND a hard refresh — the store persists ideatedIdeas to localStorage (store.ts) so the
   // list only changes when the user explicitly regenerates.
@@ -23,6 +25,8 @@ export default function IdeatePage() {
   const savedIdeas = useAppStore((s) => s.savedIdeas);
   const saveIdea = useAppStore((s) => s.saveIdea);
   const unsaveIdea = useAppStore((s) => s.unsaveIdea);
+  // WHY: gate empty state — before setActiveUser, ideas is [] and would flash "No ideas yet"
+  const activeUserId = useAppStore((s) => s.activeUserId);
 
   const [loading, setLoading] = useState(false);
   const submittingRef = useRef(false);
@@ -39,27 +43,55 @@ export default function IdeatePage() {
   // only on that specific card, not the entire list.
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
+  // WHY: mid-request account switch used to skip setLoading(false) (gated on user
+  // match) and leave the spinner stuck for the new user. Also clear competitor-gap
+  // selection — analysis ids belong to the previous account's history.
+  useEffect(() => {
+    setLoading(false);
+    submittingRef.current = false;
+    setError('');
+    setRegeneratingId(null);
+    setUseCompetitorGaps(false);
+    setCompetitorAnalysisId(undefined);
+    setFocusTopic('');
+  }, [activeUserId]);
+
   // WHY: reuse C1's history endpoint: checks if the user has at least one saved analysis.
   // IdeateControls only shows the competitor-gap toggle when this list is non-empty.
-  const competitorHistoryQuery = useQuery({ queryKey: ['competitor', 'history'], queryFn: getCompetitorHistory });
+  const competitorHistoryQuery = useQuery({
+    queryKey: ['competitor', 'history'],
+    queryFn: getCompetitorHistory,
+    // WHY: gate like Create/Library — avoid an unauthenticated fetch before Clerk hydrates.
+    enabled: authLoaded && isSignedIn,
+  });
   const competitorAnalyses = competitorHistoryQuery.data?.analyses || [];
 
   const visibleIdeas = useMemo(
     () => (platformFilter ? ideas.filter((idea) => idea.platform === platformFilter) : ideas),
     [ideas, platformFilter]
   );
-  const savedTitles = useMemo(() => new Set(savedIdeas.map((s) => s.title)), [savedIdeas]);
+  // WHY: key by id, not title — two ideas can share a title after regenerate.
+  const savedIds = useMemo(
+    () => new Set(savedIdeas.map((s) => s.id).filter((id): id is string => Boolean(id))),
+    [savedIdeas],
+  );
 
   async function fetchIdeas() {
-    if (loading || submittingRef.current) return;
+    // WHY: regeneratingId — a full regenerate must not race a single-card regenerate
+    // (which maps by id against the live store) and wipe/replace mid-flight.
+    if (loading || submittingRef.current || regeneratingId !== null) return;
     submittingRef.current = true;
     setLoading(true);
     setError('');
+    // WHY: capture at start — drop the result if Clerk switches accounts before settle.
+    const requestUserId = useAppStore.getState().activeUserId;
     try {
       const activeAnalysisId = useCompetitorGaps ? competitorAnalysisId : undefined;
       const { ideas: newIdeas } = await generateIdeas(count, focusTopic.trim() || undefined, activeAnalysisId);
-      setIdeas(newIdeas);
+      if (useAppStore.getState().activeUserId !== requestUserId) return;
+      setIdeas(newIdeas, { forUserId: requestUserId });
     } catch (err) {
+      if (useAppStore.getState().activeUserId !== requestUserId) return;
       // WHY: context-aware copy (#40): when ideas already exist and regeneration fails,
       // a generic error banner reads ambiguously — the user can't tell whether the old
       // ideas are still actionable or have been cleared. The fallback explicitly
@@ -69,9 +101,11 @@ export default function IdeatePage() {
         ? "Couldn't generate new ideas — here are your last ones. Try again when ready."
         : 'Failed to generate ideas — please try again.';
       setError(getSubmitError(err, fallback).message);
+    } finally {
+      // WHY: always clear — gating on user match left loading stuck after a switch.
+      setLoading(false);
+      submittingRef.current = false;
     }
-    setLoading(false);
-    submittingRef.current = false;
   }
 
   function handleCreate(idea: IdeatedIdea) {
@@ -80,15 +114,19 @@ export default function IdeatePage() {
 
   // WHY: by id, read from the live store: index-based removal raced with in-flight regenerates
   function handleDismiss(id: string | undefined): void {
-    setIdeas(useAppStore.getState().ideatedIdeas.filter((idea) => idea.id !== id));
+    setIdeas(
+      useAppStore.getState().ideatedIdeas.filter((idea) => idea.id !== id),
+      { preserveGeneratedAt: true },
+    );
   }
 
   // WHY: regenerate in place via map: replacing the idea at `index` without
   // filtering/splicing preserves stable indices for other cards. This prevents
   // mid-flight index shifts that would confuse the UI during regeneration.
   async function handleRegenerateOne(id: string | undefined): Promise<void> {
-    if (regeneratingId !== null || !id) return;
+    if (regeneratingId !== null || loading || submittingRef.current || !id) return;
     setRegeneratingId(id);
+    const requestUserId = useAppStore.getState().activeUserId;
     try {
       // WHY: getState() for exclude titles + map: `ideas` from the render closure can be
       // stale if another regenerate finished between click and this await — reading the
@@ -97,16 +135,26 @@ export default function IdeatePage() {
       const excludeTitles = currentIdeas.map((i) => i.title);
       const activeAnalysisId = useCompetitorGaps ? competitorAnalysisId : undefined;
       const newIdea = await regenerateIdea(focusTopic.trim() || undefined, excludeTitles, activeAnalysisId);
-      setIdeas(useAppStore.getState().ideatedIdeas.map((idea) => (idea.id === id ? { ...newIdea, id } : idea)));
+      setIdeas(
+        useAppStore.getState().ideatedIdeas.map((idea) => (idea.id === id ? { ...newIdea, id } : idea)),
+        { preserveGeneratedAt: true, forUserId: requestUserId },
+      );
     } catch (err) {
-      setError(getSubmitError(err, 'Failed to regenerate that idea — please try again.').message);
+      if (useAppStore.getState().activeUserId === requestUserId) {
+        setError(getSubmitError(err, 'Failed to regenerate that idea — please try again.').message);
+      }
     }
     setRegeneratingId(null);
   }
 
-  function handleToggleSave(idea: IdeatedIdea) {
-    if (savedTitles.has(idea.title)) {
-      unsaveIdea(idea.title);
+  function handleToggleSave(idea: IdeatedIdea): void {
+    const id = idea.id;
+    if (!id) {
+      saveIdea(idea);
+      return;
+    }
+    if (savedIds.has(id)) {
+      unsaveIdea(id);
     } else {
       saveIdea(idea);
     }
@@ -200,19 +248,10 @@ export default function IdeatePage() {
             const stableIndex = ideas.indexOf(idea);
             return (
               <IdeaCard
-                // WHY: idea.title, not stableIndex: React key must identify the
-                // idea itself, not its current array position — dismissing or
-                // regenerating an earlier card shifts every later idea's index,
-                // which would make React reuse a later card's DOM node (and its
-                // local `copied` clipboard-feedback state in IdeaCard) for what
-                // is now a different idea. Titles are unique within one
-                // generated batch (already relied on elsewhere in this file —
-                // see savedTitles/handleToggleSave), so they're a stable identity
-                // stableIndex alone can't provide.
-                key={idea.title}
+                key={idea.id ?? idea.title}
                 idea={idea}
                 index={stableIndex}
-                saved={savedTitles.has(idea.title)}
+                saved={Boolean(idea.id && savedIds.has(idea.id))}
                 onUse={handleCreate}
                 onDismiss={() => handleDismiss(idea.id)}
                 onToggleSave={handleToggleSave}
@@ -224,7 +263,7 @@ export default function IdeatePage() {
         </div>
       )}
 
-      {!loading && ideas.length === 0 && (
+      {!loading && activeUserId && ideas.length === 0 && (
         <div style={{
           background: 'var(--bg-raised)', border: '1px dashed var(--rule)',
           borderRadius: 16, padding: '64px 24px', textAlign: 'center',

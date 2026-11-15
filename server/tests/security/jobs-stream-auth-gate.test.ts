@@ -65,6 +65,7 @@ vi.mock('../../src/middleware/rateLimit.js', () => ({
   jobMutationRateLimit: [passThrough, passThrough],
   exportRateLimit: passThrough,
   streamTokenRateLimit: passThrough,
+  sseStreamRateLimit: [passThrough, passThrough],
 }));
 
 // verifySSEToken (used by GET /:jobId/stream) hits Redis directly; stub it so

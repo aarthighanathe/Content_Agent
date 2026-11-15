@@ -1,7 +1,7 @@
-﻿import { useState, useRef } from 'react';
+﻿import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
+import { useAuth } from '@clerk/clerk-react';
 import { analyzeCompetitor, getCompetitorHistory, getProfile } from '../api';
 import type {
   AnalyzeCompetitorResponse,
@@ -9,10 +9,12 @@ import type {
   CompetitorPlatform,
 } from '../types/social';
 import { Search, AlertCircle } from 'lucide-react';
+import { getSubmitError } from '../lib/errorMessages';
 import { CompetitorSkeleton } from './Competitor/CompetitorSkeleton';
 import { CompetitorResults } from './Competitor/CompetitorResults';
 import { HistoryDropdown } from './Competitor/HistoryDropdown';
 import { PlatformSelector } from './Competitor/PlatformSelector';
+import { displayCompetitorHandle } from './Competitor/platforms';
 
 // WHY: no postingFrequency/avgEngagementTier: the prompt (server/src/routes/content/competitor.ts)
 // explicitly refuses to fabricate exact posting-frequency or engagement-rate numbers, since
@@ -23,6 +25,7 @@ import { PlatformSelector } from './Competitor/PlatformSelector';
 export default function CompetitorPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { isLoaded: authLoaded, isSignedIn, userId } = useAuth();
   const [handle, setHandle]       = useState('');
   const [platform, setPlatform]   = useState<CompetitorPlatform | ''>('');
   const [industry, setIndustry]   = useState('');
@@ -35,15 +38,27 @@ export default function CompetitorPage() {
   // dimensionAverages) to power the "How You Compare" card below — sharing the query
   // key means visiting Dashboard or Brand first (the common path) makes this page's
   // fetch a cache hit instead of a redundant network call.
-  const profileQuery = useQuery({ queryKey: ['dashboard', 'profile'], queryFn: getProfile });
+  // WHY: auth gate like Create/Library — skip before Clerk JWT is ready.
+  const profileQuery = useQuery({
+    queryKey: ['dashboard', 'profile'],
+    queryFn: getProfile,
+    enabled: authLoaded && isSignedIn,
+  });
 
   // WHY: React Query for history: per task guidance for client-side server-state fetches.
   // Selecting a past entry reloads it client-side (setResult directly) without
   // re-calling the analyze endpoint.
-  const historyQuery = useQuery({ queryKey: ['competitor', 'history'], queryFn: getCompetitorHistory });
+  const historyQuery = useQuery({
+    queryKey: ['competitor', 'history'],
+    queryFn: getCompetitorHistory,
+    enabled: authLoaded && isSignedIn,
+  });
 
   function handleSelectHistory(item: CompetitorAnalysisHistoryItem) {
-    setHandle(item.handle);
+    // WHY: displayCompetitorHandle: legacy rows may store a full profile URL —
+    // rehydrate the form with the vanity slug so Analyze / Create handoffs stay clean.
+    const handleSlug = displayCompetitorHandle(item.handle);
+    setHandle(handleSlug);
     setPlatform(
       item.platform === 'linkedin' || item.platform === 'twitter' || item.platform === 'instagram'
         ? item.platform
@@ -52,7 +67,7 @@ export default function CompetitorPage() {
     setIndustry(item.industry || '');
     setError('');
     setResult({
-      handle: item.handle,
+      handle: handleSlug,
       platform: item.platform === 'linkedin' || item.platform === 'twitter' || item.platform === 'instagram'
         ? item.platform
         : undefined,
@@ -64,6 +79,22 @@ export default function CompetitorPage() {
   // WHY: ref + loading: loading alone races a second click before re-render
   // (same pattern as Create/Ideate/Repurpose).
   const submittingRef = useRef(false);
+  const userIdRef = useRef(userId);
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
+
+  // WHY: analysis is local state — without a clear, account switch left User A's
+  // result painted under User B until a new analyze ran.
+  useEffect(() => {
+    setResult(null);
+    setError('');
+    setHandle('');
+    setPlatform('');
+    setIndustry('');
+    setLoading(false);
+    submittingRef.current = false;
+  }, [userId]);
 
   async function handleAnalyze() {
     if (loading || submittingRef.current) return;
@@ -73,12 +104,15 @@ export default function CompetitorPage() {
     setLoading(true);
     setError('');
     setResult(null);
+    // WHY: drop late setResult if Clerk switches accounts before settle.
+    const requestUserId = userIdRef.current;
     try {
       const res = await analyzeCompetitor({
         handle: trimmed,
         platform,
         industry: industry.trim() || undefined,
       });
+      if (userIdRef.current !== requestUserId) return;
       setResult(res);
       // WHY: invalidate (not a manual cache write): the persisted row's exact
       // createdAt/id come from the server's best-effort insert, which this
@@ -87,10 +121,10 @@ export default function CompetitorPage() {
       // reconstructing a matching history row shape by hand.
       queryClient.invalidateQueries({ queryKey: ['competitor', 'history'] });
     } catch (e: unknown) {
-      // WHY: axios.isAxiosError: narrows `unknown` to AxiosError before reading the
-      // server's { error: string } response body, instead of trusting an `any` catch.
-      const message = axios.isAxiosError<{ error?: string }>(e) ? e.response?.data?.error : undefined;
-      setError(message || 'Analysis failed. Please try again.');
+      if (userIdRef.current !== requestUserId) return;
+      // WHY: getSubmitError: maps RATE_LIMITED / VALIDATION_ERROR to actionable copy
+      // (same path Create/Ideate use) instead of only reading `.error`.
+      setError(getSubmitError(e, 'Analysis failed. Please try again.').message);
     } finally {
       submittingRef.current = false;
       setLoading(false);
@@ -111,7 +145,9 @@ export default function CompetitorPage() {
           </p>
         </div>
         <HistoryDropdown
-          isLoading={historyQuery.isLoading}
+          // WHY: isPending, not isLoading: Clerk-gated query would vanish the
+          // dropdown (isLoading false + empty items → return null).
+          isLoading={historyQuery.isPending}
           items={historyQuery.data?.analyses || []}
           onSelect={handleSelectHistory}
         />

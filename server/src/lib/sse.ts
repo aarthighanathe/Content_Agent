@@ -23,6 +23,8 @@ const SSE_CLOSE_AFTER_TERMINAL_MS = 2_000;
 
 class SSEManager {
   private clients: Map<string, SSEClient[]> = new Map();
+  // NOTE: only populated for jobs that emitted events; entries drop after a terminal close.
+  private eventSeq: Map<string, number> = new Map();
 
   addClient(jobId: string, clientId: string, res: Response): boolean {
     const existing = this.clients.get(jobId) || [];
@@ -141,8 +143,20 @@ class SSEManager {
     // WHY: close shortly after terminal: client has the final event; keeping the
     // socket open only burns keep-alive pings until the browser navigates away.
     const stage = data.stage;
-    if (stage === 'done' || stage === 'failed' || data.type === 'error') {
-      setTimeout(() => this.closeJob(jobId), SSE_CLOSE_AFTER_TERMINAL_MS);
+    const seq = (this.eventSeq.get(jobId) ?? 0) + 1;
+    this.eventSeq.set(jobId, seq);
+    // WHY: persist_failed is stage 'done' but the save is still being retried —
+    // closing would drop the later success/failure event the tab is waiting on.
+    const terminal = (stage === 'done' || stage === 'failed' || data.type === 'error')
+      && data.code !== 'persist_failed';
+    if (terminal) {
+      setTimeout(() => {
+        // WHY: a regenerate may reuse this jobId and emit new progress within the
+        // 2s window; only close if nothing newer arrived since this terminal event.
+        if (this.eventSeq.get(jobId) !== seq) return;
+        this.eventSeq.delete(jobId);
+        this.closeJob(jobId);
+      }, SSE_CLOSE_AFTER_TERMINAL_MS);
     }
   }
 

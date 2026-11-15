@@ -1,6 +1,7 @@
 import { generateWithAI } from '../lib/ai.js';
 import { sseManager } from '../lib/sse.js';
-import { ContentJob } from '../db/schema.js';
+import type { RuntimeJob } from '../lib/pipelineTypes.js';
+import { sanitizeAiJson, walkBalancedJsonCandidates } from '../lib/contentHelpers.js';
 import { escapeXml } from '../lib/sanitizeSearchText.js';
 import { orchestratorResponseSchema, type OrchestratorResponse } from '../schemas/agentResponses.js';
 
@@ -50,7 +51,46 @@ const PLATFORM_RULES: Record<string, Record<string, unknown>> = {
   },
 };
 
-export async function runOrchestrator(job: ContentJob): Promise<OrchestratorResult> {
+// WHY: Adapt must use target-platform rules, never the source job's cached
+// orchestrator.platformRules (those describe LinkedIn when adapting to Twitter).
+export function getPlatformRules(platform: string): Record<string, unknown> {
+  const rules = PLATFORM_RULES[platform];
+  return rules ? { ...rules } : {};
+}
+
+// WHY: Content Multiplier skips runOrchestrator — still need a plan aimed at
+// job.platform, not the source carousel/LinkedIn wording.
+export function buildTargetPlatformTaskPlan(input: {
+  platform: string;
+  topic: string;
+  targetAudience?: string | null;
+}): string {
+  const audience =
+    typeof input.targetAudience === 'string' && input.targetAudience.trim()
+      ? input.targetAudience.trim()
+      : 'the target audience';
+  return `Create ${input.platform} content about ${input.topic} targeting ${audience}`;
+}
+
+// WHY: models sometimes echo the prompt's angle-bracket placeholders verbatim
+// (`<current trends or data query>`) — those must not become Tavily queries.
+export function isTemplateEchoText(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  if (/^<[^<>]+>$/.test(trimmed)) return true;
+  if (/<[^<>]+>/.test(trimmed)) return true;
+  return false;
+}
+
+function isUsableOrchestratorPlan(parsed: OrchestratorResponse): boolean {
+  const plan = typeof parsed.taskPlan === 'string' ? parsed.taskPlan : '';
+  if (plan && isTemplateEchoText(plan)) return false;
+  const queries = Array.isArray(parsed.searchQueries) ? parsed.searchQueries : [];
+  if (queries.some((q) => typeof q === 'string' && isTemplateEchoText(q))) return false;
+  return true;
+}
+
+export async function runOrchestrator(job: RuntimeJob): Promise<OrchestratorResult> {
   sseManager.sendEvent(job.id, {
     type: 'progress',
     stage: 'planning',
@@ -61,15 +101,9 @@ export async function runOrchestrator(job: ContentJob): Promise<OrchestratorResu
 
   const platformRules = PLATFORM_RULES[job.platform] || {};
 
-  // WHY: read via a narrow cast, not a ContentJob field: competitorContext is
-  // set on the in-memory PipelineJob by routes/jobs/create.ts (C3 — see
-  // PipelineJob's own WHY comment) but ContentJob is the Drizzle-inferred DB
-  // row type this function is signed against — same "job is really a
-  // PipelineJob at runtime" gap pipeline.ts's asContentJob already documents,
-  // not a new unverified assumption. Optional and empty by default, so every
-  // job NOT created from a competitor-analysis CTA behaves identically to
-  // before this change.
-  const competitorContext = (job as unknown as { competitorContext?: string }).competitorContext;
+  // WHY: competitorContext is a first-class optional on RuntimeJob/PipelineJob
+  // (set by create.ts Competitor Content Lens) — no cast needed.
+  const competitorContext = job.competitorContext;
   const competitorSection = competitorContext
     ? `\n<competitor_context>This content was inspired by a competitor gap/angle analysis — use it as strategic inspiration, not literal instructions:\n${escapeXml(competitorContext)}</competitor_context>\n`
     : '';
@@ -111,22 +145,30 @@ Rules for searchQueries:
     `${job.topic} audience pain points and motivations`,
   ];
 
-  let parsed: OrchestratorResponse;
-  try {
-    const jsonMatch = result.match(/\{[\s\S]*\}/);
-    const rawParsed: unknown = JSON.parse(jsonMatch ? jsonMatch[0] : result);
+  // WHY: walk every balanced candidate (like writer/critic) + reject template
+  // echo so a decoy/`<>` placeholder object cannot win over a later real plan.
+  let parsed: OrchestratorResponse = {};
+  for (const { value: rawParsed } of walkBalancedJsonCandidates(result, {
+    sanitize: sanitizeAiJson,
+  })) {
     const validation = orchestratorResponseSchema.safeParse(rawParsed);
-    parsed = validation.success ? validation.data : {};
-  } catch {
-    parsed = {};
+    if (!validation.success) continue;
+    if (!isUsableOrchestratorPlan(validation.data)) continue;
+    parsed = validation.data;
+    break;
   }
 
+  const queries = (parsed.searchQueries && parsed.searchQueries.length >= 1
+    ? parsed.searchQueries
+    : buildFallbackSearchQueries()
+  ).filter((q) => typeof q === 'string' && !isTemplateEchoText(q));
+
   return {
-    taskPlan: parsed.taskPlan || `Create ${job.platform} content about ${job.topic} targeting ${job.targetAudience}`,
-    searchQueries: (parsed.searchQueries && parsed.searchQueries.length >= 1
-      ? parsed.searchQueries
-      : buildFallbackSearchQueries()
-    ).slice(0, 3),
+    taskPlan:
+      parsed.taskPlan && !isTemplateEchoText(parsed.taskPlan)
+        ? parsed.taskPlan
+        : buildTargetPlatformTaskPlan(job),
+    searchQueries: (queries.length >= 1 ? queries : buildFallbackSearchQueries()).slice(0, 3),
     platformRules,
   };
 }

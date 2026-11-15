@@ -92,6 +92,25 @@ npm run test
 - Implement proper authentication and authorization
 - Follow the security guidelines outlined in [CLAUDE.md](CLAUDE.md)
 
+### Automated security CI
+Every push/PR to `main` runs deterministic scanners in
+`.github/workflows/ci.yml`:
+
+| Job | Tool | What it gates |
+|---|---|---|
+| `npm-audit` | `npm audit` | High/critical dependency CVEs (allowlisted advisories documented in the workflow) |
+| `secrets-scan` | [TruffleHog](https://github.com/trufflesecurity/trufflehog) | Verified secrets in git history / PR diff |
+| `sast` | [Semgrep](https://github.com/semgrep/semgrep) | TypeScript/Node/React/OWASP insecure patterns under `server/src` + `client/src` |
+| `vuln-scan` | [Trivy](https://github.com/aquasecurity/trivy) | CRITICAL filesystem vulns + CRITICAL/HIGH IaC (Dockerfiles, compose, `render.yaml`) |
+
+PR security review (optional LLM): `.github/workflows/claude-security-review.yml`
+uses Anthropic’s Claude Code Security Review. Set repo secret `CLAUDE_API_KEY`
+(Claude API **and** Claude Code enabled). Without the secret the job skips.
+Require approval for workflows from first-time external contributors.
+
+Release / monthly red-team (manual, staging only): see
+`.github/security/llm-redteam.md` (PyRIT + optional Nuclei).
+
 ## Documentation
 
 - Update documentation (`README.md`, `CLAUDE.md`) for new features
@@ -125,7 +144,8 @@ Pensieve/
 │   └── ...                  # Build and configuration files
 │
 ├── .github/                  # GitHub configuration
-│   └── workflows/            # CI/CD workflows
+│   ├── workflows/            # CI/CD + Claude security review
+│   └── security/             # Scan instructions + LLM red-team runbook
 │
 ├── README.md                 # Project README
 ├── CONTRIBUTING.md           # Contribution guidelines

@@ -4,6 +4,7 @@
  * platform-specific fallback objects. Mocks generateWithAI so no LLM calls.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { sanitizeAiJson } from '../../src/lib/contentHelpers.js';
 
 // ─── Inline the internal helpers we want to test ──────────────────────────────
 
@@ -21,25 +22,6 @@ const PLACEHOLDER_PATTERNS = [
 function containsPlaceholders(obj: any): boolean {
   const str = JSON.stringify(obj);
   return PLACEHOLDER_PATTERNS.some(p => p.test(str));
-}
-
-function sanitizeAiJson(s: string): string {
-  let out = '';
-  let inString = false;
-  let escaped = false;
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (escaped) { out += ch; escaped = false; continue; }
-    if (ch === '\\' && inString) { out += ch; escaped = true; continue; }
-    if (ch === '"') { out += ch; inString = !inString; continue; }
-    if (inString) {
-      if (ch === '\n') { out += '\\n'; continue; }
-      if (ch === '\r') { out += '\\r'; continue; }
-      if (ch === '\t') { out += '\\t'; continue; }
-    }
-    out += ch;
-  }
-  return out;
 }
 
 // Build platform-specific fallbacks matching writer.ts logic
@@ -69,7 +51,7 @@ function buildFallback(job: any, rawText: string): any {
 }
 
 function validateCarousel(parsed: any[], platform: string): void {
-  if (platform === 'instagram_carousel' && Array.isArray(parsed) && parsed.length < 6) {
+  if (platform === 'instagram_carousel' && Array.isArray(parsed) && parsed.length < 8) {
     throw new Error(`Incomplete carousel: received ${parsed.length} slides, expected 8. Retrying.`);
   }
 }
@@ -213,7 +195,7 @@ describe('Writer fallback objects per platform', () => {
 // ─── Carousel slide count validation ─────────────────────────────────────────
 
 describe('Carousel slide count validation', () => {
-  it('throws for < 6 slides on instagram_carousel', () => {
+  it('throws for < 8 slides on instagram_carousel', () => {
     const fewSlides = [{ slide_number: 1 }, { slide_number: 2 }];
     expect(() => validateCarousel(fewSlides, 'instagram_carousel')).toThrow('Incomplete carousel');
     expect(() => validateCarousel(fewSlides, 'instagram_carousel')).toThrow('2 slides, expected 8');
@@ -224,9 +206,11 @@ describe('Carousel slide count validation', () => {
     expect(() => validateCarousel(five, 'instagram_carousel')).toThrow();
   });
 
-  it('does NOT throw for 6 slides', () => {
+  // WHY: writer floor is EXACTLY 8 (CAROUSEL_MIN_SLIDES) — 6 used to pass when
+  // the floor was 6 and left short decks shipping.
+  it('throws for 6 slides', () => {
     const six = Array.from({ length: 6 }, (_, i) => ({ slide_number: i + 1 }));
-    expect(() => validateCarousel(six, 'instagram_carousel')).not.toThrow();
+    expect(() => validateCarousel(six, 'instagram_carousel')).toThrow('6 slides, expected 8');
   });
 
   it('does NOT throw for 8 slides', () => {

@@ -1,12 +1,15 @@
 import { sseManager } from '../lib/sse.js';
-import { ContentJob } from '../db/schema.js';
+import type { RuntimeJob } from '../lib/pipelineTypes.js';
 import type {
   WriterResponse,
   WriterCarouselResponse,
   WriterLinkedInResponse,
   WriterTwitterResponse,
   WriterInstagramCaptionResponse,
+  WriterVideoScriptResponse,
 } from '../schemas/agentResponses.js';
+import { enforceWriterCompleteness } from './writerCompleteness.js';
+import { carouselBodyMaxWords } from './carouselBodyLimits.js';
 
 // WHY: these types, not a straight re-export of the Writer*Response types: this
 // module doesn't just pass writer.ts's output through — formatCarousel adds
@@ -27,9 +30,10 @@ export type FormatterResponse =
   | WriterLinkedInResponse
   | WriterTwitterResponse
   | FormattedInstagramCaptionResponse
+  | WriterVideoScriptResponse
   | WriterResponse; // default: passthrough for any platform without a dedicated formatter (see the `default` case below)
 
-export async function runFormatter(job: ContentJob, content: WriterResponse): Promise<FormatterResponse> {
+export async function runFormatter(job: RuntimeJob, content: WriterResponse): Promise<FormatterResponse> {
   sseManager.sendEvent(job.id, {
     type: 'progress',
     stage: 'formatting',
@@ -38,18 +42,41 @@ export async function runFormatter(job: ContentJob, content: WriterResponse): Pr
     message: 'Polishing and formatting your content...',
   });
 
+  let formatted: FormatterResponse;
   switch (job.platform) {
     case 'instagram_carousel':
-      return formatCarousel(content as WriterCarouselResponse);
+      formatted = formatCarousel(content as WriterCarouselResponse);
+      break;
     case 'linkedin_post':
-      return formatLinkedIn(content as WriterLinkedInResponse);
+      formatted = formatLinkedIn(content as WriterLinkedInResponse);
+      break;
     case 'twitter_thread':
-      return formatTwitterThread(content as WriterTwitterResponse);
+      formatted = formatTwitterThread(content as WriterTwitterResponse);
+      break;
     case 'instagram_caption':
-      return formatInstagramCaption(content as WriterInstagramCaptionResponse);
+      formatted = formatInstagramCaption(content as WriterInstagramCaptionResponse);
+      break;
+    case 'video_script':
+      formatted = formatVideoScript(content as WriterVideoScriptResponse);
+      break;
     default:
-      return content;
+      formatted = content;
+      break;
   }
+
+  // WHY: scrubCoerceJunk can empty fields that were literal "undefined"/"null";
+  // re-check with requireMinCounts:false so missing optional shapes stay soft,
+  // but hollow prune + carousel/tweet/segment floors still throw for retry.
+  const complete = enforceWriterCompleteness(job.platform, formatted as WriterResponse, {
+    requireMinCounts: false,
+  }) as FormatterResponse;
+
+  // FLOW: hollow drops can remove the only CTA — renumber, then append a
+  // minimal CTA instead of mutating the prior slide's type to cta.
+  if (job.platform === 'instagram_carousel' && Array.isArray(complete)) {
+    return ensureCarouselHasCta(complete);
+  }
+  return complete;
 }
 
 // WHY: scrub Zod coerce leftovers: before CS() stopped using z.coerce.string(),
@@ -67,39 +94,42 @@ function formatCarousel(slides: WriterCarouselResponse): FormattedCarouselRespon
 
   return slides.map((slide, index): FormattedCarouselSlide => {
     const formatted: FormattedCarouselSlide = { ...slide };
-    const isLast = index === slides.length - 1;
 
     formatted.type = scrubCoerceJunk(formatted.type);
     formatted.headline = scrubCoerceJunk(formatted.headline);
     formatted.body = scrubCoerceJunk(formatted.body);
     formatted.visual_hint = scrubCoerceJunk(formatted.visual_hint);
-    formatted.bg_suggestion = scrubCoerceJunk(formatted.bg_suggestion);
+    // WHY: writer schema only emits accent|dark|light. scrub can return a
+    // plain string; map anything else back to undefined so the field stays
+    // inside slideDataSchema's enum.
+    const scrubbedBg = scrubCoerceJunk(formatted.bg_suggestion);
+    formatted.bg_suggestion =
+      scrubbedBg === 'accent' || scrubbedBg === 'dark' || scrubbedBg === 'light'
+        ? scrubbedBg
+        : undefined;
 
-    // Normalize type field
+    // WHY: do not force last→cta here — hollow CTA drops used to leave a content
+    // slide as last, and overwriting its type stole a real content slide.
+    // ensureCarouselHasCta (after completeness) appends instead.
     if (!formatted.type) {
-      formatted.type = index === 0 ? 'cover' : isLast ? 'cta' : 'content';
+      formatted.type = index === 0 ? 'cover' : 'content';
     }
 
-    // Normalize slide_number
+    // Normalize slide_number (re-applied after completeness in ensureCarouselHasCta)
     formatted.slide_number = index + 1;
-    formatted.slideNumber  = index + 1;
+    formatted.slideNumber = index + 1;
 
-    // Ensure last slide is typed as CTA with a default action
-    if (isLast) {
-      if (formatted.type !== 'cta') formatted.type = 'cta';
-      if (!formatted.cta) {
-        formatted.cta = { action: 'Follow for more', handle: '' };
-      }
+    if (formatted.type === 'cta' && !formatted.cta) {
+      formatted.cta = { action: 'Follow for more', handle: '' };
     }
 
-    // WHY: 65, not 80: writer.ts's prompt (and CLAUDE.md §9) specify a 45-60
-    // word target per slide body — this truncation is a second enforcement
-    // layer, not the primary limit, so it allows a small overshoot (writer
-    // output routinely lands a few words over its own target) without
-    // permitting the +33% drift the old 80-word cap silently tolerated.
-    const words = (formatted.body || '').split(/\s+/);
-    if (words.length > 65) {
-      formatted.body = words.slice(0, 65).join(' ') + '…';
+    // WHY: type/role maxima via carouselBodyLimits (not renumbered index) — same
+    // as critic.ts so truncate and length-gate stay aligned after hollow drops.
+    const bodyCap = carouselBodyMaxWords(formatted);
+    // WHY: filter empty tokens so the count matches critic.ts (leading/trailing space).
+    const words = (formatted.body || '').split(/\s+/).filter((word) => word.length > 0);
+    if (words.length > bodyCap) {
+      formatted.body = words.slice(0, bodyCap).join(' ') + '…';
     }
 
     // Preserve structured points array if present
@@ -109,6 +139,39 @@ function formatCarousel(slides: WriterCarouselResponse): FormattedCarouselRespon
 
     return formatted;
   });
+}
+
+// WHY: after hollow drops, renumber and guarantee a CTA without mutating the
+// prior slide into type=cta (that hid real content behind a fake CTA).
+function ensureCarouselHasCta(slides: FormattedCarouselResponse): FormattedCarouselResponse {
+  const renumbered = slides.map((slide, index): FormattedCarouselSlide => ({
+    ...slide,
+    slide_number: index + 1,
+    slideNumber: index + 1,
+  }));
+
+  const withCtaDefaults = renumbered.map((slide): FormattedCarouselSlide => {
+    if (slide.type !== 'cta') return slide;
+    if (slide.cta) return slide;
+    return { ...slide, cta: { action: 'Follow for more', handle: '' } };
+  });
+
+  if (withCtaDefaults.some((slide) => slide.type === 'cta')) {
+    return withCtaDefaults;
+  }
+
+  const nextNumber = withCtaDefaults.length + 1;
+  return [
+    ...withCtaDefaults,
+    {
+      type: 'cta',
+      headline: 'Follow for more',
+      body: 'Save this and follow for the next tip.',
+      slide_number: nextNumber,
+      slideNumber: nextNumber,
+      cta: { action: 'Follow for more', handle: '' },
+    },
+  ];
 }
 
 function formatLinkedIn(post: WriterLinkedInResponse): WriterLinkedInResponse {
@@ -179,12 +242,12 @@ function formatTwitterThread(thread: WriterTwitterResponse): WriterTwitterRespon
     const n = index + 1;
     const prefix = `${n}/`;
 
-    // Only prepend numbering if the model hasn't already added it.
-    // The writer prompt asks for numbered tweets, so avoid double-prefixing
-    // (e.g. "1/ 1/ text" or "2/ 2/ text").
+    // WHY: strip only a thread index (`1/ …`, `2/Hook`) via `(?!\d)` — a bare
+    // `/^\d+\//` ate fractions/dates (`3/5 of…` → `5 of…`). Wrong writer indices
+    // still strip because the char after `/` is not a digit.
     const text = t.text ?? '';
-    const alreadyNumbered = /^\d+\/\s/.test(text);
-    t.text = alreadyNumbered ? text : `${prefix} ${text}`;
+    const stripped = text.replace(/^\d+\/(?!\d)\s*/, '');
+    t.text = stripped.length > 0 ? `${prefix} ${stripped}` : prefix;
 
     // Enforce 280-char hard limit
     if (t.text.length > 280) {
@@ -198,10 +261,61 @@ function formatTwitterThread(thread: WriterTwitterResponse): WriterTwitterRespon
   return formatted;
 }
 
+function formatVideoScript(script: WriterVideoScriptResponse): WriterVideoScriptResponse {
+  if (!script || typeof script !== 'object') return script;
+
+  const formatted: WriterVideoScriptResponse = { ...script };
+
+  if (formatted.hook && typeof formatted.hook === 'object') {
+    const hook = { ...formatted.hook };
+    // WHY: ?? '' like Instagram caption — keep a string so completeness still
+    // sees scrubbed junk (undefined would skip the typeof==='string' gate).
+    if (typeof hook.text === 'string') hook.text = scrubCoerceJunk(hook.text) ?? '';
+    if (typeof hook.duration === 'string') hook.duration = scrubCoerceJunk(hook.duration);
+    if (typeof hook.visual === 'string') hook.visual = scrubCoerceJunk(hook.visual);
+    formatted.hook = hook;
+  }
+
+  if (Array.isArray(formatted.segments)) {
+    formatted.segments = formatted.segments.map((seg) => {
+      if (!seg || typeof seg !== 'object') return seg;
+      const s = { ...seg };
+      if (typeof s.script === 'string') s.script = scrubCoerceJunk(s.script) ?? '';
+      if (typeof s.duration === 'string') s.duration = scrubCoerceJunk(s.duration);
+      if (typeof s.broll === 'string') s.broll = scrubCoerceJunk(s.broll);
+      if (typeof s.caption === 'string') s.caption = scrubCoerceJunk(s.caption);
+      return s;
+    });
+  }
+
+  if (formatted.cta && typeof formatted.cta === 'object') {
+    const cta = { ...formatted.cta };
+    if (typeof cta.text === 'string') cta.text = scrubCoerceJunk(cta.text) ?? '';
+    if (typeof cta.duration === 'string') cta.duration = scrubCoerceJunk(cta.duration);
+    if (typeof cta.visual === 'string') cta.visual = scrubCoerceJunk(cta.visual);
+    formatted.cta = cta;
+  }
+
+  if (typeof formatted.speakerNotes === 'string') {
+    formatted.speakerNotes = scrubCoerceJunk(formatted.speakerNotes);
+  }
+  if (typeof formatted.totalDuration === 'string') {
+    formatted.totalDuration = scrubCoerceJunk(formatted.totalDuration);
+  }
+
+  return formatted;
+}
+
 function formatInstagramCaption(caption: WriterInstagramCaptionResponse): FormattedInstagramCaptionResponse {
   if (!caption || typeof caption !== 'object') return caption;
 
   const formatted: FormattedInstagramCaptionResponse = { ...caption };
+
+  // WHY: same coerce-junk scrub as LinkedIn/Twitter — literal "undefined"/"null"
+  // caption text must not ship (post-format completeness catches emptied strings).
+  if (typeof formatted.caption === 'string') {
+    formatted.caption = scrubCoerceJunk(formatted.caption) ?? '';
+  }
 
   // Limit hashtags to 30
   if (formatted.hashtags && formatted.hashtags.length > 30) {

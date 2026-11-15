@@ -43,9 +43,34 @@ export function getLatestQualityScore(outputs: ScoreableOutput[] | undefined | n
   return null;
 }
 
-/** Latest critique output (for feedback copy that must match the shown score). */
+/**
+ * Critique that should drive feedback UI.
+ * WHY: prefer the critique whose score matches final.qualityScore — older jobs
+ * may still have multiple critique rows after a worse round overwrote the card
+ * while bestDraft stayed; matching keeps feedback aligned with the shown score.
+ */
 export function getLatestCritique<T extends ScoreableOutput>(outputs: T[] | undefined | null): T | undefined {
   if (!Array.isArray(outputs) || outputs.length === 0) return undefined;
+
+  let finalScore: number | undefined;
+  for (let i = outputs.length - 1; i >= 0; i--) {
+    const o = outputs[i];
+    if (o.outputType === 'final' && typeof o.qualityScore === 'number') {
+      finalScore = o.qualityScore;
+      break;
+    }
+  }
+
+  if (finalScore !== undefined) {
+    for (let i = outputs.length - 1; i >= 0; i--) {
+      const o = outputs[i];
+      if (o.outputType !== 'critique') continue;
+      const score =
+        typeof o.qualityScore === 'number' ? o.qualityScore : scoreFromContent(o.content);
+      if (score === finalScore) return o;
+    }
+  }
+
   for (let i = outputs.length - 1; i >= 0; i--) {
     if (outputs[i].outputType === 'critique') return outputs[i];
   }

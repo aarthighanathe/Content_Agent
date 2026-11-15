@@ -17,6 +17,36 @@ export function createRedisConnection(): IORedis {
 // Legacy alias used by contentWorker.ts
 export { createRedisConnection as redisConnection };
 
+// WHY: Queue connections use maxRetriesPerRequest:null + offline queue (BullMQ
+// requirement), so getJob/add hang forever while Redis is down. Bound them so callers
+// fall back to direct mode / skip instead of hanging the HTTP request or a sweep.
+export const QUEUE_OP_TIMEOUT_MS = 3_000;
+
+export class QueueOpTimeoutError extends Error {
+  constructor(label: string) {
+    super(`Queue operation timed out: ${label}`);
+    this.name = 'QueueOpTimeoutError';
+  }
+}
+
+export async function withQueueTimeout<T>(
+  op: Promise<T>,
+  label: string,
+  timeoutMs: number = QUEUE_OP_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new QueueOpTimeoutError(label)), timeoutMs);
+  });
+  // WHY: swallow the loser's late rejection so it is not an unhandled rejection.
+  op.catch(() => undefined);
+  try {
+    return await Promise.race([op, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 let contentQueue: Queue | null = null;
 
 function getQueue(): Queue | null {
@@ -63,6 +93,7 @@ export async function addJobToQueue(jobId: string, data: Record<string, unknown>
 export async function addJobToQueueDetailed(
   jobId: string,
   data: Record<string, unknown>,
+  opts?: { delay?: number },
 ): Promise<QueueAddResult> {
   try {
     const queue = getQueue();
@@ -72,9 +103,9 @@ export async function addJobToQueueDetailed(
     // so BullMQ doesn't silently deduplicate it.
     let existingJob: Awaited<ReturnType<Queue['getJob']>> | undefined;
     try {
-      existingJob = await queue.getJob(jobId);
+      existingJob = await withQueueTimeout(queue.getJob(jobId), 'getJob');
       if (existingJob) {
-        const state = await existingJob.getState();
+        const state = await withQueueTimeout(existingJob.getState(), 'getState');
         // WHY: refuse while active/waiting-children: remove() throws when the
         // job is locked, and a subsequent queue.add with the same id returns
         // the old job without writing the new payload — so regenerate wiped
@@ -83,7 +114,7 @@ export async function addJobToQueueDetailed(
           logger.warn('[Queue] Refusing to re-add while job is still running', { jobId, state });
           return 'active';
         }
-        await existingJob.remove();
+        await withQueueTimeout(existingJob.remove(), 'remove');
         logger.info('[Queue] Removed old job before re-adding', { jobId });
       }
     } catch (err) {
@@ -94,11 +125,40 @@ export async function addJobToQueueDetailed(
         jobId, error: err instanceof Error ? err.message : String(err),
       });
       if (existingJob) return 'active';
+      // WHY: getJob itself timed out/failed — Redis is unreachable, so report
+      // unavailable rather than hanging on queue.add too.
+      if (err instanceof QueueOpTimeoutError) return 'unavailable';
     }
 
-    await queue.add('generate', { jobId, ...data }, { jobId });
-    logger.info('[Queue] Job added to BullMQ queue', { jobId });
-    return 'queued';
+    try {
+      // WHY: always set BullMQ jobId = content UUID so stale sweep's
+      // getJob(contentJobId) / getJobState finds delayed lock-held retries
+      // (auto-id siblings were invisible and got marked failed while queued).
+      const addOpts: { jobId: string; delay?: number } = { jobId };
+      if (typeof opts?.delay === 'number' && opts.delay > 0) {
+        addOpts.delay = opts.delay;
+      }
+      await withQueueTimeout(queue.add('generate', { jobId, ...data }, addOpts), 'add');
+      logger.info('[Queue] Job added to BullMQ queue', { jobId, delay: addOpts.delay });
+      return 'queued';
+    } catch (addErr: unknown) {
+      // WHY: withQueueTimeout races queue.add — a timeout does not cancel the add.
+      // If the job landed, report queued so callers do not also runPipelineDirect.
+      if (addErr instanceof QueueOpTimeoutError) {
+        try {
+          const landed = await withQueueTimeout(queue.getJob(jobId), 'getJob-after-add-timeout');
+          if (landed) {
+            logger.warn('[Queue] add timed out but job is present — treating as queued', {
+              jobId,
+            });
+            return 'queued';
+          }
+        } catch {
+          // fall through to unavailable
+        }
+      }
+      throw addErr;
+    }
   } catch (error) {
     console.warn('Failed to add job to queue (Redis may not be available)');
     return 'unavailable';
@@ -115,9 +175,9 @@ export async function cancelContentJob(jobId: string): Promise<boolean> {
   try {
     const queue = getQueue();
     if (!queue) return false;
-    const existingJob = await queue.getJob(jobId);
+    const existingJob = await withQueueTimeout(queue.getJob(jobId), 'getJob');
     if (!existingJob) return false;
-    const state = await existingJob.getState();
+    const state = await withQueueTimeout(existingJob.getState(), 'getState');
     // WHY: skip active: remove() throws when locked by a worker. Soft-delete
     // flags in memory/DB still abort the pipeline between stages.
     if (state === 'active' || state === 'waiting-children') {
@@ -127,7 +187,7 @@ export async function cancelContentJob(jobId: string): Promise<boolean> {
       });
       return false;
     }
-    await existingJob.remove();
+    await withQueueTimeout(existingJob.remove(), 'remove');
     logger.info('[Queue] Cancelled content job after soft-delete', { jobId, state });
     return true;
   } catch (err: unknown) {

@@ -56,7 +56,15 @@ vi.mock('../../src/agents/orchestrator.js', () => ({ runOrchestrator: (...args: 
 vi.mock('../../src/agents/researcher.js', () => ({ runResearcher: (...args: any[]) => runResearcher(...args) }));
 vi.mock('../../src/agents/writer.js', () => ({ runWriter: (...args: any[]) => runWriter(...args) }));
 vi.mock('../../src/agents/formatter.js', () => ({ runFormatter: (...args: any[]) => runFormatter(...args) }));
-vi.mock('../../src/agents/critic.js', () => ({ runCritic: (...args: any[]) => runCritic(...args) }));
+vi.mock('../../src/agents/critic.js', () => ({
+  runCritic: (...args: any[]) => runCritic(...args),
+  // WHY: pipelineRun calls this wrapper; mock mirrors real retry-cap API without
+  // re-implementing parse retries (mocked runCritic already returns shaped results).
+  runCriticWithFallbackRetries: async (...args: any[]) => {
+    const result = await runCritic(...args);
+    return { result, durationMs: 0 };
+  },
+}));
 vi.mock('../../src/agents/performancePredictor.js', () => ({ runPerformancePredictor: (...args: any[]) => runPerformancePredictor(...args) }));
 
 // runAndPersistPipeline (not used by these tests) pulls in jobsMemory/getJobFromStore/persistJobToDB —

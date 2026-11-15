@@ -1,9 +1,13 @@
-import { useState, useMemo } from 'react';
-import axios from 'axios';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Send, Clock, CheckCircle, AlertCircle, RefreshCw, ExternalLink, Calendar, ChevronRight, ChevronLeft } from 'lucide-react';
 import { scheduleJob } from '../../../../api';
+import {
+  invalidateScheduleViews,
+  timezoneOffsetMinutesForDateKey,
+} from '../../../Calendar/calendarHelpers';
+import { getSubmitError } from '../../../../lib/errorMessages';
 import { isSafeHttpUrl } from '../../../../lib/utils';
 import { VisibleScroller } from '../../../../components/VisibleScroller';
 import { flattenContentToPreview } from '../../../../lib/contentFlattener.js';
@@ -21,6 +25,8 @@ import {
 
 interface Props {
   connections:  SocialConnection[];
+  /** True while Clerk hydrates or the connections query is still pending. */
+  connectionsPending?: boolean;
   content:      ResultContent | undefined;
   jobId?:       string;
   jobData?:     ContentJob | null;
@@ -44,14 +50,32 @@ function getMinDateTime(): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-export function PostPanel({ connections, content, jobId, jobData: _jobData, postingTo, postResult, postLinks = {}, onPost, onClose }: Props) {
+export function PostPanel({
+  connections,
+  connectionsPending = false,
+  content,
+  jobId,
+  jobData: _jobData,
+  postingTo,
+  postResult,
+  postLinks = {},
+  onPost,
+  onClose,
+}: Props) {
   const queryClient = useQueryClient();
   const [selectedPlatform, setSelectedPlatform] = useState<string>(connections[0]?.platform || '');
   const [view, setView] = useState<'select' | 'preview' | 'schedule' | 'done'>('select');
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduling, setScheduling] = useState(false);
+  // WHY: ref + scheduling: loading alone races a second click before re-render (Create pattern).
+  const schedulingRef = useRef(false);
   const [scheduleResult, setScheduleResult] = useState<{ ok: boolean; scheduledAt?: string } | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  // WHY: mirror props jobId — schedule that outlives A→B nav must not paint done/error on B.
+  const jobIdRef = useRef(jobId);
+  useEffect(() => {
+    jobIdRef.current = jobId;
+  }, [jobId]);
 
   const selected = connections.find((c) => c.platform === selectedPlatform);
   const preview = useMemo(() => flattenContentToPreview(content, selectedPlatform), [content, selectedPlatform]);
@@ -64,11 +88,14 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
   const platColor = PLATFORM_COLORS[selectedPlatform] || '#60a5fa';
 
   async function handleSchedule() {
-    if (!scheduleDate || !selectedPlatform || !jobId) return;
+    if (!scheduleDate || !selectedPlatform || !jobId || scheduling || schedulingRef.current) return;
     if (selectedPlatform !== 'linkedin' && selectedPlatform !== 'twitter') {
       setScheduleError('Auto-publish is only available for LinkedIn and Twitter');
       return;
     }
+    schedulingRef.current = true;
+    // WHY: capture at click — after await, only update UI if still on this job.
+    const startedForJobId = jobId;
     setScheduling(true);
     setScheduleError(null);
     try {
@@ -78,8 +105,11 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
       // with optional auto-publish on the chosen platform (fires ~9am user TZ).
       const local = new Date(scheduleDate);
       if (Number.isNaN(local.getTime()) || local.getTime() < Date.now() + 5 * 60_000) {
-        setScheduleError('Pick a time at least 5 minutes from now');
-        setScheduling(false);
+        if (jobIdRef.current === startedForJobId) {
+          setScheduleError('Pick a time at least 5 minutes from now');
+          setScheduling(false);
+        }
+        schedulingRef.current = false;
         return;
       }
       const yyyy = local.getFullYear();
@@ -95,84 +125,103 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
       const topOfHour = new Date(local);
       topOfHour.setMinutes(0, 0, 0);
       if (topOfHour.getTime() <= Date.now()) {
-        setScheduleError('That hour has already started — pick a later hour');
-        setScheduling(false);
+        if (jobIdRef.current === startedForJobId) {
+          setScheduleError('That hour has already started — pick a later hour');
+          setScheduling(false);
+        }
+        schedulingRef.current = false;
         return;
       }
       const res = await scheduleJob({
-        jobId,
+        jobId: startedForJobId,
         scheduledDate: scheduledDateKey,
         publishPlatform: selectedPlatform as PublishPlatform,
-        timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+        // WHY: offset of the chosen local date+hour, not now — DST can move it.
+        timezoneOffsetMinutes: timezoneOffsetMinutesForDateKey(scheduledDateKey, publishHour),
         publishHour,
       });
+      if (jobIdRef.current !== startedForJobId) return;
       setScheduleResult({
         ok: true,
         scheduledAt: res.scheduledPost.scheduledDate,
       });
-      // WHY: invalidate calendar/dashboard schedule caches: otherwise a post
-      // scheduled from Result stayed invisible on Calendar for up to 5 minutes.
-      queryClient.invalidateQueries({ queryKey: ['calendar', 'schedule'] }).catch(() => {});
-      queryClient.invalidateQueries({ queryKey: ['dashboard', 'nextScheduled'] }).catch(() => {});
+      // WHY: shared invalidate (grid + scheduledJobIds + next-up): Result used to
+      // skip SCHEDULED_JOB_IDS_QUERY_KEY so Calendar still listed the job as
+      // unscheduled until the IDs query went stale.
+      invalidateScheduleViews(queryClient);
       setView('done');
     } catch (err: unknown) {
-      const message = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
-      setScheduleError(message || 'Failed to schedule post');
+      if (jobIdRef.current !== startedForJobId) return;
+      setScheduleError(getSubmitError(err, 'Failed to schedule post').message);
     } finally {
-      setScheduling(false);
+      schedulingRef.current = false;
+      if (jobIdRef.current === startedForJobId) {
+        setScheduling(false);
+      }
     }
   }
 
   if (view === 'select') {
     return (
       <div className="rp-post-select">
-        {connections.map((conn) => {
-          const PIcon = PLATFORM_ICON_COMPONENTS[conn.platform];
-          const color = PLATFORM_COLORS[conn.platform] || '#60a5fa';
-          return (
-            <button
-              key={conn.platform}
-              type="button"
-              className="rp-post-account"
-              onClick={() => { setSelectedPlatform(conn.platform); setView('preview'); }}
-              style={{
-                borderColor: 'var(--rule)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = color;
-                e.currentTarget.style.background =
-                  `rgba(${hexToRgb(color)},0.08)`;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--rule)';
-                e.currentTarget.style.background = 'var(--bg-card)';
-              }}
-            >
-              <div
-                className="rp-post-account-icon"
-                style={{ background: `rgba(${hexToRgb(color)},0.15)`, color }}
-              >
-                {PIcon ? <PIcon size={18} /> : <Send size={16} />}
-              </div>
-              <div className="rp-post-account-copy">
-                <div className="rp-post-account-name">{conn.label}</div>
-                {conn.displayName && (
-                  <div className="rp-post-account-handle">{conn.displayName}</div>
-                )}
-              </div>
-              <ChevronRight size={14} className="rp-post-account-chevron" aria-hidden />
-            </button>
-          );
-        })}
-        {connections.length === 0 && (
-          <div className="rp-panel-empty">
-            <p className="rp-panel-empty-title">No connected accounts</p>
-            <p className="rp-panel-empty-blurb">
-              <Link to="/brand" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
-                Connect LinkedIn or X in Brand settings →
-              </Link>
-            </p>
+        {/* WHY: pending before empty — Clerk-gated query starts as [] and looked like
+            "No connected accounts" until the fetch settled (Pass-9 H4). */}
+        {connectionsPending ? (
+          <div className="rp-panel-empty" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Spinner />
+            <p className="rp-panel-empty-blurb" style={{ margin: 0 }}>Loading accounts…</p>
           </div>
+        ) : (
+          <>
+            {connections.map((conn) => {
+              const PIcon = PLATFORM_ICON_COMPONENTS[conn.platform];
+              const color = PLATFORM_COLORS[conn.platform] || '#60a5fa';
+              return (
+                <button
+                  key={conn.platform}
+                  type="button"
+                  className="rp-post-account"
+                  onClick={() => { setSelectedPlatform(conn.platform); setView('preview'); }}
+                  style={{
+                    borderColor: 'var(--rule)',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = color;
+                    e.currentTarget.style.background =
+                      `rgba(${hexToRgb(color)},0.08)`;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--rule)';
+                    e.currentTarget.style.background = 'var(--bg-card)';
+                  }}
+                >
+                  <div
+                    className="rp-post-account-icon"
+                    style={{ background: `rgba(${hexToRgb(color)},0.15)`, color }}
+                  >
+                    {PIcon ? <PIcon size={18} /> : <Send size={16} />}
+                  </div>
+                  <div className="rp-post-account-copy">
+                    <div className="rp-post-account-name">{conn.label}</div>
+                    {conn.displayName && (
+                      <div className="rp-post-account-handle">{conn.displayName}</div>
+                    )}
+                  </div>
+                  <ChevronRight size={14} className="rp-post-account-chevron" aria-hidden />
+                </button>
+              );
+            })}
+            {connections.length === 0 && (
+              <div className="rp-panel-empty">
+                <p className="rp-panel-empty-title">No connected accounts</p>
+                <p className="rp-panel-empty-blurb">
+                  <Link to="/brand" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+                    Connect LinkedIn or X in Brand settings →
+                  </Link>
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
     );
@@ -242,7 +291,8 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         {result !== 'ok' && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              onClick={() => onPost(selectedPlatform)}
+              type="button"
+              onClick={() => { onPost(selectedPlatform); }}
               disabled={!!postingTo}
               style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -260,6 +310,7 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
 
             {canSchedule && (
               <button
+                type="button"
                 onClick={() => setView('schedule')}
                 disabled={!!postingTo}
                 style={{
@@ -326,7 +377,8 @@ export function PostPanel({ connections, content, jobId, jobData: _jobData, post
         )}
 
         <button
-          onClick={handleSchedule}
+          type="button"
+          onClick={() => { void handleSchedule(); }}
           disabled={!scheduleDate || scheduling}
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,

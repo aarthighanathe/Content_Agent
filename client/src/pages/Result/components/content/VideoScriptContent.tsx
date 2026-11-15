@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Copy, Film, Camera, MessageSquare } from 'lucide-react';
 import { Button } from '../../../../components/Button';
+import { useTrackedTimeout } from '../../../../hooks/useTrackedTimeout';
 import type { VideoScriptContentData } from '../../../../types/job';
 
 interface Props {
@@ -9,18 +10,30 @@ interface Props {
 
 export function VideoScriptContent({ content }: Props) {
   const [copied, setCopied] = useState(false);
+  const pendingTimers = useTrackedTimeout();
+  // WHY: hook/cta/segments are optional on stored scripts. Reading `.duration`
+  // or calling `.map` on a missing field blanked the whole Result page.
+  const hook = content.hook ?? {};
+  const cta = content.cta ?? {};
+  const segments = Array.isArray(content.segments) ? content.segments : [];
 
-  function copyScript() {
+  function copyScript(): void {
+    const hookVisual = hook.visual ? `\n[Visual] ${hook.visual}` : '';
     const lines = [
-      `[HOOK — ${content.hook.duration}]\n${content.hook.text}\n${content.hook.visual ? `[Visual] ${content.hook.visual}` : ''}`,
-      ...(content.segments || []).map((s) => `[SEGMENT ${s.number || ''} — ${s.duration}]\n${s.script}\n${s.broll ? `[B-roll] ${s.broll}` : ''}`),
-      `[CTA — ${content.cta.duration}]\n${content.cta.text}`,
+      `[HOOK — ${hook.duration ?? ''}]\n${hook.text ?? ''}${hookVisual}`,
+      ...segments.map((s) => {
+        const beat = s ?? {};
+        const visual = beat.broll ? `\n[B-roll] ${beat.broll}` : '';
+        const label = `[SEGMENT ${beat.number || ''} — ${beat.duration ?? ''}]`;
+        return `${label}\n${beat.script ?? ''}${visual}`;
+      }),
+      `[CTA — ${cta.duration ?? ''}]\n${cta.text ?? ''}`,
       content.speakerNotes ? `[NOTES]\n${content.speakerNotes}` : '',
       content.hashtags ? content.hashtags.join(' ') : '',
     ].filter(Boolean).join('\n\n');
     navigator.clipboard.writeText(lines).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      pendingTimers.set(() => setCopied(false), 2000);
     }).catch(() => {});
   }
 
@@ -33,45 +46,48 @@ export function VideoScriptContent({ content }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 7, padding: '2px 9px', fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--color-error)', letterSpacing: 1, textTransform: 'uppercase' }}>HOOK</div>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>{content.hook.duration}</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>{hook.duration}</span>
             </div>
-            <button onClick={() => { navigator.clipboard.writeText(content.hook.text ?? '').catch(() => {}); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}><Copy size={10} /> Copy</button>
+            <button onClick={() => { navigator.clipboard.writeText(hook.text ?? '').catch(() => {}); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}><Copy size={10} /> Copy</button>
           </div>
-          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.5, margin: 0 }}>{content.hook.text}</p>
-          {content.hook.visual && <p style={{ fontSize: 11.5, color: 'rgba(239,68,68,0.65)', lineHeight: 1.5, margin: 0, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 5 }}><Film size={11} /> {content.hook.visual}</p>}
+          <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.5, margin: 0 }}>{hook.text}</p>
+          {hook.visual && <p style={{ fontSize: 11.5, color: 'rgba(239,68,68,0.65)', lineHeight: 1.5, margin: 0, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 5 }}><Film size={11} /> {hook.visual}</p>}
         </div>
       </div>
 
       {/* Segments */}
-      {content.segments.map((seg, i) => (
-        // WHY: keyed by seg.script (the segment's actual unique text) rather than array
-        // index — segments are user-editable/reorderable content, so an index key would
-        // cause React to misattribute local state/DOM across re-renders on edits. Falls
-        // back to index only in the (rare) case two segments share identical script text.
-        <div key={seg.script || i} style={{ background: 'var(--bg-raised)', borderRadius: 12, border: '1px solid var(--rule)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {segments.map((seg, i) => {
+        const beat = seg ?? {};
+        const script = beat.script ?? '';
+        // WHY: keyed by script text rather than array index — segments are
+        // reorderable. Index is only the fallback when the script is empty.
+        const rowKey = script ? `${beat.number ?? ''}:${script}` : `segment-${beat.number ?? i}`;
+        return (
+        <div key={rowKey} style={{ background: 'var(--bg-raised)', borderRadius: 12, border: '1px solid var(--rule)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <div style={{ width: 24, height: 24, borderRadius: 6, background: 'color-mix(in srgb, var(--text-primary) 5%, transparent)', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>{seg.number || i + 1}</div>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>{seg.duration}</span>
+              <div style={{ width: 24, height: 24, borderRadius: 6, background: 'color-mix(in srgb, var(--text-primary) 5%, transparent)', border: '1px solid var(--rule)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>{beat.number || i + 1}</div>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>{beat.duration}</span>
             </div>
-            <button onClick={() => { navigator.clipboard.writeText(seg.script ?? '').catch(() => {}); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Copy size={11} /></button>
+            <button onClick={() => { navigator.clipboard.writeText(script).catch(() => {}); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Copy size={11} /></button>
           </div>
-          <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.65, margin: 0 }}>{seg.script}</p>
-          {seg.broll   && <p style={{ fontSize: 11, color: 'color-mix(in srgb, var(--accent-2) 70%, transparent)', margin: 0, display: 'flex', gap: 5, alignItems: 'center' }}><Camera size={10} /><span>{seg.broll}</span></p>}
-          {seg.caption && <p style={{ fontSize: 11, color: 'var(--color-text-muted)', margin: 0, display: 'flex', gap: 5, alignItems: 'center' }}><MessageSquare size={10} /><span>{seg.caption}</span></p>}
+          <p style={{ fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.65, margin: 0 }}>{script}</p>
+          {beat.broll   && <p style={{ fontSize: 11, color: 'color-mix(in srgb, var(--accent-2) 70%, transparent)', margin: 0, display: 'flex', gap: 5, alignItems: 'center' }}><Camera size={10} /><span>{beat.broll}</span></p>}
+          {beat.caption && <p style={{ fontSize: 11, color: 'var(--color-text-muted)', margin: 0, display: 'flex', gap: 5, alignItems: 'center' }}><MessageSquare size={10} /><span>{beat.caption}</span></p>}
         </div>
-      ))}
+        );
+      })}
 
       {/* CTA */}
       <div style={{ background: 'var(--bg-raised)', borderRadius: 14, border: '1px solid rgba(239,68,68,0.25)', overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 7, padding: '2px 9px', fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--color-error)', letterSpacing: 1, textTransform: 'uppercase' }}>CTA</div>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>{content.cta.duration}</span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>{cta.duration}</span>
             {content.totalDuration && <span style={{ marginLeft: 'auto', fontFamily: "var(--font-mono)", fontSize: 9, color: 'var(--text-muted)' }}>Total: {content.totalDuration}</span>}
           </div>
-          <p style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-error)', margin: 0 }}>{content.cta.text}</p>
-          {content.cta.visual && <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 5 }}><Film size={10} /> {content.cta.visual}</p>}
+          <p style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-error)', margin: 0 }}>{cta.text}</p>
+          {cta.visual && <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: 0, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 5 }}><Film size={10} /> {cta.visual}</p>}
         </div>
       </div>
 

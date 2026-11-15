@@ -67,20 +67,22 @@ describe('processContentJob (real module)', () => {
 
   it('rejects a malformed job.data (not an object) without running the pipeline (M8)', async () => {
     const { processContentJob } = await import('../../src/workers/contentWorker.js');
-    await expect(processContentJob(makeJob('not-an-object'))).resolves.toBeUndefined();
+    await expect(processContentJob(makeJob('not-an-object'))).rejects.toThrow(/Malformed BullMQ/);
     expect(runAndPersistPipeline).not.toHaveBeenCalled();
     expect(loggerWarn).toHaveBeenCalled();
   });
 
   it('rejects a malformed job.data (null) without running the pipeline (M8)', async () => {
     const { processContentJob } = await import('../../src/workers/contentWorker.js');
-    await expect(processContentJob(makeJob(null))).resolves.toBeUndefined();
+    await expect(processContentJob(makeJob(null))).rejects.toThrow(/Malformed BullMQ/);
     expect(runAndPersistPipeline).not.toHaveBeenCalled();
   });
 
   it('rejects non-UUID jobId / missing required fields without running the pipeline (M8)', async () => {
     const { processContentJob } = await import('../../src/workers/contentWorker.js');
-    await processContentJob(makeJob({ jobId: 'job-2', topic: 12345, platform: { nested: true } }));
+    await expect(processContentJob(makeJob({
+      jobId: 'job-2', topic: 12345, platform: { nested: true },
+    }))).rejects.toThrow(/Malformed BullMQ/);
     expect(runAndPersistPipeline).not.toHaveBeenCalled();
   });
 

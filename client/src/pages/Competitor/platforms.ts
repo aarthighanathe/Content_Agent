@@ -26,3 +26,29 @@ export function competitorPlatformLabel(platform: string | undefined): string {
   const match = COMPETITOR_PLATFORM_OPTIONS.find((p) => p.id === platform);
   return match?.label ?? platform;
 }
+
+// WHY: legacy history rows sometimes stored a full profile URL as `handle`
+// (before server-side resolveCompetitorIdentity always persisted the slug).
+// History list + form re-hydrate should show the vanity slug, not the URL.
+export function displayCompetitorHandle(handle: string): string {
+  const trimmed = handle.trim();
+  const linkedIn = trimmed.match(
+    /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/(?:in|company)\/([^/?#\s]+)/i,
+  );
+  if (linkedIn?.[1]) {
+    return decodeURIComponent(linkedIn[1]).replace(/\/+$/, '');
+  }
+  const twitter = trimmed.match(
+    /(?:https?:\/\/)?(?:www\.)?(?:twitter\.com|x\.com)\/([^/?#\s]+)/i,
+  );
+  if (twitter?.[1]) {
+    return decodeURIComponent(twitter[1]).replace(/^@/, '');
+  }
+  const instagram = trimmed.match(
+    /(?:https?:\/\/)?(?:www\.)?instagram\.com\/([^/?#\s]+)/i,
+  );
+  if (instagram?.[1]) {
+    return decodeURIComponent(instagram[1]).replace(/^@/, '');
+  }
+  return trimmed.replace(/^@/, '');
+}

@@ -17,7 +17,12 @@ export const CALENDAR_STYLES = `
   .main-content:has(.sc-page) .main-inner { display:flex; flex:1 1 auto; min-height:0; height:auto; padding:0; overflow:hidden; }
   .sc-page { display:flex; align-items:stretch; flex:1 1 auto; width:100%; min-height:0; height:100%; position:relative; background:var(--bg-base); }
   .sc-sidebar { width:280px; min-width:240px; align-self:stretch; height:auto; min-height:100%; background:var(--bg-raised); border-right:1px solid var(--rule); display:flex; flex-direction:column; gap:0; flex-shrink:0; transition:width .25s; overflow:hidden; }
-  .sc-sidebar.closed { width:0; min-width:0; }
+  /* WHY: width:0 alone kept the sidebar in the flex line so its card list still
+     stretched .sc-cal on the cross axis — absolute + zero size removes it. */
+  .sc-sidebar.closed {
+    width:0; min-width:0; position:absolute; height:0; min-height:0;
+    overflow:hidden; pointer-events:none; border:none;
+  }
   .sc-sidebar-inner { width:280px; min-width:240px; display:flex; flex-direction:column; height:100%; overflow:hidden; }
   .sc-sidebar-hd { padding:18px 16px 12px; border-bottom:1px solid var(--rule); }
   .sc-card { border-radius:10px; background:var(--bg-raised); border:1px solid var(--rule); padding:10px 12px; display:flex; align-items:flex-start; gap:10px; cursor:grab; transition:all .15s; user-select:none; }
@@ -81,7 +86,10 @@ export const CALENDAR_STYLES = `
   .sc-picker-day.is-today { border:1px solid color-mix(in srgb, var(--accent) 55%, transparent); color:var(--accent); font-weight:700; }
   .sc-picker-day.has-content { background:color-mix(in srgb, var(--accent-2) 8%, transparent); color:color-mix(in srgb, var(--accent-2) 70%, transparent); }
   .sc-picker-day.has-content:hover,.sc-picker-day.has-content:focus-visible { background:color-mix(in srgb, var(--accent-2) 18%, transparent); color:var(--accent-2); }
-  .sc-picker-day.is-past { opacity:0.4; }
+  .sc-picker-day.is-past,
+  .sc-picker-day:disabled { opacity:0.4; cursor:not-allowed; }
+  .sc-picker-day:disabled:hover,
+  .sc-picker-day:disabled:focus-visible { background:color-mix(in srgb, var(--text-primary) 4%, transparent); color:var(--text-secondary); outline:none; }
 
   /* ── DayDetailPanel "Add content" affordance (#12) ── */
   .sc-add-btn { display:inline-flex; align-items:center; gap:5px; background:color-mix(in srgb, var(--accent-2) 8%, transparent); border:1px solid color-mix(in srgb, var(--accent-2) 25%, transparent); color:color-mix(in srgb, var(--accent-2) 80%, transparent); border-radius:8px; padding:5px 10px; font-size:11px; font-family:var(--font-mono); cursor:pointer; transition:all .15s; }
@@ -102,13 +110,6 @@ export const CALENDAR_STYLES = `
   .sc-mobile-sheet-handle { width:36px; height:4px; background:color-mix(in srgb, var(--text-primary) 15%, transparent); border-radius:2px; margin:12px auto 0; flex-shrink:0; }
   .sc-mobile-scrim { position:fixed; inset:0; z-index:199; background:rgba(0,0,0,0.55); }
 
-  @media(max-width:768px){
-    .main-content:has(.sc-page) { height:auto; max-height:none; min-height:0; overflow:visible; }
-    .main-content:has(.sc-page) .main-inner { height:auto; overflow:visible; padding:16px 20px 24px; }
-    .sc-page { height:auto; min-height:calc(100dvh - 128px); }
-    .sc-cal { overflow:auto; }
-    .sc-grid { grid-auto-rows:minmax(52px, auto); }
-  }
   @media(max-width:900px){
     .sc-sidebar{width:220px;min-width:180px;}
     .sc-sidebar.closed{width:0;min-width:0;}
@@ -116,17 +117,41 @@ export const CALENDAR_STYLES = `
     .sc-cell{min-height:70px;}
     .sc-stats{display:none;}
   }
+  /* WHY ≤768: tablet still shows sidebar Schedule chips (~26px) and 30px nav —
+     raise hit boxes without changing the dvh shell / sidebar visibility. */
+  @media(max-width:768px){
+    .sc-toggle, .sc-nav-btn { width:44px; height:44px; }
+    .sc-today-btn { min-height:44px; padding:0 12px; }
+    .sc-schedule-btn { min-height:44px; padding:10px 12px; box-sizing:border-box; }
+    .sc-btn-ghost { min-width:44px; min-height:44px; box-sizing:border-box; }
+  }
+  /* WHY ≤640 only (not 768): at tablet the sidebar is still visible — switching
+     the shell to height:auto made the card list set page height (~3000px) and
+     stretched the grid. Keep the dvh-contained desktop shell until the sheet
+     replaces the sidebar. */
   @media(max-width:640px){
+    .main-content:has(.sc-page) { height:auto; max-height:none; min-height:0; overflow:visible; }
+    .main-content:has(.sc-page) .main-inner {
+      height:auto; overflow:visible; padding:16px 12px 24px;
+    }
+    .sc-page { height:auto; min-height:0; align-items:flex-start; }
+    /* WHY: sc-cal already sat inside main-inner padding — keeping 20px here
+       double-inset the month (~310px grid / ~42px day cells). Drop cal pad so
+       day cells can clear ~44px width on a 390 phone. */
+    .sc-cal { overflow:visible; flex:0 1 auto; height:auto; min-height:0; padding:12px 4px; }
+    .sc-grid {
+      flex:0 0 auto; gap:3px;
+      grid-auto-rows:minmax(52px, auto);
+      align-content:start;
+    }
     .sc-legend{display:none;}
-    /* WHY: sidebar stays at 0 on mobile (#12): instead of fighting this rule, we render
-       a separate .sc-mobile-sheet element (bottom drawer) that replaces the sidebar on
-       touch-sized screens. The existing .sc-sidebar stays collapsed — the mobile path
-       routes entirely through the sheet, which is toggled by the same GripVertical
-       button in the CalendarGrid header. */
-    .sc-sidebar{width:0!important;min-width:0!important;}
-    .sc-cell{min-height:52px;padding:5px;}
+    /* WHY: width:0 left the sidebar in the flex row — its full card list still
+       set the cross-axis height (~3000px) and stretched .sc-cal to match.
+       Hide it entirely; scheduling goes through .sc-mobile-sheet. */
+    .sc-sidebar{display:none!important;width:0!important;min-width:0!important;}
+    .sc-cell{min-height:52px;height:auto;padding:5px;}
     .sc-pill{padding:4px 6px;min-height:32px;}
-    .sc-grid{gap:3px;}
+    .sc-cal-hd{gap:8px;}
     .sc-mobile-sheet{display:flex;}
   }
 `;

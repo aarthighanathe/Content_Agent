@@ -18,12 +18,20 @@ const dbMock = {
   update: vi.fn(),
 };
 
+const getJobState = vi.fn();
+const contentQueueMock = vi.fn();
+
 vi.mock('../../src/db/index.js', () => ({ db: dbMock }));
 vi.mock('../../src/lib/sse.js', () => ({
   sseManager: { sendEvent: vi.fn() },
 }));
 vi.mock('../../src/lib/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+vi.mock('../../src/lib/queue.js', () => ({
+  contentQueue: () => contentQueueMock(),
+  // WHY: pass through so isQueuedInBullMq tests exercise getJobState errors.
+  withQueueTimeout: <T>(p: Promise<T>): Promise<T> => p,
 }));
 
 describe('isActivelyProcessingInMemory / sweepStaleInFlightJobs (M2)', () => {
@@ -55,7 +63,7 @@ describe('isActivelyProcessingInMemory / sweepStaleInFlightJobs (M2)', () => {
     expect(isActivelyProcessingInMemory('missing')).toBe(false);
   });
 
-  it('isActivelyProcessingInMemory is false for terminal or bare pending', async () => {
+  it('isActivelyProcessingInMemory is false for terminal; true for bare pending', async () => {
     const { setJobInStore } = await import('../../src/lib/jobStore.js');
     const { isActivelyProcessingInMemory } = await import('../../src/lib/persistJobSweeps.js');
 
@@ -80,7 +88,9 @@ describe('isActivelyProcessingInMemory / sweepStaleInFlightJobs (M2)', () => {
     });
 
     expect(isActivelyProcessingInMemory(DONE_ID)).toBe(false);
-    expect(isActivelyProcessingInMemory(PENDING_ID)).toBe(false);
+    // WHY: BullMQ-queued jobs sit as plain pending until pickup — sweeping them
+    // made the worker skip a still-valid job (see persistJobSweeps.ts).
+    expect(isActivelyProcessingInMemory(PENDING_ID)).toBe(true);
   });
 
   it('sweepStaleInFlightJobs skips live memory jobs and marks abandoned ones', async () => {
@@ -120,5 +130,40 @@ describe('isActivelyProcessingInMemory / sweepStaleInFlightJobs (M2)', () => {
       DEAD_ID,
       expect.objectContaining({ stage: 'failed' }),
     );
+  });
+});
+
+describe('isQueuedInBullMq fail-open on Redis/getJobState error', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getJobState.mockReset();
+    contentQueueMock.mockReset();
+  });
+
+  it('returns false when no BullMQ queue (direct / no-Redis mode)', async () => {
+    contentQueueMock.mockReturnValue(null);
+    const { isQueuedInBullMq } = await import('../../src/lib/persistJobSweeps.js');
+    await expect(isQueuedInBullMq(LIVE_ID)).resolves.toBe(false);
+  });
+
+  it('returns true when getJobState throws (assume still queued)', async () => {
+    contentQueueMock.mockReturnValue({ getJobState });
+    getJobState.mockRejectedValue(new Error('Redis connection lost'));
+    const { isQueuedInBullMq } = await import('../../src/lib/persistJobSweeps.js');
+    await expect(isQueuedInBullMq(LIVE_ID)).resolves.toBe(true);
+  });
+
+  it('returns true for delayed/active states', async () => {
+    contentQueueMock.mockReturnValue({ getJobState });
+    getJobState.mockResolvedValue('delayed');
+    const { isQueuedInBullMq } = await import('../../src/lib/persistJobSweeps.js');
+    await expect(isQueuedInBullMq(LIVE_ID)).resolves.toBe(true);
+  });
+
+  it('returns false for completed/unknown states', async () => {
+    contentQueueMock.mockReturnValue({ getJobState });
+    getJobState.mockResolvedValue('completed');
+    const { isQueuedInBullMq } = await import('../../src/lib/persistJobSweeps.js');
+    await expect(isQueuedInBullMq(LIVE_ID)).resolves.toBe(false);
   });
 });

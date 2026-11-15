@@ -127,7 +127,17 @@ router.post('/create', applyGenerationRateLimit, async (req: AuthRequest, res: R
     // WHY: persist before memory (CORR-001): a failed insert must not leave a
     // phantom pending job in jobsMemory with no eviction timer. SSE /stream
     // finds the job as soon as setJobInStore runs immediately after.
-    await insertPendingJobRow(job);
+    // WHY: check the boolean: insertPendingJobRow swallows DB errors and returns
+    // false — enqueueing anyway would run a full pipeline with no durable row.
+    const inserted = await insertPendingJobRow(job);
+    if (!inserted) {
+      logger.error('Create pending row insert failed; not enqueueing', { jobId });
+      return res.status(503).json({
+        error: 'Could not save the new job — try again shortly',
+        code: 'SERVICE_UNAVAILABLE',
+        retryable: true,
+      });
+    }
     setJobInStore(jobId, job);
 
     // WHY: templateId/paletteId on the queue payload: the worker rebuilds a
@@ -260,8 +270,13 @@ router.post('/batch', applyGenerationRateLimit, async (req: AuthRequest, res: Re
         };
 
         // WHY: persist first so a failed insert never leaves a phantom job in memory.
-
-        await insertPendingJobRow(job);
+        // WHY: check the boolean — throw so allSettled maps this item to
+        // failedItems (CLIENT_BATCH_ITEM_FAILURE) instead of enqueueing a phantom.
+        const inserted = await insertPendingJobRow(job);
+        if (!inserted) {
+          logger.error('Batch pending row insert failed; not enqueueing', { jobId });
+          throw new Error('Pending job row insert failed');
+        }
         setJobInStore(jobId, job);
         const queued = await addJobToQueue(jobId, {
           userId, topic, platform: item.platform, tone: jobTone, targetAudience: jobAudience,

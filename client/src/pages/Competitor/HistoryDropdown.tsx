@@ -4,7 +4,7 @@ import type { CompetitorAnalysisHistoryItem } from '../../types/social';
 import { timeAgo } from '../../lib/utils';
 import { deleteCompetitorAnalysis } from '../../api';
 import { useQueryClient } from '@tanstack/react-query';
-import { competitorPlatformLabel } from './platforms';
+import { competitorPlatformLabel, displayCompetitorHandle } from './platforms';
 
 interface HistoryDropdownProps {
   isLoading: boolean;
@@ -55,7 +55,8 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 6,
           background: 'transparent', border: '1px solid var(--rule)', borderRadius: 8,
-          padding: '7px 12px', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600,
+          // WHY: was ~35px tall — bump to 44 for mobile touch target.
+          padding: '7px 12px', minHeight: 44, color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600,
           cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? 0.6 : 1,
         }}
       >
@@ -86,7 +87,9 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
                 {deleteError}
               </p>
             )}
-            {items.map((item) => (
+            {items.map((item) => {
+              const shownHandle = displayCompetitorHandle(item.handle);
+              return (
               <div
                 key={item.id}
                 role="option"
@@ -105,7 +108,13 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
                     borderRadius: 7, padding: '6px 4px', cursor: 'pointer', minWidth: 0,
                   }}
                 >
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }}>@{item.handle}</span>
+                  <span style={{
+                    fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    maxWidth: '100%',
+                  }}>
+                    @{shownHandle}
+                  </span>
                   <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>
                     {[competitorPlatformLabel(item.platform), item.industry, timeAgo(item.createdAt)]
                       .filter(Boolean)
@@ -116,7 +125,7 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
                   type="button"
                   onClick={(e) => handleDelete(e, item.id)}
                   disabled={deletingId === item.id}
-                  aria-label={`Delete analysis for @${item.handle}`}
+                  aria-label={`Delete analysis for @${shownHandle}`}
                   style={{
                     flexShrink: 0, background: 'transparent', border: 'none', cursor: 'pointer',
                     padding: 6, borderRadius: 4, color: 'var(--text-muted)',
@@ -125,7 +134,8 @@ export function HistoryDropdown({ isLoading, items, onSelect }: HistoryDropdownP
                   <Trash2 size={12} />
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

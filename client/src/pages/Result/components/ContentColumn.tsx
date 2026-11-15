@@ -12,6 +12,74 @@ import type { ColorSystem } from '../../../lib/colorSystem';
 import type { MultiplyEntry }  from '../hooks/useMultiplier';
 import type { ContentJob, PlatformContent, VideoScriptContentData } from '../../../types/job';
 
+function isVideoScriptShape(
+  content: PlatformContent | VideoScriptContentData,
+): content is VideoScriptContentData {
+  return 'segments' in content && Array.isArray(content.segments);
+}
+
+function asVideoScript(
+  content: PlatformContent | VideoScriptContentData,
+): VideoScriptContentData {
+  // WHY: platform=video_script with a non-script payload still has to render.
+  // Missing cta/hook are filled so VideoScriptContent never reads undefined.
+  if (isVideoScriptShape(content)) {
+    return {
+      ...content,
+      hook: content.hook ?? {},
+      cta: content.cta ?? {},
+      segments: content.segments,
+    };
+  }
+  return { hook: {}, segments: [], cta: {} };
+}
+
+function renderFallbackCopy(
+  content: PlatformContent | VideoScriptContentData,
+  onSave: (newContent: SlideData[] | PlatformContent) => Promise<void>,
+): React.ReactNode {
+  if (isVideoScriptShape(content)) {
+    return <VideoScriptContent content={asVideoScript(content)} />;
+  }
+  if (Array.isArray(content.tweets)) {
+    return <TwitterContent content={content} onSave={onSave} />;
+  }
+  // WHY: empty string is still a caption/hook. Truthy checks hid the whole column.
+  if (typeof content.caption === 'string' && content.caption.length > 0) {
+    return <InstagramContent content={content} onSave={onSave} />;
+  }
+  if (typeof content.hook === 'string') {
+    return <LinkedInContent content={content} onSave={onSave} />;
+  }
+  if (typeof content.caption === 'string') {
+    return <InstagramContent content={content} onSave={onSave} />;
+  }
+  return null;
+}
+
+function renderCopyBody(
+  platform: string | undefined,
+  content: PlatformContent | VideoScriptContentData,
+  onSave: (newContent: SlideData[] | PlatformContent) => Promise<void>,
+): React.ReactNode {
+  // WHY: job.platform picks the renderer. Field sniffing treated "" hook/caption
+  // as "no content" and left the Result column blank.
+  if (platform === 'linkedin_post') {
+    return <LinkedInContent content={isVideoScriptShape(content) ? {} : content} onSave={onSave} />;
+  }
+  if (platform === 'twitter_thread') {
+    return <TwitterContent content={isVideoScriptShape(content) ? {} : content} onSave={onSave} />;
+  }
+  if (platform === 'instagram_caption') {
+    const post = isVideoScriptShape(content) ? {} : content;
+    return <InstagramContent content={post} onSave={onSave} />;
+  }
+  if (platform === 'video_script') {
+    return <VideoScriptContent content={asVideoScript(content)} />;
+  }
+  return renderFallbackCopy(content, onSave);
+}
+
 // WHY: union — this column picks a renderer from the fields present (slides,
 // PlatformContent, or VideoScriptContentData).
 // WHY: exported here (not types/job.ts) — SlideData lives under carousel/IGSlide;
@@ -28,6 +96,8 @@ interface Props {
   onSave:          (newContent: SlideData[] | PlatformContent) => Promise<void>;
   multiplyJobs:    Record<string, MultiplyEntry>;
   onMultiply:      (platform: string) => void;
+  /** Prefer the job's platform over sniffing content fields (empty hook/caption). */
+  platform?:       string;
   className?:      string;
   slideRefs?:      React.MutableRefObject<(HTMLDivElement | null)[]>;
   /** Brand identity + palette + design preset are resolved in Result.tsx so the
@@ -45,11 +115,12 @@ interface Props {
 export function ContentColumn({
   jobData, content, currentSlide, setCurrentSlide,
   onSave,
-  multiplyJobs, onMultiply, className, slideRefs,
+  multiplyJobs, onMultiply, platform: platformProp, className, slideRefs,
   brandName, handle, colorSystem, designPreset,
   templateId, paletteId, onTemplateChange,
 }: Props) {
   const isCarousel = Array.isArray(content);
+  const platform = platformProp ?? jobData?.platform;
 
   // NOTE: the "Render with AI theme" flow was removed here. It asked Gemini to invent a
   // slide design and replaced this preview with it — a different look from both the
@@ -94,28 +165,12 @@ export function ContentColumn({
         </div>
       )}
 
-      {/* WHY: cast to PlatformContent per branch: `content` is a ResultContent union once
-          !isCarousel narrows out SlideData[]; the four platform components below are
-          distinguished by which fields the writer/formatter agents actually populated
-          (segments => video script, tweets => thread, etc.) rather than a discriminant
-          tag in the data itself — same runtime check the pre-typing JSX already used. */}
       {/* WHY: Adapt lives inside .rp-copy-stage: keeps caption/thread and Adapt
           on the same full-width column (the old 720px reading cap was removed). */}
       {!isCarousel && (
         <VisibleScroller frameClassName="rp-copy-scroll">
         <div className="rp-copy-stage">
-          {!('segments' in content) && content.hook && !content.tweets && !content.caption && (
-            <LinkedInContent content={content} onSave={onSave} />
-          )}
-          {!('segments' in content) && content.tweets && (
-            <TwitterContent content={content} onSave={onSave} />
-          )}
-          {!('segments' in content) && content.caption && (
-            <InstagramContent content={content} onSave={onSave} />
-          )}
-          {'segments' in content && content.hook && content.segments && (
-            <VideoScriptContent content={content} />
-          )}
+          {renderCopyBody(platform, content, onSave)}
           {multiplier}
         </div>
         </VisibleScroller>

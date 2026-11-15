@@ -56,11 +56,34 @@ function makeQueryBuilder(tableName: string, result: any = []) {
   return builder;
 }
 
+const updateCalls: Array<{ table: unknown; set: unknown }> = [];
+
 const txMock = {
   select: vi.fn((_cols?: any) => ({
-    from: (table: any) => ({
-      where: vi.fn().mockResolvedValue(table === 'content_jobs_marker' ? jobRowsInDb : jobRowsInDb),
-    }),
+    from: (table: any) => {
+      // WHY: scheduled_posts selects (publishing lock / leftover) must be empty
+      // so DELETE /me happy-path tests are not aborted as PUBLISH_IN_PROGRESS.
+      const isScheduledPosts = table?.userId === 'scheduledPosts.userId'
+        || table?.publishStatus === 'scheduledPosts.publishStatus';
+      const isContentJobs = table?.id === 'contentJobs.id'
+        || table?.userId === 'contentJobs.userId';
+      const rows = isContentJobs ? jobRowsInDb : (isScheduledPosts ? [] : jobRowsInDb);
+      const whereResult: any = Promise.resolve(rows);
+      whereResult.for = vi.fn().mockResolvedValue(rows);
+      whereResult.limit = vi.fn().mockResolvedValue(rows);
+      return {
+        where: vi.fn().mockReturnValue(whereResult),
+      };
+    },
+  })),
+  // WHY: soft-delete now runs inside the txn after FOR UPDATE (not pre-txn).
+  update: vi.fn((table: unknown) => ({
+    set: (values: unknown) => {
+      updateCalls.push({ table, set: values });
+      return {
+        where: vi.fn().mockResolvedValue(undefined),
+      };
+    },
   })),
   delete: vi.fn((table: any) => makeQueryBuilder(String(table?.__name || table))),
 };
@@ -92,7 +115,11 @@ vi.mock('../../src/db/schema.js', () => ({
   contentOutputs: { jobId: 'contentOutputs.jobId' },
   agentLogs: { jobId: 'agentLogs.jobId' },
   socialTokens: { userId: 'socialTokens.userId', platform: 'socialTokens.platform', displayName: 'socialTokens.displayName', createdAt: 'socialTokens.createdAt', id: 'socialTokens.id' },
-  scheduledPosts: { userId: 'scheduledPosts.userId' },
+  scheduledPosts: {
+    id: 'scheduledPosts.id',
+    userId: 'scheduledPosts.userId',
+    publishStatus: 'scheduledPosts.publishStatus',
+  },
   collectionJobs: { jobId: 'collectionJobs.jobId', collectionId: 'collectionJobs.collectionId' },
   collections: { userId: 'collections.userId' },
   competitorAnalyses: { userId: 'competitorAnalyses.userId' },
@@ -115,6 +142,24 @@ describe('DELETE /api/users/me', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     deleteCalls.length = 0;
+    updateCalls.length = 0;
+    // WHY: restore happy-path FOR UPDATE → empty posts (publishing conflict
+    // tests override select mid-suite).
+    txMock.select.mockImplementation((_cols?: any) => ({
+      from: (table: any) => {
+        const isScheduledPosts = table?.userId === 'scheduledPosts.userId'
+          || table?.publishStatus === 'scheduledPosts.publishStatus';
+        const isContentJobs = table?.id === 'contentJobs.id'
+          || table?.userId === 'contentJobs.userId';
+        const rows = isContentJobs ? jobRowsInDb : (isScheduledPosts ? [] : jobRowsInDb);
+        const whereResult: any = Promise.resolve(rows);
+        whereResult.for = vi.fn().mockResolvedValue(rows);
+        whereResult.limit = vi.fn().mockResolvedValue(rows);
+        return {
+          where: vi.fn().mockReturnValue(whereResult),
+        };
+      },
+    }));
   });
 
   it('returns 401 when unauthenticated (no dbUserId)', async () => {
@@ -133,6 +178,47 @@ describe('DELETE /api/users/me', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(dbMock.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('soft-deletes content_jobs inside the txn after the publishing lock', async () => {
+    const { default: usersRouter } = await import('../../src/routes/users.js');
+    const { contentJobs } = await import('../../src/db/schema.js');
+    const app = buildApp('user-1');
+    app.use('/api/users', usersRouter);
+    const res = await supertest(app).delete('/api/users/me');
+    expect(res.status).toBe(200);
+    expect(txMock.update).toHaveBeenCalledWith(contentJobs);
+    expect(updateCalls.some((c) => c.set && (c.set as { deleted?: number }).deleted === 1)).toBe(true);
+  });
+
+  it('returns 409 without soft-deleting when FOR UPDATE sees publishing', async () => {
+    txMock.select.mockImplementation((_cols?: any) => ({
+      from: (table: any) => {
+        const isScheduledPosts = table?.userId === 'scheduledPosts.userId'
+          || table?.publishStatus === 'scheduledPosts.publishStatus';
+        const rows = isScheduledPosts
+          ? [{ id: 'post-1', publishStatus: 'publishing' }]
+          : jobRowsInDb;
+        const whereResult: any = Promise.resolve(rows);
+        whereResult.for = vi.fn().mockResolvedValue(rows);
+        whereResult.limit = vi.fn().mockResolvedValue(rows);
+        return {
+          where: vi.fn().mockReturnValue(whereResult),
+        };
+      },
+    }));
+
+    const { default: usersRouter } = await import('../../src/routes/users.js');
+    const app = buildApp('user-1');
+    app.use('/api/users', usersRouter);
+    const res = await supertest(app).delete('/api/users/me');
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('PUBLISH_IN_PROGRESS');
+    // WHY: soft-delete must not run before (or after) a publishing conflict —
+    // previously pre-txn deleted=1 left the library wiped on 409.
+    expect(txMock.update).not.toHaveBeenCalled();
+    expect(txMock.delete).not.toHaveBeenCalled();
   });
 
   it('deletes from agentLogs and contentOutputs before contentJobs (dependency order)', async () => {

@@ -12,6 +12,14 @@ export function asStringArray(v: unknown): string[] {
   return v.filter((item): item is string => typeof item === 'string');
 }
 
+// WHY: shared by parseSkipResearch (BullMQ) and multiplyAdapt (direct) so thin
+// cached research cannot skip re-research on one path while the other re-runs.
+export function isUsableSkipResearch(
+  research: Pick<ResearchResult, 'keyFacts' | 'trendingAngles'>,
+): boolean {
+  return research.keyFacts.length > 0 || research.trendingAngles.length > 0;
+}
+
 /** Reconstruct Adapt's skipResearch bundle from the BullMQ payload (JSON-safe). */
 export function parseSkipResearch(raw: unknown): SkipResearchOpts | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
@@ -30,7 +38,7 @@ export function parseSkipResearch(raw: unknown): SkipResearchOpts | undefined {
     // keyFacts/angles exist — avoid trusting untyped queue JSON shapes.
     rawResults: [],
   };
-  if (researchResult.keyFacts.length === 0 && researchResult.trendingAngles.length === 0) {
+  if (!isUsableSkipResearch(researchResult)) {
     return undefined;
   }
   const platformRules =
@@ -38,4 +46,49 @@ export function parseSkipResearch(raw: unknown): SkipResearchOpts | undefined {
       ? (o.platformRules as Record<string, unknown>)
       : {};
   return { researchResult, taskPlan: o.taskPlan, platformRules };
+}
+
+/** Optional BullMQ fields forwarded into PipelineJob after required-id checks. */
+export interface ContentJobOptionalFields {
+  tone: string | undefined;
+  targetAudience: string | undefined;
+  brandVoice: string | undefined;
+  phrasesUse: string | undefined;
+  phrasesAvoid: string | undefined;
+  contentDna: unknown;
+  initialFeedback: string | undefined;
+  sourceMaterial: string | undefined;
+  competitorContext: string | undefined;
+  sourceCompetitorAnalysisId: string | undefined;
+  templateId: string | undefined;
+  paletteId: string | undefined;
+  sourceUrl: string | undefined;
+  sourceJobId: string | undefined;
+  sourcePlatform: string | undefined;
+  tag: string | undefined;
+  skipResearch: SkipResearchOpts | undefined;
+}
+
+export function parseContentJobOptionalFields(
+  d: Record<string, unknown>,
+): ContentJobOptionalFields {
+  return {
+    tone: asString(d.tone),
+    targetAudience: asString(d.targetAudience),
+    brandVoice: asString(d.brandVoice),
+    phrasesUse: asString(d.phrasesUse),
+    phrasesAvoid: asString(d.phrasesAvoid),
+    contentDna: d.contentDna,
+    initialFeedback: asString(d.initialFeedback),
+    sourceMaterial: asString(d.sourceMaterial),
+    competitorContext: asString(d.competitorContext),
+    sourceCompetitorAnalysisId: asString(d.sourceCompetitorAnalysisId),
+    templateId: asString(d.templateId),
+    paletteId: asString(d.paletteId),
+    sourceUrl: asString(d.sourceUrl),
+    sourceJobId: asString(d.sourceJobId),
+    sourcePlatform: asString(d.sourcePlatform),
+    tag: asString(d.tag),
+    skipResearch: parseSkipResearch(d.skipResearch),
+  };
 }

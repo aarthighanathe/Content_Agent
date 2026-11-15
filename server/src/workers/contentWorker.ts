@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node';
+import { startJobHeartbeat } from '../lib/jobHeartbeat.js';
 import { Worker, Job, DelayedError } from 'bullmq';
 import { config } from 'dotenv';
 import { resolve } from 'path';
@@ -12,23 +13,23 @@ import { createRedisConnection } from '../lib/queue.js';
 import { env } from '../config.js';
 import { sseManager } from '../lib/sse.js';
 import { runAndPersistPipeline, type PipelineJob } from '../lib/pipeline.js';
-import { markJobFailedIfInFlight, sweepStaleInFlightJobs, updateJobStageInDb } from '../lib/persistJob.js';
+import { markJobTerminalFailed, sweepStaleInFlightJobs, updateJobStageInDb } from '../lib/persistJob.js';
 import { logger } from '../lib/logger.js';
 import { getJobFromStore, setJobInStore } from '../lib/jobStore.js';
 import { isValidUUID } from '../lib/uuid.js';
-import { db } from '../db/index.js';
-import { contentJobs } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
 import {
-  ContentJobLockHeldError,
+  isContentJobLockHeldError,
   CONTENT_RUN_LOCK_RENEW_MS,
   CONTENT_RUN_LOCK_TTL_SECONDS,
   contentRunLockKey,
+  inFlightContentJobIds,
   requeueWhileContentLockHeld,
   tryAcquireRedisLock,
   type AcquiredRedisLock,
 } from '../lib/contentJobLock.js';
-import { asString, parseSkipResearch } from '../lib/contentJobPayload.js';
+import { lookupDurableTerminalStatus } from '../lib/contentJobTerminalCheck.js';
+import { asString, parseContentJobOptionalFields } from '../lib/contentJobPayload.js';
+import { onContentWorkerFailed } from './contentWorkerFailed.js';
 
 // WHY: re-export: older call sites (manage/stream/versions tests) imported store
 // helpers from this worker module — keep the path working after jobStore extract.
@@ -45,12 +46,14 @@ export async function processContentJob(job: Job, token?: string): Promise<void>
   const data: unknown = job.data;
   // M8: reject non-object payloads before any pipeline work — empty defaults
   // used to enqueue a useless Gemini run that could never persist cleanly.
+  // WHY: throw (not return): a bare return completes the BullMQ job as success
+  // and never retries — poison payloads must fail the attempt.
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     logger.warn('Rejecting malformed BullMQ payload (not an object)', {
       bullmqJobId: job.id,
       dataType: data === null ? 'null' : typeof data,
     });
-    return;
+    throw new Error('Malformed BullMQ content job payload');
   }
   const d = data as Record<string, unknown>;
   const jobId = asString(d.jobId) ?? '';
@@ -59,6 +62,8 @@ export async function processContentJob(job: Job, token?: string): Promise<void>
   const platform = asString(d.platform) ?? '';
 
   // M8: jobId must be a UUID; topic/platform/userId are required to run.
+  // WHY: throw (not return) so BullMQ does not silently succeed; when jobId is
+  // a valid UUID, mark the durable row failed so Result stops spinning.
   if (!isValidUUID(jobId) || !userId || !topic || !platform) {
     logger.warn('Rejecting malformed BullMQ payload (missing/invalid required fields)', {
       bullmqJobId: job.id,
@@ -68,71 +73,41 @@ export async function processContentJob(job: Job, token?: string): Promise<void>
       hasTopic: Boolean(topic),
       hasPlatform: Boolean(platform),
     });
-    return;
+    if (isValidUUID(jobId)) {
+      await markJobTerminalFailed(jobId, 'Malformed job payload').catch(() => {});
+    }
+    throw new Error('Malformed BullMQ content job payload');
   }
 
   // H1: if a prior attempt already reached a terminal durable status, no-op —
   // BullMQ retries must not re-burn Gemini/Tavily after done/failed.
-  if (db) {
-    try {
-      const rows = await db
-        .select({ status: contentJobs.status, deleted: contentJobs.deleted })
-        .from(contentJobs)
-        .where(eq(contentJobs.id, jobId))
-        .limit(1);
-      const row = rows[0];
-      if (row && (row.status === 'done' || row.status === 'failed' || row.deleted === 1)) {
-        logger.warn('Skipping content job — durable row already terminal or deleted', {
-          jobId,
-          status: row.status,
-          deleted: row.deleted,
-        });
-        return;
-      }
-    } catch (err: unknown) {
-      // WHY: continue on lookup failure: a Neon blip must not drop a still-
-      // pending job — idempotency is best-effort ahead of the pipeline.
-      logger.warn('Terminal-status lookup failed; continuing with pipeline', {
-        jobId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  // WHY: lookup_failed → delay (fail closed), never treat a Neon blip as
+  // "not terminal" and re-run generation over existing content_outputs.
+  const terminalLookup = await lookupDurableTerminalStatus(jobId);
+  if (terminalLookup === 'terminal') {
+    logger.warn('Skipping content job — durable row already terminal or deleted', { jobId });
+    return;
+  }
+  if (terminalLookup === 'lookup_failed') {
+    await requeueWhileContentLockHeld(job, token, jobId, DelayedError);
+    return;
   }
 
-  const tone = asString(d.tone);
-  const targetAudience = asString(d.targetAudience);
-  const brandVoice = asString(d.brandVoice);
-  const phrasesUse = asString(d.phrasesUse);
-  const phrasesAvoid = asString(d.phrasesAvoid);
-  const contentDna = d.contentDna;
-  const initialFeedback = asString(d.initialFeedback);
-  const sourceMaterial = asString(d.sourceMaterial);
-  // WHY: carried through the BullMQ payload too (C3): create.ts resolves
-  // competitorContext server-side before enqueueing, so the worker only
-  // needs to forward the already-sanitized string — same treatment as
-  // brandVoice/phrasesUse above.
-  const competitorContext = asString(d.competitorContext);
-  const sourceCompetitorAnalysisId = asString(d.sourceCompetitorAnalysisId);
-  // WHY: read from the BullMQ payload: create/batch/repurpose/regenerate put
-  // these on the queue job; rebuilding without them made production Redis
-  // runs persist null template/palette/sourceUrl even when memory had them.
-  const templateId = asString(d.templateId);
-  const paletteId = asString(d.paletteId);
-  const sourceUrl = asString(d.sourceUrl);
-  const sourceJobId = asString(d.sourceJobId);
-  const sourcePlatform = asString(d.sourcePlatform);
-  const tag = asString(d.tag);
-  // WHY: Adapt (multiply) serializes cached research onto the queue so the
-  // worker can skip orchestrator+researcher — without this, queued Adapt
-  // jobs re-ran full research or fell back only to direct mode.
-  const skipResearch = parseSkipResearch(d.skipResearch);
+  // WHY: optional fields parsed here so create/batch/repurpose/regenerate
+  // queue payloads (incl. Adapt skipResearch) reach PipelineJob intact.
+  const {
+    tone, targetAudience, brandVoice, phrasesUse, phrasesAvoid, contentDna,
+    initialFeedback, sourceMaterial, competitorContext, sourceCompetitorAnalysisId,
+    templateId, paletteId, sourceUrl, sourceJobId, sourcePlatform, tag, skipResearch,
+  } = parseContentJobOptionalFields(d);
 
   // WHY: (S2/M1): Redis content:run:{jobId} is the cross-process single-flight
   // lock; process-local Set remains defense-in-depth for co-hosted slots.
   // Never `return` on contention — that completes the BullMQ job as success
   // and burns an attempt / drops the retry (finding M1).
-  if (inFlightJobIds.has(jobId)) {
+  if (inFlightContentJobIds.has(jobId)) {
     await requeueWhileContentLockHeld(job, token, jobId, DelayedError);
+    return;
   }
 
   const lockResult = await tryAcquireRedisLock(
@@ -142,24 +117,43 @@ export async function processContentJob(job: Job, token?: string): Promise<void>
   );
   if (lockResult.status === 'held') {
     await requeueWhileContentLockHeld(job, token, jobId, DelayedError);
+    return;
   }
   if (lockResult.status === 'unavailable') {
-    // WHY: co-hosted single process can still rely on inFlightJobIds; multi-
-    // instance without Redis for locks is unsupported for safe single-flight.
+    // WHY: when Redis is configured (prod / any BullMQ deploy), lock
+    // unavailable is a blip — fail closed like held so two workers cannot
+    // double-run the same jobId (feed monitors refuse check without Redis).
+    // Fail-open only when Redis is intentionally unset (local direct mode /
+    // unit tests); process-local inFlightContentJobIds is then the only guard.
+    const redisConfigured = Boolean(env.UPSTASH_REDIS_URL || env.REDIS_URL);
+    if (redisConfigured) {
+      logger.warn('Redis content-run lock unavailable — delaying (fail closed)', { jobId });
+      await requeueWhileContentLockHeld(job, token, jobId, DelayedError);
+      return;
+    }
     logger.warn('Redis content-run lock unavailable — using process-local only', { jobId });
   }
 
-  let redisLock: AcquiredRedisLock | null =
+  const redisLock: AcquiredRedisLock | null =
     lockResult.status === 'acquired' ? lockResult.lock : null;
-  inFlightJobIds.add(jobId);
+  inFlightContentJobIds.add(jobId);
+  let requeueForLock = false;
   try {
     await runClaimedJob();
+  } catch (err: unknown) {
+    if (!isContentJobLockHeldError(err)) throw err;
+    requeueForLock = true;
   } finally {
-    inFlightJobIds.delete(jobId);
+    inFlightContentJobIds.delete(jobId);
     if (redisLock) {
       await redisLock.release();
-      redisLock = null;
     }
+  }
+  // WHY: release first so a free key can be taken on the delayed retry. A live
+  // holder makes the retry delay again; a terminal row is then a no-op (H1).
+  if (requeueForLock) {
+    await requeueWhileContentLockHeld(job, token, jobId, DelayedError);
+    return;
   }
 
   async function runClaimedJob(): Promise<void> {
@@ -215,24 +209,30 @@ export async function processContentJob(job: Job, token?: string): Promise<void>
     agent: 'system', message: 'Job picked up by worker…',
   });
 
+  // FLOW: heartbeat covers the whole pipeline run; stopped in finally below.
+  const stopHeartbeat = startJobHeartbeat(jobId);
   try {
+    // WHY: pass this acquire's AbortSignal so stage boundaries abort on renew
+    // loss without a jobId-keyed lost flag that a later holder could inherit.
     await runAndPersistPipeline(jobData, emitProgress, {
       set: (id, data) => setJobInStore(id, data),
       evict: (id) => setJobInStore(id, undefined),
-    }, skipResearch ? { skipResearch } : undefined);
-  } catch {
-    // WHY: swallow here: runAndPersistPipeline already persisted the job as
-    // 'failed' and emitted the terminal SSE event before rethrowing — the
-    // client has already been told this job is done (failed) and stopped
-    // listening. Letting this propagate would make BullMQ's `attempts: 3`
-    // retry an already-terminal job, burning provider quota a 2nd/3rd time
-    // and risking a stale DB overwrite back to 'done' with no client
-    // listening. Same contract as routes/jobs/create.ts's _runPipelineDirect.
+    }, {
+      ...(skipResearch ? { skipResearch } : {}),
+      ...(redisLock ? { runLockSignal: redisLock.signal } : {}),
+    });
+  } catch (err: unknown) {
+    // WHY: lock loss is not a persisted failure — rethrow so the outer handler
+    // can moveToDelayed without burning an attempt or emitting "deleted".
+    if (isContentJobLockHeldError(err)) throw err;
+    // WHY: every other error was already saved as failed + terminal SSE.
+    // Rethrowing would make BullMQ retry a terminal job and burn provider quota.
+  } finally {
+    stopHeartbeat();
   }
   }
 }
 
-const inFlightJobIds = new Set<string>();
 
 // Create and start worker
 let worker: Worker | null = null;
@@ -259,36 +259,7 @@ export function startWorker() {
       logger.info('Job completed', { jobId: job.id });
     });
 
-    worker.on('failed', (job, err) => {
-      // WHY: lock-held retries (M1) must not flip the durable row to failed while
-      // the winning worker is still running — DelayedError never reaches here,
-      // but ContentJobLockHeldError can when moveToDelayed/token is unavailable.
-      if (
-        err instanceof ContentJobLockHeldError
-        || err.name === 'ContentJobLockHeldError'
-        || err.name === 'DelayedError'
-      ) {
-        logger.warn('Content job deferred (lock held)', { jobId: job?.id, error: err.message });
-        return;
-      }
-      console.error(`Job ${job?.id} failed:`, err.message);
-      Sentry.captureException(err, { tags: { jobId: job?.id, action: 'worker-failed' } });
-      // WHY: durable failed + SSE (CORR-001): after max BullMQ attempts / stall
-      // exhaustion, runAndPersistPipeline may never have written a terminal row.
-      const failedJobId = job?.id;
-      if (typeof failedJobId === 'string' && failedJobId.length > 0) {
-        void markJobFailedIfInFlight(failedJobId, err.message).then((marked) => {
-          if (!marked) return;
-          sseManager.sendEvent(failedJobId, {
-            type: 'progress',
-            stage: 'failed',
-            progress: 0,
-            agent: 'system',
-            message: 'Content generation failed. Please try again or start a new job.',
-          });
-        }).catch(() => {});
-      }
-    });
+    worker.on('failed', onContentWorkerFailed);
 
     worker.on('error', (err) => {
       // Suppress transient Redis reconnect noise (same as publishWorker).

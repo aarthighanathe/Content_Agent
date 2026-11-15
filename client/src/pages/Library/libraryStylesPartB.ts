@@ -308,11 +308,42 @@ export const LIBRARY_STYLES_B = `
 
   .lib-spin { animation:lib-spin 0.8s linear infinite; }
 
+  /* WHY ≤768 (not only 640): tablet kept ~22–32px search/pills/more — same as
+     Ideate/pass-6 tablet raise. Layout stacking stays phone-only below. */
+  @media (max-width:768px) {
+    .lib-more-btn { width:44px; height:44px; }
+    .lib-pill, .lib-sort-btn, .lib-folders-btn {
+      min-height:44px; padding-top:10px; padding-bottom:10px;
+    }
+    .lib-search-wrap {
+      min-height:44px; box-sizing:border-box; padding-top:0; padding-bottom:0;
+    }
+    .lib-search-wrap input {
+      min-height:44px; box-sizing:border-box;
+    }
+    .lib-search-clear {
+      min-width:44px; min-height:44px; box-sizing:border-box;
+      align-items:center; justify-content:center;
+    }
+    .lib-source-link {
+      min-width:44px; min-height:44px;
+      align-items:center; justify-content:center;
+      box-sizing:border-box;
+    }
+    .lib-page-btn { min-height:44px; box-sizing:border-box; }
+    .lib-page-num { width:44px; height:44px; }
+    .lib-hd-btn, .lib-hd-create { min-height:44px; }
+  }
   @media (max-width:640px) {
     .lib-controls { padding:12px; gap:10px; }
     .lib-controls-top { flex-direction:column; align-items:stretch; }
     .lib-card-inner { padding:12px; gap:10px; }
     .lib-filter-row { flex-direction:column; align-items:stretch; }
     .lib-filter-tools { align-self:flex-end; }
+    /* WHY: Analytics + Manage + New content in one row overflowed ~5px past the
+       content column at 390px; stack under the title and let buttons share width. */
+    .lib-page-hd { flex-direction:column; align-items:stretch; gap:12px; }
+    .lib-page-actions { width:100%; }
+    .lib-hd-btn, .lib-hd-create { flex:1 1 auto; justify-content:center; }
   }
 `;

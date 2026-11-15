@@ -16,6 +16,9 @@ export function UrlInput({
   url, onUrlChange, batchMode, onToggleBatchMode, batchUrls, onBatchUrlsChange, loading,
 }: UrlInputProps) {
   const batchLineCount = batchUrls.split('\n').filter(l => l.trim().length > 0).length;
+  // WHY: empty batch still shows "1" so the toggle doesn't read "Batch (0 URLs)",
+  // but plural must use that same display count — raw 0 made "Batch (1 URLs)".
+  const batchDisplayCount = batchLineCount || 1;
   const MAX_BATCH_LINES = 50;
 
   const handleBatchUrlsChange = (value: string) => {
@@ -36,17 +39,21 @@ export function UrlInput({
         </label>
         <button
           type="button"
+          className="repurpose-mode-toggle"
           onClick={onToggleBatchMode}
           disabled={loading}
           style={{
-            fontSize: 10.5, fontFamily: 'var(--font-mono)', padding: '3px 10px', borderRadius: 20,
+            fontSize: 10.5, fontFamily: 'var(--font-mono)', padding: '8px 12px', borderRadius: 20,
             border: `1px solid ${batchMode ? 'color-mix(in srgb, var(--accent-2) 35%, transparent)' : 'var(--rule)'}`,
             background: batchMode ? 'color-mix(in srgb, var(--accent-2) 8%, transparent)' : 'transparent',
             color: batchMode ? 'var(--accent-2)' : 'var(--text-muted)',
             cursor: loading ? 'not-allowed' : 'pointer', transition: 'all .15s',
+            minHeight: 44, boxSizing: 'border-box',
           }}
         >
-          {batchMode ? `Batch (${batchLineCount || 1} URL${batchLineCount !== 1 ? 's' : ''})` : 'Switch to Batch'}
+          {batchMode
+            ? `Batch (${batchDisplayCount} URL${batchDisplayCount !== 1 ? 's' : ''})`
+            : 'Switch to Batch'}
         </button>
       </div>
 

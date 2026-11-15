@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { ImagePlus, Loader2 } from 'lucide-react';
 import type { SlideData } from './IGSlide';
 import { useFocusTrap } from '../../../../../hooks/useFocusTrap';
@@ -22,7 +22,7 @@ const HEADLINE_MAX = 300;
 const BODY_MAX = 1000;
 const PROMPT_MAX = 500;
 
-export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
+export function EditSlideModal({ slide, index, onSave, onClose }: Props): ReactElement {
   const [form, setForm] = useState({
     headline: slide.headline || '',
     body: slide.body || '',
@@ -33,8 +33,25 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const modalRef = useRef<HTMLDivElement>(null);
+  const isMountedRef = useRef(true);
+  // WHY: sync gate — saving state alone races a second click before re-render
+  // (Create submittingRef pattern).
+  const savingRef = useRef(false);
+  const imageAbortRef = useRef<AbortController | null>(null);
+  const busy = saving || generating;
 
-  async function handleSave() {
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      imageAbortRef.current?.abort();
+      imageAbortRef.current = null;
+    };
+  }, []);
+
+  async function handleSave(): Promise<void> {
+    if (savingRef.current || generating) return;
+    savingRef.current = true;
     setSaving(true);
     setError('');
     try {
@@ -45,11 +62,14 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
         imagePrompt: form.imagePrompt.trim() || undefined,
         imageDataUrl,
       });
+      if (!isMountedRef.current) return;
       onClose();
     } catch {
+      if (!isMountedRef.current) return;
       setError('Failed to save — please try again.');
     } finally {
-      setSaving(false);
+      savingRef.current = false;
+      if (isMountedRef.current) setSaving(false);
     }
   }
 
@@ -62,32 +82,50 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
     }
     setGenerating(true);
     setError('');
+    imageAbortRef.current?.abort();
+    const abort = new AbortController();
+    imageAbortRef.current = abort;
     try {
       if (!form.imagePrompt.trim()) {
         setForm((prev) => ({ ...prev, imagePrompt: prompt.slice(0, PROMPT_MAX) }));
       }
-      const result = await generateSlideImage(prompt, 'background');
+      const result = await generateSlideImage(prompt, 'background', abort.signal);
+      if (!isMountedRef.current || abort.signal.aborted) return;
       if (typeof result.image !== 'string' || !result.image.startsWith('data:image/')) {
         setError('Image generation returned an unexpected response.');
         return;
       }
       setImageDataUrl(result.image);
     } catch (err) {
+      if (!isMountedRef.current || abort.signal.aborted) return;
       // WHY: getSubmitError: IMAGE_GEN_BUSY (429) is retryable — generic catch
       // previously hid the "busy, retry shortly" server copy.
       setError(getSubmitError(err, 'Image generation failed — please try again.').message);
     } finally {
-      setGenerating(false);
+      // WHY: only the owning attempt clears generating — a second click aborts
+      // the first; the first finally must not drop generating while the second
+      // request is still in flight (dismiss guards would open early).
+      if (imageAbortRef.current === abort) {
+        imageAbortRef.current = null;
+        if (isMountedRef.current) setGenerating(false);
+      }
     }
+  }
+
+  function requestClose(): void {
+    if (busy) return;
+    onClose();
   }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape') onClose();
+      // WHY: ignore Escape while save/gen runs — dismissing mid-await left
+      // setState/onClose racing an unmounted modal.
+      if (e.key === 'Escape' && !busy) onClose();
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [busy, onClose]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -103,7 +141,7 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
     <>
       <div
         style={{ position: 'fixed', inset: 0, background: 'color-mix(in srgb, var(--bg-base) 70%, transparent)', zIndex: 200, backdropFilter: 'blur(4px)' }}
-        onClick={onClose}
+        onClick={requestClose}
       />
       <div
         ref={modalRef}
@@ -125,9 +163,16 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
             Edit Slide {index + 1}
           </span>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Close"
-            style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: 17, lineHeight: 1, padding: 12, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            disabled={busy}
+            style={{
+              background: 'none', border: 'none', color: 'var(--color-text-muted)',
+              cursor: busy ? 'not-allowed' : 'pointer', fontSize: 17, lineHeight: 1,
+              padding: 12, minWidth: 44, minHeight: 44, display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              opacity: busy ? 0.5 : 1,
+            }}
           >
             &#10005;
           </button>
@@ -191,7 +236,7 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
                 size="sm"
                 icon={generating ? <Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> : <ImagePlus size={12} />}
                 onClick={() => { void handleGenerateImage(); }}
-                disabled={generating || saving}
+                disabled={busy}
               >
                 {generating ? 'Generating…' : 'Generate image'}
               </Button>
@@ -199,9 +244,10 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
                 <button
                   type="button"
                   onClick={() => setImageDataUrl(undefined)}
+                  disabled={busy}
                   style={{
                     background: 'none', border: 'none', color: 'var(--text-muted)',
-                    fontSize: 11, cursor: 'pointer', textDecoration: 'underline',
+                    fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', textDecoration: 'underline',
                   }}
                 >
                   Remove image
@@ -227,10 +273,10 @@ export function EditSlideModal({ slide, index, onSave, onClose }: Props) {
         </VisibleScroller>
 
         <div style={{ display: 'flex', gap: 8, padding: '14px 24px 22px', flexShrink: 0 }}>
-          <Button variant="primary" onClick={handleSave} disabled={saving || generating} loading={saving} style={{ flex: 1, justifyContent: 'center' }}>
+          <Button variant="primary" onClick={() => { void handleSave(); }} disabled={busy} loading={saving} style={{ flex: 1, justifyContent: 'center' }}>
             Save
           </Button>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={requestClose} disabled={busy}>Cancel</Button>
         </div>
       </div>
     </>

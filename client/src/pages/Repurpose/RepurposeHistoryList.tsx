@@ -54,11 +54,13 @@ export function RepurposeHistoryList({ history, onRetry, onRemove }: RepurposeHi
                   <div style={{ fontSize: 10.5, color: 'var(--color-error)', marginTop: 3, lineHeight: 1.4 }}>{entry.errorMessage}</div>
                 )}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+              <div className="rh-row-actions" style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
                 {entry.outcome === 'success' && entry.jobId ? (
                   <button
                     type="button"
+                    className="rh-icon-btn"
                     title="View result"
+                    aria-label="View result"
                     onClick={() => navigate(`/result/${entry.jobId}`)}
                     style={{ background: 'transparent', border: 'none', padding: 3, cursor: 'pointer', color: 'var(--accent)', display: 'flex' }}
                   >
@@ -67,7 +69,9 @@ export function RepurposeHistoryList({ history, onRetry, onRemove }: RepurposeHi
                 ) : (
                   <button
                     type="button"
+                    className="rh-icon-btn"
                     title="Retry this URL"
+                    aria-label="Retry this URL"
                     onClick={() => onRetry(entry)}
                     style={{ background: 'transparent', border: 'none', padding: 3, cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}
                   >
@@ -76,7 +80,9 @@ export function RepurposeHistoryList({ history, onRetry, onRemove }: RepurposeHi
                 )}
                 <button
                   type="button"
+                  className="rh-icon-btn"
                   title="Remove from history"
+                  aria-label="Remove from history"
                   onClick={() => onRemove(entry.id)}
                   style={{ background: 'transparent', border: 'none', padding: 3, cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}
                 >
@@ -87,6 +93,19 @@ export function RepurposeHistoryList({ history, onRetry, onRemove }: RepurposeHi
           );
         })}
       </div>
+      {/* WHY: history icon actions were ~18×18 — below 44px mobile touch target. */}
+      <style>{`
+        @media (max-width: 768px) {
+          .rh-icon-btn {
+            min-width: 44px !important;
+            min-height: 44px !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 !important;
+            box-sizing: border-box;
+          }
+        }
+      `}</style>
     </div>
   );
 }

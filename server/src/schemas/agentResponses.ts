@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CS, CN } from './coercion.js';
+import { CS, CN, boundedCS } from './coercion.js';
 
 // WHY: this file exists: CLAUDE.md forbids `any` (including under "Hard Stops"), but
 // agents/critic.ts and agents/writer.ts both used `let parsed: any` at the exact
@@ -99,11 +99,49 @@ export const contentDnaSchema = z.object({
   keyPhrasePatterns: z.array(CS()).catch([]).optional(),
 }) satisfies z.ZodType<ContentDna>;
 
+// WHY: contentDnaSchema is optional+.catch — `{}` / all-empty fields still
+// safeParse. Reject hollow DNA before DB write (analyze-voice).
+export function isMeaningfulContentDna(dna: ContentDna): boolean {
+  const stringFields = [
+    dna.hookPattern,
+    dna.emojiFrequency,
+    dna.ctaStyle,
+    dna.structuralSignature,
+    dna.vocabularyLevel,
+    dna.writingPersonality,
+  ];
+  if (
+    stringFields.some((value) => {
+      if (typeof value !== 'string') return false;
+      const trimmed = value.trim();
+      return trimmed.length > 0 && trimmed !== 'undefined' && trimmed !== 'null';
+    })
+  ) {
+    return true;
+  }
+  if (
+    typeof dna.avgSentenceWords === 'number' &&
+    !Number.isNaN(dna.avgSentenceWords) &&
+    dna.avgSentenceWords > 0
+  ) {
+    return true;
+  }
+  return (
+    Array.isArray(dna.keyPhrasePatterns) &&
+    dna.keyPhrasePatterns.some((phrase) => {
+      if (typeof phrase !== 'string') return false;
+      const trimmed = phrase.trim();
+      return trimmed.length > 0 && trimmed !== 'undefined' && trimmed !== 'null';
+    })
+  );
+}
+
 // NOTE: content shapes differ per platform — this mirrors the same reasoning as
 // patchContentSchema in schemas/jobs.ts, just for the LLM's raw response instead of
-// a client PATCH body. Each platform schema is intentionally loose (optional fields,
-// no length caps) since this is pre-formatter/pre-render raw model output, not the
-// render-time shape schemas/jobs.ts's slideDataSchema already guards downstream.
+// a client PATCH body. Non-carousel platforms stay loose (optional fields, no
+// length caps). Carousel slides are bounded to slideDataSchema (icon 16, label
+// 200, desc 400, points 8, bg_suggestion enum, headline/body caps) so a deck
+// the writer stores can still be edited and exported.
 //
 // WHY: .catch() on every leaf field AND every array/nested-object, not just the top
 // level: z.array()/z.object() are all-or-nothing by default — ONE malformed field
@@ -118,23 +156,32 @@ export const contentDnaSchema = z.object({
 // undefined/garbage in that one spot, not a thrown error for the whole object).
 
 const writerSlidePointSchema = z.object({
-  icon: CS().optional(),
-  label: CS().optional(),
-  desc: CS().optional(),
+  icon: boundedCS(16).optional(),
+  label: boundedCS(200).optional(),
+  desc: boundedCS(400).optional(),
 });
+
+// WHY: invalid bg values used to be stored as free strings and then fail
+// slideDataSchema's enum on PATCH. Drop them instead of failing the slide.
+const writerBgSuggestion = z.enum(['accent', 'dark', 'light']).optional().catch(undefined);
 
 export const writerCarouselSlideSchema = z.object({
   slide_number: CN().optional(),
-  type: CS().optional(),
-  bg_suggestion: CS().optional(),
-  headline: CS().optional(),
-  body: CS().optional(),
-  visual_hint: CS().optional(),
-  points: z.array(writerSlidePointSchema).catch([]).optional(),
+  type: boundedCS(32).optional(),
+  bg_suggestion: writerBgSuggestion,
+  headline: boundedCS(300).optional(),
+  body: boundedCS(1000).optional(),
+  visual_hint: boundedCS(32).optional(),
+  // WHY: slice, not .max(8).catch([]): a 9th point must drop off the end,
+  // not wipe the other points when the array fails validation.
+  points: z.array(writerSlidePointSchema)
+    .catch([])
+    .transform((pts) => pts.slice(0, 8))
+    .optional(),
   cta: z
     .object({
-      action: CS().optional(),
-      handle: CS().optional(),
+      action: boundedCS(120).optional(),
+      handle: boundedCS(60).optional(),
     })
     .catch({})
     .optional(),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { coerceCarouselSlides } from './slideCoerce.js';
 
 export const VALID_PLATFORMS = [
   'instagram_carousel',
@@ -77,6 +78,31 @@ export const exportThemeEnum = z.enum([
 // that Chromium would fetch during export (images are not blocked by interception).
 const IMAGE_DATA_URL_RE =
   /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\s]+$/i;
+
+// WHY: a 1024px PNG as base64 is often ~1–2.5MB. The old 1_000_000-char cap
+// (~750KB) rejected images imageGen had already returned, so the client showed
+// a slide PATCH and export could not save. 3_000_000 fits a typical 1024 PNG.
+// The deck total stays capped so a multi-slide export cannot stream tens of MB
+// into Puppeteer. sharp is not installed — imageGen rejects anything over the
+// per-slide cap instead of recompressing it.
+export const SLIDE_IMAGE_DATA_URL_MAX_CHARS = 3_000_000;
+export const EXPORT_OVERLAY_TOTAL_MAX_CHARS = 8_000_000;
+
+export type SlideImageCheck =
+  | { ok: true; image: string }
+  | { ok: false; reason: 'too_large' | 'invalid' };
+
+// SECURITY: same raster regex and per-slide cap as slideDataSchema (SEC-019).
+// Callers must not show or persist a data URL this rejects.
+export function inspectSlideImageDataUrl(mime: string, base64: string): SlideImageCheck {
+  const prefix = `data:${mime};base64,`;
+  if (prefix.length + base64.length > SLIDE_IMAGE_DATA_URL_MAX_CHARS) {
+    return { ok: false, reason: 'too_large' };
+  }
+  const image = prefix + base64;
+  if (!IMAGE_DATA_URL_RE.test(image)) return { ok: false, reason: 'invalid' };
+  return { ok: true, image };
+}
 
 // WHY: a loose regex, not z.string().uuid(): matches this codebase's existing
 // UUID convention (lib/uuid.ts's isValidUUID) rather than zod's stricter RFC
@@ -162,7 +188,11 @@ export const slideDataSchema = z.object({
   // WHY: optional data URL (F2 / SEC-019): AI-generated slide images from
   // EditSlideModal — must be a raster data:image URL (not https://) so Puppeteer
   // never fetches attacker-controlled hosts during export.
-  imageDataUrl: z.string().max(2_000_000).regex(IMAGE_DATA_URL_RE, 'imageDataUrl must be a data:image/(png|jpeg|webp) URL').optional(),
+  imageDataUrl: z
+    .string()
+    .max(SLIDE_IMAGE_DATA_URL_MAX_CHARS)
+    .regex(IMAGE_DATA_URL_RE, 'imageDataUrl must be a data:image/(png|jpeg|webp) URL')
+    .optional(),
   bg_suggestion: z.enum(['accent', 'dark', 'light']).optional(),
   points: z.array(slidePointSchema).max(8).optional(),
   cta: z
@@ -174,20 +204,37 @@ export const slideDataSchema = z.object({
   slide_number: z.number().int().optional(),
 });
 
-export const exportCarouselSsrSchema = z.object({
-  theme: exportThemeEnum,
-  slides: z.array(slideDataSchema).min(1, 'slides[] must have at least 1 item').max(20),
-  // WHY: bounded but not pinned to the preset count: the renderer already wraps with
-  // modulo, so any in-range integer is safe, and hardcoding the exact count here would
-  // create a second place to update whenever a design preset is added.
-  designPreset: z.number().int().min(0).max(63),
-  colors: colorSystemSchema,
-  brandName: z.string().max(80),
-  handle: z.string().max(60),
-  // New template system fields - optional for backward compatibility
-  templateId: templateIdEnum.optional(),
-  paletteId: z.string().max(50).optional(),
-});
+export const exportCarouselSsrSchema = z
+  .object({
+    theme: exportThemeEnum,
+    slides: z.array(slideDataSchema).min(1, 'slides[] must have at least 1 item').max(20),
+    // WHY: bounded but not pinned to the preset count: the renderer already wraps with
+    // modulo, so any in-range integer is safe, and hardcoding the exact count here would
+    // create a second place to update whenever a design preset is added.
+    designPreset: z.number().int().min(0).max(63),
+    colors: colorSystemSchema,
+    brandName: z.string().max(80),
+    handle: z.string().max(60),
+    // New template system fields - optional for backward compatibility
+    templateId: templateIdEnum.optional(),
+    paletteId: z.string().max(50).optional(),
+  })
+  .superRefine((data, ctx) => {
+    let total = 0;
+    for (const slide of data.slides) {
+      if (typeof slide.imageDataUrl === 'string') {
+        total += slide.imageDataUrl.length;
+      }
+    }
+    if (total > EXPORT_OVERLAY_TOTAL_MAX_CHARS) {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          `Combined image overlays exceed ${EXPORT_OVERLAY_TOTAL_MAX_CHARS} characters`,
+        path: ['slides'],
+      });
+    }
+  });
 
 // NOTE: content shapes differ per platform (carousel slides array, linkedin
 // post object with hook/body/cta, twitter thread with tweets array, etc.).
@@ -195,7 +242,11 @@ export const exportCarouselSsrSchema = z.object({
 // non-object types (null, array, primitive) at the boundary.
 // SECURITY: superRefine size cap — without it a huge nested JSON payload can
 // pass shape checks and still blow memory/DB when persisted on PATCH /content.
+// WHY: social posts keep this 200KB cap (schemas/social.ts). Carousel PATCH
+// embeds raster data URLs, so it uses PATCH_CONTENT_MAX_BYTES instead — the
+// social cap rejected a savable slide image before slideDataSchema ran.
 export const CONTENT_PAYLOAD_MAX_BYTES = 200_000;
+export const PATCH_CONTENT_MAX_BYTES = EXPORT_OVERLAY_TOTAL_MAX_CHARS;
 
 export const patchContentSchema = z
   .object({
@@ -216,11 +267,11 @@ export const patchContentSchema = z
       });
       return;
     }
-    if (serialized.length > CONTENT_PAYLOAD_MAX_BYTES) {
+    if (serialized.length > PATCH_CONTENT_MAX_BYTES) {
       ctx.addIssue({
         code: 'custom',
         message:
-          `content exceeds maximum size of ${CONTENT_PAYLOAD_MAX_BYTES} bytes ` +
+          `content exceeds maximum size of ${PATCH_CONTENT_MAX_BYTES} bytes ` +
           `(got ${serialized.length})`,
         path: ['content'],
       });
@@ -292,7 +343,12 @@ export function parseContentForPlatform(
   content: unknown,
 ): { ok: true; content: unknown } | { ok: false; error: string } {
   if (platform === 'instagram_carousel') {
-    const parsed = z.array(slideDataSchema).min(1).max(20).safeParse(content);
+    // WHY: truncate long writer strings / extra points before the hard schema
+    // so an edit of already-stored slides still saves. imageDataUrl is not
+    // truncated — export and PATCH keep the raster size cap.
+    const parsed = z.array(slideDataSchema).min(1).max(20).safeParse(
+      coerceCarouselSlides(content),
+    );
     if (!parsed.success) {
       return { ok: false, error: 'Carousel content must be an array of valid slides' };
     }

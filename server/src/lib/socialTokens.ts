@@ -81,8 +81,18 @@ export async function dbGetTokens(userId: string): Promise<Record<string, Social
         platformUserId: row.platformUserId,
       };
     }
+    // WHY: overlay process-local tokens preserved after a successful Twitter
+    // refresh whose DB upsert exhausted — DB may still hold the dead prior pair.
+    for (const [platform, preserved] of Object.entries(fbRead(userId))) {
+      map[platform] = preserved;
+    }
     return map;
-  } catch {
+  } catch (err) {
+    // WHY: an empty map reads as "Not connected"; publishWorker would then mark a
+    // scheduled post failed forever on a transient Neon blip. Propagate so callers retry.
+    console.error('[social] DB token read failed:', err);
+    if (env.NODE_ENV === 'production') throw err;
+    // NOTE: dev/test-only fallback to the in-memory map.
     return fbRead(userId);
   }
 }
@@ -141,7 +151,9 @@ export async function dbDeleteToken(userId: string, platform: string): Promise<v
       .where(and(eq(socialTokens.userId, userId), eq(socialTokens.platform, platform)));
   } catch (err) {
     console.error('[social] DB delete failed:', err);
-    delete fbGet(userId)[platform];
+    // SECURITY: surface the failure — swallowing it made disconnect report success
+    // while the encrypted OAuth token (write access to the user's account) remained.
+    throw err;
   }
 }
 
@@ -162,6 +174,67 @@ function tokenStillUsable(conn: SocialTokenData): boolean {
   // WHY: absolute expiry — if another refresher already rotated, or the token
   // still has life left, prefer that over a second concurrent refresh.
   return expiresAt === null || expiresAt > Date.now();
+}
+
+// WHY: after a successful Twitter refresh, the old refresh token is dead.
+// Losing the new pair (upsert fail → return null → caller keeps stale conn)
+// permanently orphans write access until the user reconnects.
+export class TwitterTokenPersistError extends Error {
+  constructor(message = 'Twitter reconnect required — refreshed tokens could not be saved') {
+    super(message);
+    this.name = 'TwitterTokenPersistError';
+  }
+}
+
+function preserveTwitterTokenInFallback(userId: string, data: SocialTokenData): void {
+  // SECURITY: store ciphertext only (same contract as dbUpsertToken's Map path).
+  fbGet(userId).twitter = {
+    accessToken: encryptTokenOptional(data.accessToken) ?? data.accessToken,
+    refreshToken: encryptTokenOptional(data.refreshToken ?? undefined),
+    expiresAt: data.expiresAt ?? null,
+    displayName: data.displayName ?? null,
+    platformUserId: data.platformUserId ?? null,
+  };
+}
+
+async function upsertTwitterTokenHard(
+  userId: string,
+  refreshed: SocialTokenData,
+): Promise<void> {
+  const payload = {
+    accessToken: refreshed.accessToken,
+    refreshToken: refreshed.refreshToken ?? undefined,
+    expiresAt: refreshed.expiresAt ?? undefined,
+    displayName: refreshed.displayName ?? undefined,
+    platformUserId: refreshed.platformUserId ?? undefined,
+  };
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      // eslint-disable-next-line no-await-in-loop -- WHY: sequential retries with backoff
+      await dbUpsertToken(userId, 'twitter', payload);
+      // WHY: a prior exhausted upsert may have left a preserved copy — drop it
+      // once durable save succeeds so DB remains the source of truth.
+      delete fbGet(userId).twitter;
+      return;
+    } catch (err: unknown) {
+      lastErr = err;
+      logger.warn('Twitter token upsert after refresh failed', {
+        userId,
+        attempt,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // eslint-disable-next-line no-await-in-loop -- WHY: backoff between upsert retries
+      await new Promise((r) => setTimeout(r, 250 * attempt));
+    }
+  }
+  // WHY: never discard the rotated refresh token — keep until a later save.
+  preserveTwitterTokenInFallback(userId, refreshed);
+  logger.error('Twitter refresh succeeded but DB upsert exhausted — tokens preserved in memory', {
+    userId,
+    error: lastErr instanceof Error ? lastErr.message : String(lastErr),
+  });
+  throw new TwitterTokenPersistError();
 }
 
 async function refreshTwitterToken(userId: string, conn: SocialTokenData): Promise<SocialTokenData | null> {
@@ -202,15 +275,12 @@ async function refreshTwitterToken(userId: string, conn: SocialTokenData): Promi
         ? Date.now() + tokenData.expires_in * 1000
         : conn.expiresAt,
     };
-    await dbUpsertToken(userId, 'twitter', {
-      accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken ?? undefined,
-      expiresAt: refreshed.expiresAt ?? undefined,
-      displayName: refreshed.displayName ?? undefined,
-      platformUserId: refreshed.platformUserId ?? undefined,
-    });
+    // WHY: upsert is outside the generic catch — persist failure must not look
+    // like a failed refresh and silently fall back to the dead prior tokens.
+    await upsertTwitterTokenHard(userId, refreshed);
     return refreshed;
   } catch (err: unknown) {
+    if (err instanceof TwitterTokenPersistError) throw err;
     logger.warn('Twitter token refresh failed', {
       userId,
       error: err instanceof Error ? err.message : String(err),
@@ -229,14 +299,12 @@ export async function ensureFreshSocialToken(
   if (platform !== 'twitter') return conn;
 
   // SECURITY: serialize Twitter refresh (refresh tokens are typically single-use).
-  const lock = await tryAcquireSocialTokenLock(userId, platform);
-  if (!lock) {
-    await waitForSocialTokenLockRetry();
-    const fresh = await dbGetToken(userId, platform);
-    if (fresh && !tokenNeedsRefresh(fresh)) return fresh;
-    if (fresh && tokenStillUsable(fresh)) return fresh;
-    if (tokenStillUsable(conn)) return conn;
-    return fresh ?? conn;
+  const acquired = await tryAcquireSocialTokenLock(userId, platform);
+  if (acquired.status !== 'acquired') {
+    // WHY: held and Redis-unavailable both skip refresh. Wait, re-read what
+    // another instance may have stored, and return that. Refreshing without
+    // the lock invalidates Twitter's single-use refresh token.
+    return rereadTokenWithoutRefresh(userId, platform, conn);
   }
 
   try {
@@ -247,6 +315,33 @@ export async function ensureFreshSocialToken(
     const refreshed = await refreshTwitterToken(userId, base);
     return refreshed ?? base;
   } finally {
-    await lock.release();
+    await acquired.lock.release();
   }
+}
+
+async function rereadTokenWithoutRefresh(
+  userId: string,
+  platform: string,
+  conn: SocialTokenData,
+): Promise<SocialTokenData> {
+  let latest = conn;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop -- WHY: wait for the other refresher, then re-read
+    await waitForSocialTokenLockRetry();
+    try {
+      // eslint-disable-next-line no-await-in-loop -- WHY: re-read only after the wait
+      const fresh = await dbGetToken(userId, platform);
+      if (fresh) latest = fresh;
+      if (fresh && !tokenNeedsRefresh(fresh)) return fresh;
+      if (fresh && tokenStillUsable(fresh)) return fresh;
+    } catch (err: unknown) {
+      logger.warn('[socialTokens] Re-read after lock miss failed', {
+        userId,
+        platform,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (tokenStillUsable(conn)) return conn;
+  }
+  return latest;
 }

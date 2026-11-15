@@ -45,6 +45,28 @@ export const DASHBOARD_STYLES = `
     overflow: hidden;
   }
 
+  @media (max-width:768px) {
+    /* WHY: Create-again / Delete were ~25×25 — below the 44×44 mobile touch target. */
+    .dash-row-icon-btn {
+      min-width: 44px !important;
+      min-height: 44px !important;
+      align-items: center !important;
+      justify-content: center !important;
+      padding: 0 !important;
+      box-sizing: border-box;
+    }
+    /* WHY: section "View all" + radar/trend were ~15–25px tall on phones. */
+    .dash-view-all {
+      min-height: 44px;
+      padding: 0 4px;
+      box-sizing: border-box;
+    }
+    .dash-fitness-toggle-btn {
+      min-height: 44px;
+      padding: 0 12px !important;
+      box-sizing: border-box;
+    }
+  }
   @media (max-width:480px) {
     .dash-job-row { padding:11px 12px; gap:8px; }
     .dash-stat-card { padding:18px 16px; }

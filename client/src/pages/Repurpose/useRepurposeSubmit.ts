@@ -1,7 +1,9 @@
-import { useState, useRef, type Dispatch, type SetStateAction } from 'react';
+import { useState, useRef, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { useAuth } from '@clerk/clerk-react';
 import { repurposeUrl, repurposeBatchUrls } from '../../api';
+import { getSubmitError } from '../../lib/errorMessages';
+import { writeBatchResult } from '../../lib/batchResultStorage';
 import type { RepurposeHistoryEntry } from './useRepurposeHistory';
 
 const AUDIENCE_DEFAULTS: Record<string, string> = {
@@ -20,7 +22,10 @@ interface PlatformOption {
 
 interface Args {
   platforms: PlatformOption[];
-  addEntry: (entry: Omit<RepurposeHistoryEntry, 'id' | 'createdAt'>) => void;
+  addEntry: (
+    entry: Omit<RepurposeHistoryEntry, 'id' | 'createdAt'>,
+    forUserId?: string | null,
+  ) => void;
 }
 
 export interface UseRepurposeSubmitResult {
@@ -53,17 +58,51 @@ export interface UseRepurposeSubmitResult {
 
 export function useRepurposeSubmit({ platforms, addEntry }: Args): UseRepurposeSubmitResult {
   const navigate = useNavigate();
+  const { userId } = useAuth();
+  // WHY: post-await checks need the live Clerk user, not the submit render closure.
+  const userIdRef = useRef(userId ?? null);
+  userIdRef.current = userId ?? null;
   const [url, setUrl] = useState('');
   const [platform, setPlatform] = useState('linkedin_post');
   const [tone, setTone] = useState('professional');
   const [audience, setAudience] = useState('');
   const [loading, setLoading] = useState(false);
   const submittingRef = useRef(false);
+  // WHY: a late repurpose response must not navigate after leave/unmount.
+  const mountedRef = useRef(true);
   const [error, setError] = useState('');
   const [batchMode, setBatchMode] = useState(false);
   const [batchUrls, setBatchUrls] = useState('');
   const [multiPlatform, setMultiPlatform] = useState(false);
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(() => new Set(['linkedin_post']));
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // WHY: account switch mid-repurpose must clear form + pending flags so the
+  // new user does not inherit URL/loading state, and late navigate is gated
+  // by submitUserId === current below.
+  useEffect(() => {
+    setUrl('');
+    setPlatform('linkedin_post');
+    setTone('professional');
+    setAudience('');
+    setLoading(false);
+    submittingRef.current = false;
+    setError('');
+    setBatchMode(false);
+    setBatchUrls('');
+    setMultiPlatform(false);
+    setSelectedPlatforms(new Set(['linkedin_post']));
+  }, [userId]);
+
+  function stillOnRepurpose(): boolean {
+    return mountedRef.current && window.location.pathname.startsWith('/repurpose');
+  }
 
   function togglePlatformSelection(id: string): void {
     setSelectedPlatforms((prev) => {
@@ -128,6 +167,13 @@ export function useRepurposeSubmit({ platforms, addEntry }: Args): UseRepurposeS
   async function handleRepurpose() {
     if (!isValid || loading || submittingRef.current) return;
     submittingRef.current = true;
+    // WHY: capture at submit — history writes + navigate after await must not
+    // land on / affect a switched account.
+    const submitUserId = userIdRef.current;
+
+    function stillSameUser(): boolean {
+      return userIdRef.current === submitUserId;
+    }
 
     if (batchMode) {
       const badUrls = parsedBatchUrls.filter((item) => { try { const p = new URL(item.url); return !['http:', 'https:'].includes(p.protocol); } catch { return true; } });
@@ -146,18 +192,40 @@ export function useRepurposeSubmit({ platforms, addEntry }: Args): UseRepurposeS
           targetAudience: effectiveAudience,
         }));
         const { jobs, failedItems } = await repurposeBatchUrls(items);
-        for (const j of jobs) addEntry({ url: j.topic, platform: j.platform, outcome: 'success', jobId: j.jobId });
+        // WHY: history/batch persist whenever the submitter is still signed in —
+        // only navigate/UI are gated on still being on /repurpose (mounted).
+        if (!stillSameUser()) {
+          submittingRef.current = false;
+          setLoading(false);
+          return;
+        }
+        for (const j of jobs) {
+          addEntry(
+            { url: j.topic, platform: j.platform, outcome: 'success', jobId: j.jobId },
+            submitUserId,
+          );
+        }
+        if (jobs.length > 0) {
+          writeBatchResult(submitUserId, { jobs, creationFailedCount: failedItems.length });
+        }
+        if (!stillOnRepurpose()) {
+          submittingRef.current = false;
+          setLoading(false);
+          return;
+        }
         if (failedItems.length > 0) {
           setError(`${failedItems.length} URL(s) failed: ${failedItems.map((f) => f.error).slice(0, 2).join('; ')}`);
         }
         if (jobs.length > 0) {
-          try {
-            sessionStorage.setItem(
-              'ca_batch_result_v1',
-              JSON.stringify({ jobs, creationFailedCount: failedItems.length, savedAt: Date.now() }),
-            );
-          } catch { /* ignore */ }
-          navigate('/batch-result', { state: { jobs, creationFailedCount: failedItems.length } });
+          if (stillSameUser()) {
+            navigate('/batch-result', {
+              state: {
+                jobs,
+                creationFailedCount: failedItems.length,
+                submitterUserId: submitUserId,
+              },
+            });
+          }
         } else {
           // WHY: clear loading when every URL failed: previously only the catch
           // path called setLoading(false), so a 200 with jobs.length === 0 left
@@ -166,8 +234,17 @@ export function useRepurposeSubmit({ platforms, addEntry }: Args): UseRepurposeS
           submittingRef.current = false;
         }
       } catch (err: unknown) {
-        const msg = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
-        setError(msg || 'Batch failed — please try again.');
+        if (!stillSameUser()) {
+          submittingRef.current = false;
+          setLoading(false);
+          return;
+        }
+        if (!stillOnRepurpose()) {
+          submittingRef.current = false;
+          setLoading(false);
+          return;
+        }
+        setError(getSubmitError(err, 'Batch failed — please try again.').message);
         setLoading(false);
         submittingRef.current = false;
       }
@@ -189,42 +266,67 @@ export function useRepurposeSubmit({ platforms, addEntry }: Args): UseRepurposeS
       const { jobId, topic, jobs } = await repurposeUrl({
         url: trimmedUrl, platform, platforms: platformsToSubmit, tone, targetAudience: effectiveAudience,
       });
+      // WHY: persist history/batch for the submitter even if they left /repurpose;
+      // only navigate + in-page error UI require stillOnRepurpose/mounted.
+      if (!stillSameUser()) {
+        submittingRef.current = false;
+        setLoading(false);
+        return;
+      }
       if (multiPlatform && jobs && jobs.length > 1) {
         // WHY: one history entry per platform, not one for the whole batch:
         // RepurposeHistoryList's retry/view-result actions are per-job (a
         // single jobId to link to) — recording per-platform keeps that
         // contract intact instead of teaching the history list a second,
         // batch-shaped entry type for this one case.
-        for (const job of jobs) addEntry({ url: trimmedUrl, platform: job.platform, outcome: 'success', jobId: job.jobId });
+        for (const job of jobs) {
+          addEntry(
+            { url: trimmedUrl, platform: job.platform, outcome: 'success', jobId: job.jobId },
+            submitUserId,
+          );
+        }
         // WHY: BatchResult, not /result/:jobId: N jobs from one submission is
         // exactly BatchResult.tsx's shape (built for Create's batch mode) —
         // reusing it here instead of building a second "N jobs, one submission"
         // results page, and it already polls/displays per-job status+score.
-        try {
-          sessionStorage.setItem(
-            'ca_batch_result_v1',
-            JSON.stringify({
-              jobs: jobs.map((j) => ({ ...j, topic })),
-              savedAt: Date.now(),
-            }),
-          );
-        } catch { /* ignore */ }
-        navigate('/batch-result', { state: { jobs: jobs.map((j) => ({ ...j, topic })) } });
+        const batchJobs = jobs.map((j) => ({ ...j, topic }));
+        writeBatchResult(submitUserId, { jobs: batchJobs });
+        if (stillOnRepurpose() && stillSameUser()) {
+          navigate('/batch-result', {
+            state: { jobs: batchJobs, submitterUserId: submitUserId },
+          });
+        } else if (!stillOnRepurpose()) {
+          submittingRef.current = false;
+          setLoading(false);
+        }
       } else {
-        addEntry({ url: trimmedUrl, platform, outcome: 'success', jobId });
-        navigate(`/result/${jobId}`);
+        addEntry({ url: trimmedUrl, platform, outcome: 'success', jobId }, submitUserId);
+        if (stillOnRepurpose() && stillSameUser()) {
+          navigate(`/result/${jobId}`);
+        } else if (!stillOnRepurpose()) {
+          submittingRef.current = false;
+          setLoading(false);
+        }
       }
     } catch (err: unknown) {
-      // WHY: axios.isAxiosError: narrows `unknown` to AxiosError before reading the
-      // server's { error: string } response body, instead of trusting an `any` catch.
-      const msg = axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error : undefined;
-      const errorMessage = msg || 'Failed to process the URL — please try again.';
+      if (!stillSameUser()) {
+        submittingRef.current = false;
+        setLoading(false);
+        return;
+      }
+      // WHY: getSubmitError: rate-limit / validation copy matches Create (not raw `.error`).
+      const errorMessage = getSubmitError(err, 'Failed to process the URL — please try again.').message;
       // WHY: recorded here, not for a client-side validateUrl() rejection above:
       // this is a real attempt that reached the server (fetch failure,
       // insufficient content, etc.) — worth remembering so the user can retry
       // without re-finding the article. A malformed URL caught before the
       // network call isn't a meaningful "attempt" to look back on.
-      addEntry({ url: trimmedUrl, platform, outcome: 'failed', errorMessage });
+      addEntry({ url: trimmedUrl, platform, outcome: 'failed', errorMessage }, submitUserId);
+      if (!stillOnRepurpose()) {
+        submittingRef.current = false;
+        setLoading(false);
+        return;
+      }
       setError(errorMessage);
       setLoading(false);
       submittingRef.current = false;
@@ -240,6 +342,9 @@ export function useRepurposeSubmit({ platforms, addEntry }: Args): UseRepurposeS
     setBatchMode(false);
     setBatchUrls('');
     setPlatform('linkedin_post');
+    // WHY: Clear promises a full reset to initial defaults — leaving multiPlatform
+    // on left the toggle stuck on "Switch to single platform" after Clear.
+    setMultiPlatform(false);
     setSelectedPlatforms(new Set(['linkedin_post']));
     setTone('professional');
     setAudience('');

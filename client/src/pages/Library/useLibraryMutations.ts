@@ -95,8 +95,11 @@ export function useLibraryMutations({
   const deleteJobMutation = useMutation({
     mutationFn: (jobId: string) => deleteJob(jobId),
     onSuccess: () => {
+      // WHY: also invalidate collectionJobs — folder view caches a separate query;
+      // without it a deleted job stays visible until that cache goes stale.
       Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', 'collectionJobs'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] }),
         queryClient.invalidateQueries({ queryKey: ['calendar', 'jobs'] }),
       ]).catch(() => {});
@@ -120,10 +123,11 @@ export function useLibraryMutations({
         .map((r, i) => r.status === 'rejected' ? ids[i] : null)
         .filter((id): id is string => id !== null);
       setFailedJobIds(failed);
-      // WHY: all three keys: single delete already refreshes dashboard/calendar;
-      // bulk delete left deleted jobs visible there until staleTime expired.
+      // WHY: jobs + collectionJobs + dashboard/calendar — bulk delete left deleted
+      // rows visible in folder view and elsewhere until staleTime expired.
       Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', 'collectionJobs'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard', 'jobs'] }),
         queryClient.invalidateQueries({ queryKey: ['calendar', 'jobs'] }),
       ]).catch(() => {});
@@ -145,9 +149,10 @@ export function useLibraryMutations({
   const tagJobMutation = useMutation({
     mutationFn: ({ jobId, tag }: { jobId: string; tag: string }) => tagJob(jobId, tag),
     onSuccess: () => {
-      // WHY: invalidate: the tag column is now reflected in the DB; the cache
-      // needs a fresh fetch so the chip updates without a manual reload.
+      // WHY: invalidate jobs + collectionJobs: the tag column is in the DB; folder
+      // view uses a separate cache that would otherwise keep the old chip.
       queryClient.invalidateQueries({ queryKey: ['library', 'jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['library', 'collectionJobs'] });
       setEditingTagJobId(null);
       setOpenJobMenu(null);
       flashToast('Tag saved');

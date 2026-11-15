@@ -13,10 +13,24 @@ vi.mock('../../src/lib/ai.js', () => ({
   searchTavily: vi.fn().mockResolvedValue({ results: [] }),
 }));
 
-// WHY: demo.ts consumeDemoBudget() hits real Redis — a shared hourly counter from
-// landing-page / audit traffic returns DEMO_BUDGET_EXHAUSTED (429) and flakes CI.
+// WHY: mutable stub — consumeDemoBudget fails closed when Redis is null (429).
+// Default under-cap incr lets generation tests reach 200/500; one case sets null.
+const demoRedis = vi.hoisted(() => {
+  const state: {
+    client: { incr: ReturnType<typeof vi.fn>; expire: ReturnType<typeof vi.fn> } | null;
+  } = { client: null };
+  return state;
+});
+
+function allowDemoBudget(): void {
+  demoRedis.client = {
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+  };
+}
+
 vi.mock('../../src/lib/redisClient.js', () => ({
-  getRedisClient: () => null,
+  getRedisClient: () => demoRedis.client,
 }));
 
 // ─── Build a minimal Express app with just the demo router ───────────────────
@@ -38,10 +52,11 @@ const VALID_PLATFORMS = [
 
 describe('POST /api/demo/generate', () => {
   let app: express.Application;
-  let mockGenerateWithAI: any;
+  let mockGenerateWithAI: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    allowDemoBudget();
     const aiModule = await import('../../src/lib/ai.js');
     mockGenerateWithAI = vi.mocked(aiModule.generateWithAI);
     app = await buildDemoApp();
@@ -140,10 +155,21 @@ describe('POST /api/demo/generate', () => {
     expect(res.status).toBe(500);
   });
 
+  it('returns 429 when Redis is null (fail-closed global budget)', async () => {
+    demoRedis.client = null;
+    mockGenerateWithAI.mockResolvedValue(JSON.stringify({ hook: 'H', body: 'B.' }));
+    const res = await supertest(app)
+      .post('/api/demo/generate')
+      .send({ topic: 'AI marketing', platform: 'linkedin_post' });
+    expect(res.status).toBe(429);
+    expect(res.body.code).toBe('DEMO_BUDGET_EXHAUSTED');
+    expect(res.body.retryable).toBe(true);
+  });
+
   // All 5 valid platforms are accepted
   VALID_PLATFORMS.forEach(platform => {
     it(`accepts platform: ${platform}`, async () => {
-      const mockContent: Record<string, any> = {
+      const mockContent: Record<string, unknown> = {
         instagram_carousel: [{ slideNumber: 1, headline: 'H', body: 'B.' }],
         linkedin_post: { hook: 'Hook', body: 'Body.' },
         twitter_thread: { tweets: [{ number: 1, text: 'Tweet.' }] },

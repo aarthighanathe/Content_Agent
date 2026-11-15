@@ -115,7 +115,34 @@ describe('requireJobOwnership', () => {
     jobsMemory.delete(jobId);
   });
 
+  it('returns 503 retryable (not 404) when the DB lookup itself errors', async () => {
+    const { requireJobOwnership } = await import('../../src/routes/jobs/ownership.js');
+    const result = await requireJobOwnership('00000000-0000-0000-0000-000000009998', 'user-1', res);
+
+    expect(result).toBeNull();
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'DB_UNAVAILABLE', retryable: true }),
+    );
+  });
+
+  // WHY: invalid UUID must 404 before any store/DB hit — otherwise a garbage
+  // :jobId can surface as Postgres driver noise (503) or confuse IDOR checks.
+  it('returns null + 404 when jobId is not a valid UUID', async () => {
+    const { requireJobOwnership } = await import('../../src/routes/jobs/ownership.js');
+    const result = await requireJobOwnership('not-a-uuid', 'user-1', res);
+
+    expect(result).toBeNull();
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: 'Job not found', code: 'NOT_FOUND', retryable: false }),
+    );
+  });
+
   it('returns null + 404 when job does not exist in memory or DB', async () => {
+    vi.doMock('../../src/db/index.js', () => ({
+      db: { query: { contentJobs: { findFirst: vi.fn().mockResolvedValue(undefined) } } },
+    }));
     const { requireJobOwnership } = await import('../../src/routes/jobs/ownership.js');
     const jobId = '00000000-0000-0000-0000-000000009999';
     const userId = 'user-1';

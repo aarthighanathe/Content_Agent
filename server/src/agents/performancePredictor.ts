@@ -1,5 +1,6 @@
 import { generateWithAI } from '../lib/ai.js';
-import { ContentJob } from '../db/schema.js';
+import type { RuntimeJob } from '../lib/pipelineTypes.js';
+import { sanitizeAiJson, walkBalancedJsonCandidates } from '../lib/contentHelpers.js';
 import { escapeXml } from '../lib/sanitizeSearchText.js';
 import type { CriticResult } from './critic.js';
 import type { ResearchResult } from './researcher.js';
@@ -8,6 +9,17 @@ import {
   type PerformancePredictorResponse,
   type WriterResponse,
 } from '../schemas/agentResponses.js';
+
+const PREDICTION_TIERS = new Set(['high', 'medium', 'low']);
+
+// WHY: schema .catch/.optional accept hollow `{}` — require raw tier + topReason
+// before accepting so a leading decoy cannot hide a later complete prediction.
+function isUsablePredictionCandidate(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const obj = raw as Record<string, unknown>;
+  if (!PREDICTION_TIERS.has(String(obj.tier ?? ''))) return false;
+  return typeof obj.topReason === 'string' && obj.topReason.trim().length > 0;
+}
 
 export interface PredictionResult {
   tier: 'high' | 'medium' | 'low';
@@ -18,7 +30,7 @@ export interface PredictionResult {
 }
 
 export async function runPerformancePredictor(
-  job: ContentJob,
+  job: RuntimeJob,
   content: WriterResponse,
   criticResult: CriticResult | undefined,
   researchResult: ResearchResult | undefined
@@ -77,11 +89,15 @@ Platform Benchmark Context:
 ${platformContext[job.platform] || 'High-quality content with strong hooks and specific CTAs consistently outperforms.'}
 
 Score Breakdown:
-- Hook Strength: ${criticResult?.scores?.hookStrength || 0}/20
-- Platform Compliance: ${criticResult?.scores?.platformCompliance || 0}/20
-- Brand Voice Match: ${criticResult?.scores?.brandVoiceMatch || 0}/20
-- Value Delivery: ${criticResult?.scores?.valueDelivery || 0}/20
-- CTA Clarity: ${criticResult?.scores?.ctaClarity || 0}/20
+${
+  criticResult?.scores
+    ? `- Hook Strength: ${criticResult.scores.hookStrength}/20
+- Platform Compliance: ${criticResult.scores.platformCompliance}/20
+- Brand Voice Match: ${criticResult.scores.brandVoiceMatch}/20
+- Value Delivery: ${criticResult.scores.valueDelivery}/20
+- CTA Clarity: ${criticResult.scores.ctaClarity}/20`
+    : '- Per-dimension scores unavailable (feedback-only critique); rely on total Quality Score above.'
+}
 
 Output ONLY this JSON (no markdown, no engagement multiplier numbers — those cannot be reliably estimated):
 {
@@ -119,13 +135,20 @@ Output ONLY this JSON (no markdown, no engagement multiplier numbers — those c
     };
   }
 
-  let parsed: PerformancePredictorResponse;
-  try {
-    const jsonMatch = result.match(/\{[\s\S]*\}/);
-    const rawParsed: unknown = JSON.parse(jsonMatch ? jsonMatch[0] : result);
+  // WHY: walk every balanced candidate (writer/critic/orchestrator pattern) —
+  // first-span hollow `{}` / missing topReason used to win via schema .catch
+  // and skip a later complete prediction (or the score-derived fallback).
+  let parsed: PerformancePredictorResponse | null = null;
+  for (const { value: rawParsed } of walkBalancedJsonCandidates(result, {
+    sanitize: sanitizeAiJson,
+  })) {
+    if (!isUsablePredictionCandidate(rawParsed)) continue;
     const validation = performancePredictorResponseSchema.safeParse(rawParsed);
-    parsed = validation.success ? validation.data : buildFallbackResponse();
-  } catch {
+    if (!validation.success) continue;
+    parsed = validation.data;
+    break;
+  }
+  if (!parsed) {
     parsed = buildFallbackResponse();
   }
 

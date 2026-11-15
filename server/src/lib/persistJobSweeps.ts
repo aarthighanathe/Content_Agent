@@ -1,10 +1,18 @@
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { contentJobs, scheduledPosts } from '../db/schema.js';
-import { getJobFromStore, jobsMemory } from './jobStore.js';
+import { getJobFromStore, jobsMemory, setJobInStore } from './jobStore.js';
+import { scheduleJobEviction } from './jobEviction.js';
+import {
+  CLIENT_PIPELINE_FAILURE,
+  PARTIAL_THREAD_ERROR_PREFIX,
+  POSTED_UNVERIFIED_ERROR_PREFIX,
+} from './clientErrors.js';
+import { contentQueue, withQueueTimeout } from './queue.js';
 import { logger } from './logger.js';
 import { sseManager } from './sse.js';
 import { isValidUUID } from './uuid.js';
+import { isPersistPending } from './persistPending.js';
 
 const IN_FLIGHT_STATUSES = [
   'pending',
@@ -46,6 +54,9 @@ export function isActivelyProcessingInMemory(jobId: string): boolean {
   }
 
   if (mem.status === 'processing') return true;
+  // WHY: a BullMQ-queued job sits in memory as plain 'pending' (no stage/progress)
+  // until a worker picks it up; failing it here made contentWorker's H1 skip it.
+  if (mem.status === 'pending') return true;
   if (typeof mem.progress === 'number' && mem.progress > 0 && mem.progress < 100) {
     return true;
   }
@@ -55,10 +66,36 @@ export function isActivelyProcessingInMemory(jobId: string): boolean {
   return false;
 }
 
+const QUEUED_BULLMQ_STATES = new Set(['waiting', 'delayed', 'active', 'paused', 'prioritized']);
+
+/**
+ * True when BullMQ still owns the job (queued or running).
+ * WHY: the sweep runs in the web process and may not hold the job's memory
+ * snapshot (restart, other instance); a long queue backlog is not abandonment.
+ * No queue (Redis unset / direct mode) → false so those rows can still be swept.
+ * Redis/getJobState errors → true (fail closed for sweep): same as
+ * isPersistPending — a blip must not mark a still-queued job failed.
+ */
+export async function isQueuedInBullMq(jobId: string): Promise<boolean> {
+  try {
+    const queue = contentQueue();
+    if (!queue) return false;
+    const state = await withQueueTimeout(queue.getJobState(jobId), 'getJobState');
+    return QUEUED_BULLMQ_STATES.has(state);
+  } catch (err: unknown) {
+    logger.warn('[DB] BullMQ state lookup failed during sweep', {
+      jobId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return true;
+  }
+}
+
 /**
  * WHY (M3/S9): when persistWithRetries fails, pipeline.ts keeps the finished job
  * in memory as the only durable copy. Sweeping the DB row to 'failed' would
  * contradict the 'done' state clients already saw and could race a later save.
+ * Process-local — other API processes honor content:persist-pending (persistPending.ts).
  */
 export function isDoneHeldInMemory(jobId: string): boolean {
   const mem = getJobFromStore(jobId) || jobsMemory.get(jobId);
@@ -83,6 +120,11 @@ const STALE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 // covered content_jobs). 20 min is far above publish latency, short enough
 // that Calendar does not show "publishing" indefinitely.
 export const STALE_PUBLISHING_MAX_AGE_MS = 20 * 60 * 1000;
+// WHY: stamp timeouts with POSTED_UNVERIFIED_ERROR_PREFIX so Calendar reschedule
+// guards reject them (a crash after the provider call may mean the post is live).
+const PUBLISH_TIMEOUT_UNVERIFIED_ERROR =
+  `${POSTED_UNVERIFIED_ERROR_PREFIX} publish timed out — check your social account `
+  + 'before scheduling again.';
 
 /** Mark non-terminal jobs failed (worker exhausted / startup stale sweep). */
 export async function markJobFailedIfInFlight(
@@ -120,6 +162,41 @@ export async function markJobFailedIfInFlight(
 }
 
 /**
+ * Single terminal-failure path for jobs the pipeline itself never finalized
+ * (BullMQ exhausted, direct-mode overload, stale sweep).
+ * WHY (B-H1): these paths used to flip only the DB row + SSE, leaving a
+ * non-terminal jobsMemory snapshot behind — GET /:id kept serving "pending" and
+ * regenerate returned 409 JOB_IN_PROGRESS forever. Memory is failed here and
+ * eviction scheduled so it cannot outlive the 10-min TTL.
+ * NOTE: `updatedBefore` (sweep) only fails the DB row when still stale; memory
+ * is then touched only if that mark succeeded, never on a heartbeat race.
+ */
+export async function markJobTerminalFailed(
+  jobId: string,
+  reason: string,
+  clientMessage: string = CLIENT_PIPELINE_FAILURE,
+  updatedBefore?: Date,
+): Promise<boolean> {
+  const marked = await markJobFailedIfInFlight(jobId, reason, updatedBefore);
+  const mem = getJobFromStore(jobId) || jobsMemory.get(jobId);
+  const memInFlight = Boolean(mem) && mem?.status !== 'done' && mem?.status !== 'failed';
+  if (!marked && !(memInFlight && !updatedBefore)) return false;
+
+  if (mem && mem.status !== 'done') {
+    setJobInStore(jobId, { ...mem, status: 'failed', error: clientMessage } as typeof mem);
+    scheduleJobEviction(jobId, (id) => setJobInStore(id, undefined));
+  }
+  sseManager.sendEvent(jobId, {
+    type: 'progress',
+    stage: 'failed',
+    progress: 0,
+    agent: 'system',
+    message: clientMessage,
+  });
+  return marked || memInFlight;
+}
+
+/**
  * Fail pending/in-flight jobs older than `maxAgeMs` and emit terminal SSE so
  * Result clients exit the loading state (REL-001).
  */
@@ -145,10 +222,28 @@ export async function sweepStaleInFlightJobs(
       ));
     // WHY (R6): skip if still alive in this process's memory OR updatedAt is still
     // newer than failCutoff (another instance's stage heartbeat keeps the row live).
-    const abandoned = candidates.filter((row) => {
+    const notYetStale = candidates.filter((row) => {
       if (isActivelyProcessingInMemory(row.id) || isDoneHeldInMemory(row.id)) return false;
       if (row.updatedAt >= failCutoff) return false;
       return true;
+    });
+    // WHY: another process may hold the only done copy and still be retrying
+    // the save. isDoneHeldInMemory cannot see that snapshot.
+    const pendingFlags = await Promise.allSettled(
+      notYetStale.map((row) => isPersistPending(row.id)),
+    );
+    const queueCandidates = notYetStale.filter((_, i) => {
+      const flag = pendingFlags[i];
+      return !(flag?.status === 'fulfilled' && flag.value === true);
+    });
+    // WHY: contentWorker H1 skips any 'failed' row, so failing a still-queued job
+    // would make it never run. Check BullMQ only for the remaining candidates.
+    const queuedFlags = await Promise.allSettled(
+      queueCandidates.map((row) => isQueuedInBullMq(row.id)),
+    );
+    const abandoned = queueCandidates.filter((_, i) => {
+      const r = queuedFlags[i];
+      return !(r?.status === 'fulfilled' && r.value);
     });
     if (abandoned.length === 0) return 0;
 
@@ -156,16 +251,12 @@ export async function sweepStaleInFlightJobs(
       abandoned.map(async (row) => {
         // WHY: re-assert updatedAt still past failCutoff at mark time — a heartbeat
         // may have landed after the SELECT on another instance.
-        const marked = await markJobFailedIfInFlight(row.id, 'Stale in-flight sweep', failCutoff);
-        if (!marked) return false;
-        sseManager.sendEvent(row.id, {
-          type: 'progress',
-          stage: 'failed',
-          progress: 0,
-          agent: 'system',
-          message: 'Content generation timed out. Please try again or start a new job.',
-        });
-        return true;
+        return await markJobTerminalFailed(
+          row.id,
+          'Stale in-flight sweep',
+          'Content generation timed out. Please try again or start a new job.',
+          failCutoff,
+        );
       }),
     );
     const swept = settled.filter(
@@ -197,7 +288,15 @@ export async function sweepStalePublishingPosts(
     const updated = await db.update(scheduledPosts)
       .set({
         publishStatus: 'failed',
-        publishError: 'Publish timed out — please try scheduling again.',
+        // WHY: a crash after the provider call may mean the post is live; wording must
+        // not invite reschedule. Rows already carrying a partial-thread or
+        // posted-unverified marker keep it (the scheduledPosts re-arm guard keys on it).
+        publishError: sql`CASE
+          WHEN ${scheduledPosts.publishError} LIKE ${`${PARTIAL_THREAD_ERROR_PREFIX}%`}
+            OR ${scheduledPosts.publishError} LIKE ${`${POSTED_UNVERIFIED_ERROR_PREFIX}%`}
+          THEN ${scheduledPosts.publishError}
+          ELSE ${PUBLISH_TIMEOUT_UNVERIFIED_ERROR}
+        END`,
         publishedAt: null,
       })
       .where(and(
@@ -222,17 +321,28 @@ let staleSweepTimer: ReturnType<typeof setInterval> | null = null;
 /** Periodic + immediate sweep from the web process (covers no-Redis / direct mode). */
 export function startStaleJobSweep(): void {
   if (staleSweepTimer) return;
+  // WHY: re-entrancy guard — if a sweep hangs on a degraded Redis/DB and later
+  // partially recovers, overlapping intervals must not pile up concurrent sweeps.
+  let isSweeping = false;
   const runSweeps = (): void => {
-    sweepStaleInFlightJobs().catch((err: unknown) => {
-      logger.warn('Periodic stale in-flight job sweep failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-    sweepStalePublishingPosts().catch((err: unknown) => {
-      logger.warn('Periodic stale publishing sweep failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    if (isSweeping) return;
+    isSweeping = true;
+    Promise.allSettled([
+      sweepStaleInFlightJobs().catch((err: unknown) => {
+        logger.warn('Periodic stale in-flight job sweep failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }),
+      sweepStalePublishingPosts().catch((err: unknown) => {
+        logger.warn('Periodic stale publishing sweep failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }),
+    ])
+      .finally(() => {
+        isSweeping = false;
+      })
+      .catch(() => undefined);
   };
   runSweeps();
   staleSweepTimer = setInterval(runSweeps, STALE_SWEEP_INTERVAL_MS);

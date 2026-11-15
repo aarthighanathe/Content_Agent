@@ -43,7 +43,13 @@ vi.mock('../../src/agents/orchestrator.js', () => ({ runOrchestrator: (...args: 
 vi.mock('../../src/agents/researcher.js', () => ({ runResearcher: (...args: any[]) => runResearcher(...args) }));
 vi.mock('../../src/agents/writer.js', () => ({ runWriter: (...args: any[]) => runWriter(...args) }));
 vi.mock('../../src/agents/formatter.js', () => ({ runFormatter: (...args: any[]) => runFormatter(...args) }));
-vi.mock('../../src/agents/critic.js', () => ({ runCritic: (...args: any[]) => runCritic(...args) }));
+vi.mock('../../src/agents/critic.js', () => ({
+  runCritic: (...args: any[]) => runCritic(...args),
+  runCriticWithFallbackRetries: async (...args: any[]) => {
+    const result = await runCritic(...args);
+    return { result, durationMs: 0 };
+  },
+}));
 vi.mock('../../src/agents/performancePredictor.js', () => ({ runPerformancePredictor: (...args: any[]) => runPerformancePredictor(...args) }));
 vi.mock('../../src/lib/persistJob.js', () => ({ persistJobToDB: (...args: any[]) => persistJobToDB(...args) }));
 const sendEvent = vi.fn();
@@ -95,7 +101,7 @@ describe('runContentPipeline — mid-loop soft-delete race', () => {
       return { approved: false, totalScore: 40, scores: {}, feedback: 'weak' };
     });
 
-    await runContentPipeline({ ...mockJob }, emitProgress);
+    const result = await runContentPipeline({ ...mockJob }, emitProgress);
 
     // WHY exactly 1, not 3: the loop's isSoftDeleted() check runs at the TOP
     // of each iteration — attempt 1 already happened before the flag flipped,
@@ -103,6 +109,8 @@ describe('runContentPipeline — mid-loop soft-delete race', () => {
     expect(runWriter).toHaveBeenCalledTimes(1);
     expect(runFormatter).toHaveBeenCalledTimes(1);
     expect(runCritic).toHaveBeenCalledTimes(1);
+    // WHY cancelled, not done: mid-run soft-delete must not look like success.
+    expect(result.status).toBe('cancelled');
   });
 
   it('runAndPersistPipeline does not persist a "done" result or call persistJobToDB for a job deleted mid-run', async () => {

@@ -1,28 +1,38 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
 import { CalendarSidebar } from './Calendar/CalendarSidebar';
 import { CalendarGrid } from './Calendar/CalendarGrid';
 import { DayDetailPanel } from './Calendar/DayDetailPanel';
 import { CALENDAR_STYLES } from './Calendar/calendarStyles';
 import type { CalendarJob } from './Calendar/calendarHelpers';
-import { fetchCalendarJobs, monthKey, useSchedule } from './Calendar/calendarHelpers';
+import {
+  fetchCalendarJobs,
+  monthKey,
+  scheduleFieldsForMove,
+  todayDateKey,
+  useSchedule,
+} from './Calendar/calendarHelpers';
 import type { PublishPlatform } from '../types/scheduledPost';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 export default function CalendarPage() {
   const navigate = useNavigate();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const dayDialogRef = useRef<HTMLDivElement>(null);
   const [viewDate, setViewDate] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const viewMonthKey = monthKey(viewDate);
   const {
     schedule,
     postsByJobId,
+    scheduledJobIds,
     isLoading: scheduleLoading,
     isError: scheduleError,
     refetch: refetchSchedule,
     allocate: allocateRemote,
     removeFromSchedule: removeFromScheduleRemote,
+    isMutating,
   } = useSchedule(viewMonthKey);
   const [scheduleActionError, setScheduleActionError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -34,6 +44,9 @@ export default function CalendarPage() {
   // bottom-sheet drawer that replaces the sidebar on touch-sized screens, so the two
   // layouts can be toggled independently without fighting each other's CSS.
   const [mobileOpen, setMobileOpen] = useState(false);
+  // WHY: sync gate — isMutating only flips after React Query re-render; double-drop
+  // / rapid Schedule clicks used to fire overlapping mutateAsync calls first.
+  const mutatingRef = useRef(false);
 
   // WHY: eager stale + no focus refetch: the Calendar jobs list is low-volatility
   // (jobs don't change once terminal, which is all the grid shows) but is fetched
@@ -42,14 +55,23 @@ export default function CalendarPage() {
   // explicit 5-min stale window + refetchOnWindowFocus:false keeps month-grid data
   // fresh enough while avoiding that burst (perf audit). Auto-publish status is
   // still picked up live via the separate 30s-polled schedule query.
-  const jobsQuery = useQuery({ queryKey: ['calendar', 'jobs'], queryFn: fetchCalendarJobs, staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false });
+  const jobsQuery = useQuery({
+    queryKey: ['calendar', 'jobs'],
+    queryFn: fetchCalendarJobs,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    // WHY: gate like Create/Library — avoid an unauthenticated fetch before Clerk hydrates.
+    enabled: authLoaded && isSignedIn,
+  });
   const jobs: CalendarJob[] = jobsQuery.data?.jobs || [];
   const hitFetchCap = jobsQuery.data?.hitFetchCap ?? false;
   // WHY: combined across both queries: the grid/sidebar render from both the
   // jobs list AND the schedule map, so either one still loading/erroring
   // means the combined view isn't ready yet — same "both matter" reasoning
   // Dashboard.tsx uses for its own two independent queries.
-  const loading = jobsQuery.isLoading || scheduleLoading;
+  // WHY: isPending, not isLoading: while Clerk hydrates queries are disabled and
+  // isLoading is false — that would flash an empty grid then fill in.
+  const loading = jobsQuery.isPending || scheduleLoading;
   const isError = jobsQuery.isError || scheduleError;
 
   // WHY: schedule rows for jobs the current fetch doesn't know about are simply
@@ -66,8 +88,10 @@ export default function CalendarPage() {
   const totalCells = Math.ceil((firstDayOfWeek + daysInMonth) / 7) * 7;
   const today = new Date();
 
-  const allScheduledIds = new Set(Object.values(schedule).flat());
-  const unscheduled = jobs.filter(j => !allScheduledIds.has(j.id));
+  // WHY: scheduledJobIds (full ±24-month window), not postsByJobId (±1) or the
+  // viewed-month schedule map — far-future rows otherwise look unscheduled and
+  // a re-drag upserts over their real date.
+  const unscheduled = jobs.filter(j => !scheduledJobIds.has(j.id));
 
   // The set of dateKeys that have at least one scheduled item — forwarded to the
   // SchedulePicker so it can highlight "days with content" in the mini-grid.
@@ -87,20 +111,46 @@ export default function CalendarPage() {
   function allocate(
     dateKey: string,
     jobId: string,
-    publishPlatform?: PublishPlatform,
+    publishPlatform?: PublishPlatform | null,
     publishHour?: number,
   ) {
+    // WHY: early-return while pending: double-drop / rapid Schedule clicks used to
+    // fire overlapping mutateAsync calls before React Query flipped isPending.
+    if (isMutating || mutatingRef.current) return;
+    // WHY: reject *new* past-day schedules — picker/grid also disable pick/drop,
+    // but DayDetailPanel "Add content" and any missed UI path still hit here.
+    // WHY: allow when jobId is already on dateKey: Cancel / hour / platform for
+    // an existing past-day row must still call allocate (same dateKey upsert).
+    if (dateKey < todayDateKey()) {
+      const alreadyOnDay = (schedule[dateKey] ?? []).includes(jobId);
+      if (!alreadyOnDay) {
+        setScheduleActionError('Cannot schedule on a past date — pick today or later.');
+        return;
+      }
+    }
+    mutatingRef.current = true;
     setScheduleActionError(null);
-    allocateRemote(dateKey, jobId, publishPlatform, publishHour).catch(() => {
-      setScheduleActionError('Failed to schedule — please try again.');
-    });
+    const fields = scheduleFieldsForMove(postsByJobId[jobId], publishPlatform, publishHour);
+    allocateRemote(dateKey, jobId, fields.publishPlatform, fields.publishHour)
+      .catch(() => {
+        setScheduleActionError('Failed to schedule — please try again.');
+      })
+      .finally(() => {
+        mutatingRef.current = false;
+      });
   }
 
   function removeFromSchedule(jobId: string) {
+    if (isMutating || mutatingRef.current) return;
+    mutatingRef.current = true;
     setScheduleActionError(null);
-    removeFromScheduleRemote(jobId).catch(() => {
-      setScheduleActionError('Failed to remove from schedule — please try again.');
-    });
+    removeFromScheduleRemote(jobId)
+      .catch(() => {
+        setScheduleActionError('Failed to remove from schedule — please try again.');
+      })
+      .finally(() => {
+        mutatingRef.current = false;
+      });
   }
 
   useEffect(() => {
@@ -176,17 +226,27 @@ export default function CalendarPage() {
         onSchedule={(dateKey, jobId) => allocate(dateKey, jobId)}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
+        isMutating={isMutating}
       />
 
       <CalendarGrid
-        onToggleSidebar={() => { setSidebarOpen(p => !p); setMobileOpen(p => !p); }}
+        // WHY: desktop collapses .sc-sidebar; mobile opens the bottom sheet.
+        // Flipping both left a .sc-mobile-scrim over the desktop calendar after
+        // "close library" (sheet is display:none >640px but the scrim still captured clicks).
+        onToggleSidebar={() => {
+          if (typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches) {
+            setMobileOpen((p) => !p);
+          } else {
+            setSidebarOpen((p) => !p);
+          }
+        }}
         year={year}
         month={month}
         totalCells={totalCells}
         firstDayOfWeek={firstDayOfWeek}
         daysInMonth={daysInMonth}
         today={today}
-        allScheduledCount={allScheduledIds.size}
+        allScheduledCount={scheduledJobIds.size}
         thisMonthScheduledCount={thisMonthScheduledCount}
         unscheduledCount={unscheduled.length}
         onPrevMonth={prevMonth}
@@ -202,6 +262,7 @@ export default function CalendarPage() {
         dragJobId={dragJobId}
         onDrop={(dateKey) => { if (dragJobId) { allocate(dateKey, dragJobId); setDragJobId(null); } }}
         scheduledOnDay={scheduledOnDay}
+        isMutating={isMutating}
       />
 
       {selectedDay && (
@@ -226,6 +287,7 @@ export default function CalendarPage() {
               onSetPublishPlatform={(jobId, platform, publishHour) =>
                 allocate(selectedDay, jobId, platform, publishHour)
               }
+              isMutating={isMutating}
             />
           </div>
         </div>

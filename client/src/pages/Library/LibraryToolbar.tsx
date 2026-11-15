@@ -44,6 +44,8 @@ interface LibraryToolbarProps {
   onRequestDeleteCollection: (id: string, name: string) => void;
   deletingCollectionId: string | null;
   collectionsLoading: boolean;
+  collectionsError?: boolean;
+  onRetryCollections?: () => void;
 }
 
 export function LibraryToolbar({
@@ -56,6 +58,7 @@ export function LibraryToolbar({
   pageTags, tagFilter, onTagFilterChange,
   collections, activeCollectionId, onSelectCollection, onCreateCollection,
   creatingCollection, onRequestDeleteCollection, deletingCollectionId, collectionsLoading,
+  collectionsError = false, onRetryCollections,
 }: LibraryToolbarProps): React.JSX.Element {
   return (
     <div className="lib-controls">
@@ -90,6 +93,8 @@ export function LibraryToolbar({
               onRequestDeleteCollection={onRequestDeleteCollection}
               deletingId={deletingCollectionId}
               loading={collectionsLoading}
+              error={collectionsError}
+              onRetry={onRetryCollections}
             />
             <div className="lib-sort-wrap" onClick={(e) => e.stopPropagation()}>
               <button
@@ -145,7 +150,11 @@ export function LibraryToolbar({
               const label = f === 'all' ? 'All' : (meta?.label || f);
               const color = meta?.color || 'var(--accent)';
               const active = platformFilter === f;
-              const count = f === 'all' ? total : (platformCounts[f] || 0);
+              // WHY: sum platformCounts for All — `total` is the active filter's
+              // match count, so with LinkedIn selected All read "12" next to
+              // Carousel "22" (counts ignore platformFilter by design).
+              const allCount = Object.values(platformCounts).reduce((sum, n) => sum + n, 0);
+              const count = f === 'all' ? (allCount > 0 ? allCount : total) : (platformCounts[f] || 0);
               return (
                 <button
                   key={f}

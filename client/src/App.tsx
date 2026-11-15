@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { useEffect, useRef, lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
+import { useEffect, useRef, lazy, Suspense, type JSX } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider, SignIn, SignUp, useAuth } from '@clerk/clerk-react';
 // Landing is kept eager — it's the entry point for all unauthenticated users
@@ -19,6 +19,12 @@ const CalendarPage    = lazy(() => import('./pages/Calendar'));
 const IdeatePage      = lazy(() => import('./pages/Ideate'));
 const RepurposePage   = lazy(() => import('./pages/Repurpose'));
 const CompetitorPage  = lazy(() => import('./pages/Competitor'));
+
+// WHY: key by jobId so navigating job A → B remounts Result and drops A's slide/state.
+function KeyedResultPage(): JSX.Element {
+  const { jobId } = useParams<{ jobId: string }>();
+  return <ResultPage key={jobId} />;
+}
 
 const RouteSpinner = () => (
   <div role="status" aria-label="Loading" style={{ minHeight: '100vh', background: 'var(--color-dark-900)',
@@ -123,7 +129,7 @@ function ClerkProviderWithRoutes() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/create" element={<CreatePage />} />
           <Route path="/batch-result" element={<BatchResultPage />} />
-          <Route path="/result/:jobId" element={<ResultPage />} />
+          <Route path="/result/:jobId" element={<KeyedResultPage />} />
           <Route path="/brand" element={<BrandSettings />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/history" element={<Navigate to="/library" replace />} />

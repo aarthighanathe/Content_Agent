@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '@clerk/clerk-react';
 import { RotateCcw, Copy, Download, ChevronLeft, ExternalLink, History, PenLine, Send, Hash, Layers } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { platNames } from '../constants';
@@ -62,6 +63,7 @@ export function ResultHeader({
   loadError = null,
   social: _social,
 }: Props) {
+  const { isLoaded: authLoaded, isSignedIn, userId } = useAuth();
   const platform = (jobData?.platform && platNames[jobData.platform]) || jobData?.platform || '';
   const audience = jobData?.targetAudience || '';
   const tone     = jobData?.tone || '';
@@ -76,10 +78,12 @@ export function ResultHeader({
 
   // WHY: only when done: versions are snapshots taken on regenerate — empty while
   // the first generation is still running. Header affordance opens the History panel.
+  // WHY: also require jobData — after account switch jobId param may linger while
+  // ownership revalidation has not yet succeeded.
   const versionsQuery = useQuery({
-    queryKey: ['jobVersions', jobId],
+    queryKey: ['jobVersions', userId ?? 'anon', jobId],
     queryFn: () => getJobVersions(jobId as string),
-    enabled: Boolean(jobId) && isDone && !regenerating,
+    enabled: authLoaded && isSignedIn && Boolean(jobId) && Boolean(jobData?.id) && isDone && !regenerating,
     staleTime: 30_000,
   });
   const versionCount = versionsQuery.data?.versions?.length ?? 0;
@@ -89,6 +93,7 @@ export function ResultHeader({
       <div className="rp-hd">
         <Link
           to="/library"
+          className="rp-back-link"
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 4,
             fontSize: 12, color: 'var(--text-muted)', textDecoration: 'none',

@@ -110,10 +110,15 @@ export default function LandingPage() {
             <Link
               to="/dashboard"
               style={{
+                // WHY: bare text link was ~21px tall — under 44px mobile touch target.
                 color: 'var(--accent)',
                 fontWeight: 600,
                 textDecoration: 'none',
                 whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                minHeight: 44,
+                padding: '0 4px',
               }}
             >
               Go to dashboard →
@@ -128,6 +133,10 @@ export default function LandingPage() {
                 color: 'var(--text-muted)',
                 cursor: 'pointer',
                 display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: 44,
+                minHeight: 44,
                 padding: 4,
               }}
             >

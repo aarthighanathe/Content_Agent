@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { X, CalendarDays, ExternalLink, Trash2, PlusCircle, ChevronDown, Send, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@clerk/clerk-react';
 import { platformMeta } from '../../lib/platformMeta';
 import { getSocialConnections } from '../../api';
 import type { CalendarJob } from './calendarHelpers';
-import { getScore } from './calendarHelpers';
+import { getScore, todayDateKey } from './calendarHelpers';
 import { isSafeHttpUrl } from '../../lib/utils';
 import type { PublishPlatform, ScheduledPost } from '../../types/scheduledPost';
 
@@ -23,9 +24,11 @@ interface DayDetailPanelProps {
   /** Called when user sets/changes/clears which platform to auto-publish this job to. */
   onSetPublishPlatform: (
     jobId: string,
-    platform: PublishPlatform | undefined,
+    platform: PublishPlatform | null,
     publishHour?: number,
   ) => void;
+  /** Disable add/remove while a schedule mutation is in flight. */
+  isMutating?: boolean;
 }
 
 const PUBLISH_PLATFORM_LABELS: Record<PublishPlatform, string> = {
@@ -42,6 +45,29 @@ function formatPublishHour(hour: number): string {
   return `${twelve}:00 ${suffix}`;
 }
 
+// WHY: same rule as PostPanel — worker fires at :00 of publishHour, so today's
+// current/past hours would 400 (delay ≤ 0). keepHour stays selectable so an
+// existing row's controlled <select> doesn't lose its value mid-day.
+function publishHoursForDay(dateKey: string, keepHour?: number | null): number[] {
+  if (dateKey !== todayDateKey()) return PUBLISH_HOURS;
+  const now = Date.now();
+  const future = PUBLISH_HOURS.filter((h) => {
+    const top = new Date();
+    top.setHours(h, 0, 0, 0);
+    return top.getTime() > now;
+  });
+  if (
+    keepHour != null
+    && Number.isFinite(keepHour)
+    && keepHour >= 0
+    && keepHour <= 23
+    && !future.includes(keepHour)
+  ) {
+    return [...future, keepHour].sort((a, b) => a - b);
+  }
+  return future;
+}
+
 // WHY: both directions are worth building (#12):
 // - Card → day (sidebar Schedule… button): works well when the user is browsing their
 //   content library and wants to place a specific piece. The sidebar is the natural
@@ -54,6 +80,7 @@ function formatPublishHour(hour: number): string {
 //   scheduling code path.
 export function DayDetailPanel({
   selectedDay, jobs, postsByJobId, onClose, onViewResult, onRemove, unscheduled, onAddContent, onSetPublishPlatform,
+  isMutating = false,
 }: DayDetailPanelProps) {
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [platformMenuJobId, setPlatformMenuJobId] = useState<string | null>(null);
@@ -61,6 +88,7 @@ export function DayDetailPanel({
   // allocate() call already carries the user's preferred time (default 9).
   const [draftHour, setDraftHour] = useState(9);
 
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   // WHY: fetched here, not passed as a prop from Calendar.tsx: only this panel
   // needs the connected-accounts list (to populate the publish-platform
   // picker) — staleTime matches ResultHeader/PostPanel's own profile-style
@@ -70,6 +98,8 @@ export function DayDetailPanel({
     queryKey: ['social', 'connections'],
     queryFn: getSocialConnections,
     staleTime: 5 * 60 * 1000,
+    // WHY: gate like Create/Library — avoid an unauthenticated fetch before Clerk hydrates.
+    enabled: authLoaded && isSignedIn,
   });
   const connectedPlatforms = (connectionsData?.connections || [])
     .filter((c) => c.connected && (c.platform === 'linkedin' || c.platform === 'twitter'))
@@ -78,6 +108,14 @@ export function DayDetailPanel({
   const formatted = new Date(selectedDay + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
+  // WHY: past days stay viewable (Cancel/hour/platform on existing rows) but
+  // must not offer "Add content" — allocate rejects new past-day schedules.
+  const canAddContent = selectedDay >= todayDateKey();
+  const draftHourOptions = publishHoursForDay(selectedDay);
+  // WHY: clamp when today's options drop the default 9 after noon.
+  const effectiveDraftHour = draftHourOptions.includes(draftHour)
+    ? draftHour
+    : (draftHourOptions[0] ?? draftHour);
 
   return (
     <div className="sc-detail">
@@ -94,10 +132,12 @@ export function DayDetailPanel({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {/* "Add content" button — shows when there's unscheduled content to pick from */}
-          {unscheduled.length > 0 && (
+          {canAddContent && unscheduled.length > 0 && (
             <button
+              type="button"
               className="sc-add-btn"
-              onClick={() => setAddPickerOpen(p => !p)}
+              disabled={isMutating}
+              onClick={() => { if (!isMutating) setAddPickerOpen(p => !p); }}
               aria-expanded={addPickerOpen}
               aria-haspopup="listbox"
               aria-label="Add content to this day"
@@ -114,7 +154,7 @@ export function DayDetailPanel({
       </div>
 
       {/* "Add content" dropdown — lists unscheduled items to pick from */}
-      {addPickerOpen && unscheduled.length > 0 && (
+      {canAddContent && addPickerOpen && unscheduled.length > 0 && (
         <div
           className="sc-add-list"
           role="listbox"
@@ -125,10 +165,12 @@ export function DayDetailPanel({
             return (
               <button
                 key={job.id}
+                type="button"
                 role="option"
                 aria-selected={false}
                 className="sc-add-item"
-                onClick={() => { onAddContent(job.id); setAddPickerOpen(false); }}
+                disabled={isMutating}
+                onClick={() => { if (isMutating) return; onAddContent(job.id); setAddPickerOpen(false); }}
                 aria-label={`Schedule "${job.topic}" (${cfg.label}) on ${formatted}`}
               >
                 <div style={{ width: 26, height: 26, borderRadius: 7, background: cfg.bg, border: `1px solid ${cfg.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -152,7 +194,7 @@ export function DayDetailPanel({
         <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-muted)' }}>
           <CalendarDays size={30} style={{ display: 'block', margin: '0 auto 10px', opacity: 0.4 }} aria-hidden />
           <div style={{ fontSize: 12 }}>
-            {unscheduled.length > 0
+            {canAddContent && unscheduled.length > 0
               ? 'No content here yet — use "Add content" above or drag from the sidebar.'
               : 'No content scheduled. Create new content to get started.'}
           </div>
@@ -163,6 +205,10 @@ export function DayDetailPanel({
           const score = getScore(job);
           const post = postsByJobId[job.id];
           const isPlatformMenuOpen = platformMenuJobId === job.id;
+          // WHY: DELETE/upsert 409 while worker holds publishing — hour select
+          // already gated; Remove/Cancel must match.
+          const isPublishing = post?.publishStatus === 'publishing';
+          const hourOptions = publishHoursForDay(selectedDay, post?.publishHour ?? null);
           return (
             <div key={job.id} className="sc-detail-job-wrap">
               <div className="sc-detail-job">
@@ -181,7 +227,15 @@ export function DayDetailPanel({
                 <button className="sc-btn-ghost" title="View result" onClick={() => onViewResult(job.id)} style={{ color: 'var(--text-muted)' }} aria-label={`View result for "${job.topic}"`}>
                   <ExternalLink size={13} />
                 </button>
-                <button className="sc-btn-ghost" title="Remove from schedule" onClick={() => onRemove(job.id)} style={{ color: 'color-mix(in srgb, var(--color-error) 50%, transparent)' }} aria-label={`Remove "${job.topic}" from this day`}>
+                <button
+                  type="button"
+                  className="sc-btn-ghost"
+                  title={isPublishing ? 'Publishing in progress' : 'Remove from schedule'}
+                  disabled={isMutating || isPublishing}
+                  onClick={() => { if (!isMutating && !isPublishing) onRemove(job.id); }}
+                  style={{ color: 'color-mix(in srgb, var(--color-error) 50%, transparent)', opacity: (isMutating || isPublishing) ? 0.5 : 1 }}
+                  aria-label={`Remove "${job.topic}" from this day`}
+                >
                   <Trash2 size={13} />
                 </button>
               </div>
@@ -200,10 +254,14 @@ export function DayDetailPanel({
                         value={post.publishHour ?? 9}
                         // WHY: disabled when posted (CORR-006): changing the hour
                         // used to re-POST pending and queue a second publish.
-                        disabled={post.publishStatus === 'posted' || post.publishStatus === 'publishing'}
+                        disabled={
+                          isMutating
+                          || post.publishStatus === 'posted'
+                          || post.publishStatus === 'publishing'
+                        }
                         onChange={(e) => {
                           const hour = Number(e.target.value);
-                          if (!Number.isFinite(hour) || !post.publishPlatform) return;
+                          if (isMutating || !Number.isFinite(hour) || !post.publishPlatform) return;
                           onSetPublishPlatform(job.id, post.publishPlatform, hour);
                         }}
                         style={{
@@ -217,7 +275,7 @@ export function DayDetailPanel({
                           opacity: post.publishStatus === 'posted' || post.publishStatus === 'publishing' ? 0.55 : 1,
                         }}
                       >
-                        {PUBLISH_HOURS.map((h) => (
+                        {hourOptions.map((h) => (
                           <option key={h} value={h}>{formatPublishHour(h)}</option>
                         ))}
                       </select>
@@ -253,14 +311,21 @@ export function DayDetailPanel({
                         Failed to publish to {PUBLISH_PLATFORM_LABELS[post.publishPlatform]}
                       </span>
                     )}
-                    <button
-                      className="sc-btn-ghost"
-                      onClick={() => onSetPublishPlatform(job.id, undefined)}
-                      style={{ color: 'var(--text-muted)', fontSize: 10, padding: '2px 6px' }}
-                      title="Stop auto-publishing this post"
-                    >
-                      Cancel
-                    </button>
+                    {/* WHY: Cancel must not run for posted/publishing — allocate with
+                        publishPlatform:null upserts publishStatus→pending and clears
+                        postUrl, wiping the Posted badge/link (Pass-9 H1). */}
+                    {post.publishStatus !== 'posted' && post.publishStatus !== 'publishing' && (
+                      <button
+                        type="button"
+                        className="sc-btn-ghost"
+                        disabled={isMutating}
+                        onClick={() => { if (!isMutating) onSetPublishPlatform(job.id, null); }}
+                        style={{ color: 'var(--text-muted)', fontSize: 10, padding: '2px 6px', opacity: isMutating ? 0.5 : 1 }}
+                        title="Stop auto-publishing this post"
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </>
                 ) : connectedPlatforms.length > 0 ? (
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -268,7 +333,7 @@ export function DayDetailPanel({
                       Time
                       <select
                         aria-label="Choose auto-publish hour"
-                        value={draftHour}
+                        value={effectiveDraftHour}
                         onChange={(e) => setDraftHour(Number(e.target.value))}
                         style={{
                           background: 'var(--bg-raised)',
@@ -279,16 +344,21 @@ export function DayDetailPanel({
                           padding: '2px 4px',
                         }}
                       >
-                        {PUBLISH_HOURS.map((h) => (
+                        {draftHourOptions.map((h) => (
                           <option key={h} value={h}>{formatPublishHour(h)}</option>
                         ))}
                       </select>
                     </label>
                     <button
+                      type="button"
                       className="sc-btn-ghost"
-                      onClick={() => setPlatformMenuJobId(isPlatformMenuOpen ? null : job.id)}
+                      disabled={isMutating || draftHourOptions.length === 0}
+                      onClick={() => {
+                        if (isMutating || draftHourOptions.length === 0) return;
+                        setPlatformMenuJobId(isPlatformMenuOpen ? null : job.id);
+                      }}
                       title="Auto-publish this post"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--accent)' }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--accent)', opacity: (isMutating || draftHourOptions.length === 0) ? 0.5 : 1 }}
                     >
                       <Send size={10} /> Auto-publish…
                     </button>
@@ -297,9 +367,12 @@ export function DayDetailPanel({
                         {connectedPlatforms.map((p) => (
                           <button
                             key={p}
+                            type="button"
                             className="sc-publish-menu-item"
+                            disabled={isMutating}
                             onClick={() => {
-                              onSetPublishPlatform(job.id, p, draftHour);
+                              if (isMutating) return;
+                              onSetPublishPlatform(job.id, p, effectiveDraftHour);
                               setPlatformMenuJobId(null);
                             }}
                           >

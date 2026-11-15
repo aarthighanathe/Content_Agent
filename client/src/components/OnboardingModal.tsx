@@ -2,11 +2,14 @@
 // to personalize their content generation experience. Two-step flow (brand setup → sample preview)
 // ensures users understand the value before completing setup.
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@clerk/clerk-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, ArrowRight, Check, Briefcase, Smile, Zap, BookOpen, Star } from 'lucide-react';
 import { getOnboardingStatus, completeOnboarding } from '../api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { migrateLegacyKey, userScopedKey } from '../lib/userScopedStorage';
+
+const ONBOARDING_DISMISSED_KEY = 'ca_onboarding_dismissed';
 
 const TONES = [
   { id: 'professional',  label: 'Professional', Icon: Briefcase  },
@@ -30,16 +33,46 @@ export function OnboardingModal() {
   const [brandName, setBrandName] = useState('');
   const [tone, setTone]           = useState('professional');
   const [saveError, setSaveError] = useState('');
-  // WHY: local dismiss: session skip shouldn't wait on a refetch that may 401 mid-logout.
-  const [dismissed, setDismissed] = useState(
-    () => sessionStorage.getItem('ca_onboarding_dismissed') === '1',
-  );
   const modalRef = useRef<HTMLDivElement>(null);
   // WHY: gated on authLoaded && isSignedIn: same race Dashboard.tsx/AuthLayout.tsx's
   // own profile queries guard against — without this, the request could fire before
   // window.Clerk.session is hydrated, get no Authorization header, and 401.
   const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
+  const userId = user?.id ?? null;
+  // WHY: per-user dismiss key — a shared ca_onboarding_dismissed flag hid
+  // onboarding for the next account in the same tab.
+  const [dismissed, setDismissed] = useState(false);
   const queryClient = useQueryClient();
+
+  // WHY: live id for dismiss/complete after await — render-time userId is stale.
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
+  useEffect(() => {
+    // WHY: reset form on account switch so User B does not see User A's brand/tone.
+    setStep(1);
+    setBrandName('');
+    setTone('professional');
+    setSaveError('');
+    if (!userId) {
+      setDismissed(false);
+      return;
+    }
+    migrateLegacyKey(sessionStorage, ONBOARDING_DISMISSED_KEY, userId);
+    setDismissed(sessionStorage.getItem(userScopedKey(ONBOARDING_DISMISSED_KEY, userId)) === '1');
+  }, [userId]);
+
+  function markDismissed(forUserId: string | null): void {
+    if (forUserId) {
+      sessionStorage.setItem(userScopedKey(ONBOARDING_DISMISSED_KEY, forUserId), '1');
+    }
+    // WHY: only flip local dismissed when still the same account — otherwise
+    // User B would inherit User A's dismiss and skip their own onboarding.
+    if (userIdRef.current === forUserId) {
+      setDismissed(true);
+    }
+  }
 
   const statusQuery = useQuery({
     queryKey: ONBOARDING_QUERY_KEY,
@@ -51,36 +84,60 @@ export function OnboardingModal() {
 
   const completeMutation = useMutation({
     mutationFn: completeOnboarding,
-    onSuccess: () => {
-      sessionStorage.setItem('ca_onboarding_dismissed', '1');
-      setDismissed(true);
+    onMutate: (): { requestUserId: string | null } => ({
+      requestUserId: userIdRef.current,
+    }),
+    onSuccess: (_data, _vars, context) => {
+      const requestUserId = context?.requestUserId ?? null;
+      if (userIdRef.current !== requestUserId) return;
+      markDismissed(requestUserId);
       void queryClient.invalidateQueries({ queryKey: ONBOARDING_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: ['dashboard', 'profile'] });
     },
-    onError: () => {
+    onError: (_err, _vars, context) => {
+      if (userIdRef.current !== (context?.requestUserId ?? null)) return;
       // WHY: keep open on failure: dismissing anyway left Brand without the
       // name the user typed, and this session would never show the modal again.
       setSaveError("Couldn't save — try again.");
     },
   });
 
-  const show = !dismissed && statusQuery.isSuccess && statusQuery.data.completed === false;
+  // WHY: fail-open on status error — a failed GET previously hid the modal forever
+  // (`isSuccess && completed === false` never matched), silently skipping onboarding.
+  const statusKnownIncomplete = statusQuery.isSuccess && statusQuery.data.completed === false;
+  const statusFailedOpen = statusQuery.isError;
+  const show = !dismissed && (statusKnownIncomplete || statusFailedOpen);
   const saving = completeMutation.isPending;
+  // WHY: ref + isPending — double-click on "Start creating" could fire two completes
+  // before React Query flipped isPending.
+  const completingRef = useRef(false);
 
   function handleComplete(): void {
+    if (saving || completingRef.current) return;
+    completingRef.current = true;
     setSaveError('');
-    completeMutation.mutate({ brandName: brandName.trim(), preferredTone: tone });
+    completeMutation.mutate(
+      { brandName: brandName.trim(), preferredTone: tone },
+      { onSettled: () => { completingRef.current = false; } },
+    );
   }
 
   function handleSkip(): void {
-    // WHY: without this, dismissing via Escape/backdrop/"Skip for now" never marked
-    // userOnboarding.completed in the DB, so the modal reappeared on every new session.
-    completeOnboarding({}).catch(() => { /* non-blocking */ });
-    sessionStorage.setItem('ca_onboarding_dismissed', '1');
-    setDismissed(true);
+    // WHY: no-op while completeMutation is in flight — Escape/backdrop/"Skip for now"
+    // would race a brand save with a second empty complete.
+    if (completeMutation.isPending || completingRef.current) return;
+    completingRef.current = true;
+    // WHY: route through the gated mutation (not fire-and-forget): onSuccess
+    // drops the response if the user switched; markDismissed only runs there.
+    setSaveError('');
+    completeMutation.mutate(
+      {},
+      { onSettled: () => { completingRef.current = false; } },
+    );
   }
 
   // NOTE: Escape calls handleSkip; listener removed when the modal unmounts or hides.
+  // WHY: rebind when `saving` flips so Escape sees the isPending guard above.
   useEffect(() => {
     if (!show) return undefined;
     function onKeyDown(e: KeyboardEvent): void {
@@ -88,7 +145,7 @@ export function OnboardingModal() {
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [show]);
+  }, [show, saving]);
 
   useFocusTrap(modalRef, show);
 
@@ -171,6 +228,28 @@ export function OnboardingModal() {
           ))}
         </div>
 
+        {statusFailedOpen && (
+          <div
+            role="alert"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+              marginBottom: 16, padding: '10px 12px', borderRadius: 8,
+              background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+              fontSize: 12, color: 'var(--color-error)',
+            }}
+          >
+            <span>Couldn&apos;t check onboarding status — you can continue, or retry.</span>
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ flexShrink: 0, fontSize: 11, padding: '6px 10px' }}
+              onClick={() => { statusQuery.refetch().catch(() => {}); }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* ── STEP 1 — Brand setup ── */}
         {step === 1 && (
           <>
@@ -228,7 +307,15 @@ export function OnboardingModal() {
             </div>
 
             <div className="onboarding-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 28 }}>
-              <button onClick={handleSkip} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
+              <button
+                onClick={handleSkip}
+                disabled={saving}
+                style={{
+                  background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 13,
+                  cursor: saving ? 'default' : 'pointer', fontFamily: 'inherit', padding: 0,
+                  opacity: saving ? 0.5 : 1,
+                }}
+              >
                 Skip for now
               </button>
               <button

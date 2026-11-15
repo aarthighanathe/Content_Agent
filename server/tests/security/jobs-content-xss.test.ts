@@ -102,7 +102,9 @@ describe('PATCH /:jobId/content — XSS sanitization', () => {
     vi.clearAllMocks();
     const { jobsMemory } = await import('../../src/routes/jobs/ownership.js');
     jobsMemory.clear();
-    jobId = `00000000-0000-0000-0000-${Date.now().toString().padStart(12, '0')}`;
+    // WHY: last UUID segment must be exactly 12 hex chars — Date.now() alone
+    // is 13 digits in 2026+, which fails isValidUUID and 404s every PATCH.
+    jobId = `00000000-0000-4000-8000-${Date.now().toString(16).slice(-12).padStart(12, '0')}`;
     jobsMemory.set(jobId, {
       id: jobId,
       userId: OWNER,

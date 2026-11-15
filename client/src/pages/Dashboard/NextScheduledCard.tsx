@@ -105,7 +105,9 @@ export function NextScheduledCard() {
       <Link
         to={nextEntry && !orphaned ? `/result/${nextEntry.jobId}` : '/calendar'}
         style={{
+          // WHY: bare text link was ~18px tall — below 44px mobile touch target.
           display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
+          minHeight: 44, padding: '0 4px',
           fontSize: 11.5, color: 'color-mix(in srgb, var(--accent) 65%, transparent)',
           textDecoration: 'none',
         }}

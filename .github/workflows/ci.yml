@@ -15,11 +15,21 @@ jobs:
     with:
       node-version: ${{ matrix.node-version }}
 
-  security-scan:
+  # WHY: deterministic scanners only here — LLM PR review is a separate workflow.
+  npm-audit:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
 
       - name: Install dependencies
         run: |
@@ -77,3 +87,86 @@ jobs:
               echo "$dir: no unallowlisted high/critical vulnerabilities"
             )
           done
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          # WHY: TruffleHog needs depth to diff against the base branch / history.
+          fetch-depth: 0
+
+      - name: TruffleHog (verified secrets only)
+        uses: trufflesecurity/trufflehog@v3.99.9
+        with:
+          path: ./
+          # WHY: omit base/head so the action picks the correct commit range
+          # for push vs pull_request (setting base=main on a main tip fails).
+          # --only-verified reduces false positives from example strings.
+          extra_args: --only-verified
+
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Semgrep
+        run: pip install --quiet 'semgrep>=1.100,<2'
+
+      - name: Semgrep SAST (TypeScript / Node / OWASP)
+        env:
+          # WHY: avoid writing under a missing/unwritable home in some runners.
+          SEMGREP_SEND_METRICS: 'off'
+        run: |
+          semgrep scan \
+            --config p/typescript \
+            --config p/javascript \
+            --config p/nodejs \
+            --config p/owasp-top-ten \
+            --config p/react \
+            --error \
+            --metrics=off \
+            --exclude='node_modules' \
+            --exclude='**/dist/**' \
+            --exclude='**/coverage/**' \
+            --exclude='server/src/generated/**' \
+            --exclude='server/drizzle/**' \
+            server/src client/src
+
+  vuln-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # WHY: vuln scanner only — secrets are TruffleHog's job; local .env must
+      # never be treated as a CI finding. CRITICAL-only; npm-audit covers high+.
+      - name: Trivy filesystem (CRITICAL vulns)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          skip-dirs: >-
+            node_modules,client/node_modules,server/node_modules,
+            client/dist,server/dist,.git,coverage
+          skip-files: .env,.env.local,.env.example,client/.env.example,server/.env.example
+
+      - name: Trivy config (Dockerfiles / compose / render.yaml)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          trivyignores: .trivyignore

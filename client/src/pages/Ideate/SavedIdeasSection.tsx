@@ -7,7 +7,7 @@ import type { IdeatedIdea, SavedIdea } from '../../store';
 interface SavedIdeasSectionProps {
   savedIdeas: SavedIdea[];
   onUse: (idea: IdeatedIdea) => void;
-  onRemove: (title: string) => void;
+  onRemove: (id: string) => void;
 }
 
 export function SavedIdeasSection({ savedIdeas, onUse, onRemove }: SavedIdeasSectionProps) {
@@ -25,6 +25,20 @@ export function SavedIdeasSection({ savedIdeas, onUse, onRemove }: SavedIdeasSec
     if (!expanded || savedIdeas.length === 0) return undefined;
 
     function handleKeyDown(e: globalThis.KeyboardEvent) {
+      const container = containerRef.current;
+      // WHY: document-level arrows stole focus from Ideate's topic input —
+      // only handle keys when focus is inside this section, never from fields.
+      if (!container || !container.contains(document.activeElement)) return;
+      const target = e.target;
+      if (
+        target instanceof HTMLElement
+        && (target.tagName === 'INPUT'
+          || target.tagName === 'TEXTAREA'
+          || target.tagName === 'SELECT'
+          || target.isContentEditable)
+      ) {
+        return;
+      }
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setActiveIndex((i) => (i + 1) % savedIdeas.length);
@@ -47,10 +61,13 @@ export function SavedIdeasSection({ savedIdeas, onUse, onRemove }: SavedIdeasSec
   if (savedIdeas.length === 0) return null;
 
   return (
-    <div style={{
-      background: 'var(--bg-raised)', border: '1px solid var(--rule)',
-      borderRadius: 13, marginBottom: 20, overflow: 'hidden',
-    }}>
+    <div
+      ref={containerRef}
+      style={{
+        background: 'var(--bg-raised)', border: '1px solid var(--rule)',
+        borderRadius: 13, marginBottom: 20, overflow: 'hidden',
+      }}
+    >
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -67,13 +84,13 @@ export function SavedIdeasSection({ savedIdeas, onUse, onRemove }: SavedIdeasSec
       </button>
 
       {expanded && (
-        <div ref={containerRef} style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {savedIdeas.map((idea, index) => {
             const meta = platformMeta[idea.platform] || { label: idea.platform, Icon: Smartphone, color: '#8B5CF6', bg: 'rgba(139,92,246,0.10)' };
             const isActive = index === activeIndex;
             return (
               <div
-                key={idea.title}
+                key={idea.id ?? idea.title}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
                   border: `1px solid ${isActive ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'var(--rule)'}`,
@@ -108,7 +125,7 @@ export function SavedIdeasSection({ savedIdeas, onUse, onRemove }: SavedIdeasSec
                   type="button"
                   aria-label="Remove saved idea"
                   title="Remove saved idea"
-                  onClick={() => onRemove(idea.title)}
+                  onClick={() => { if (idea.id) onRemove(idea.id); }}
                   style={{ background: 'transparent', border: 'none', padding: 4, cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', flexShrink: 0 }}
                 >
                   <X size={13} />

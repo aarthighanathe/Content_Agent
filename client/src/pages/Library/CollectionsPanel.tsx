@@ -14,11 +14,15 @@ interface CollectionsPanelProps {
   onRequestDeleteCollection: (id: string, name: string) => void;
   deletingId: string | null;
   loading: boolean;
+  /** WHY: surface separately from empty folders — a failed fetch looked like "no folders yet". */
+  error?: boolean;
+  onRetry?: () => void;
 }
 
 export function CollectionsPanel({
   collections, activeCollectionId, onSelectCollection,
   onCreateCollection, creating, onRequestDeleteCollection, deletingId, loading,
+  error = false, onRetry,
 }: CollectionsPanelProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [showInput, setShowInput] = useState(false);
@@ -56,6 +60,24 @@ export function CollectionsPanel({
           <Folder size={12} style={{ flexShrink: 0 }} />
           Folders
           <ChevronDown size={11} style={{ opacity: 0.65 }} />
+        </button>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="lib-folders-wrap">
+        <button
+          type="button"
+          className="lib-folders-btn"
+          onClick={() => onRetry?.()}
+          title="Couldn't load folders — click to retry"
+          style={{ color: 'var(--color-error)' }}
+        >
+          <Folder size={12} style={{ flexShrink: 0 }} />
+          Folders failed
+          <span style={{ fontSize: 11, marginLeft: 4 }}>Retry</span>
         </button>
       </div>
     );

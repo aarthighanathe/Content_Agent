@@ -160,7 +160,8 @@ export function TopicStep({
             </span>
             <Link
               to="/brand"
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'color-mix(in srgb, var(--accent) 60%, transparent)', textDecoration: 'none', transition: 'color .15s', fontFamily: "var(--font-mono)", flexShrink: 0 }}
+              aria-label="Edit brand voice"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'color-mix(in srgb, var(--accent) 60%, transparent)', textDecoration: 'none', transition: 'color .15s', fontFamily: "var(--font-mono)", flexShrink: 0, minHeight: 44, padding: '0 4px', boxSizing: 'border-box' }}
               onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.color = 'var(--accent)')}
               onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.color = 'color-mix(in srgb, var(--accent) 60%, transparent)')}
             >
