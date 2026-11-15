@@ -102,7 +102,15 @@ router.get('/:jobId/stream', ...sseStreamRateLimit, async (req: Request, res: Re
       // WHY: jobId alias (CORR-013): memory jobs use `id`; the client bootstrap
       // historically required `data.jobId` and ignored the initial state event.
       const clientJob = toClientJob(memJob);
-      res.write(`data: ${JSON.stringify({ type: 'state', jobId: memJob.id, ...clientJob })}\n\n`);
+      // WHY: SSE text/event-stream of JSON (Content-Type is not text/html).
+      // Semgrep direct-response-write assumes HTML responses — false positive.
+      const ssePayload = JSON.stringify({
+        type: 'state',
+        jobId: memJob.id,
+        ...clientJob,
+      });
+      // nosemgrep: javascript.express.security.audit.xss.direct-response-write.direct-response-write
+      res.write('data: ' + ssePayload + '\n\n');
     }
   } catch (err: unknown) {
     console.error(

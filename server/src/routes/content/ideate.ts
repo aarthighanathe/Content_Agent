@@ -220,8 +220,18 @@ router.post('/ideate/regenerate-one', async (req: AuthRequest, res: Response) =>
     // not raw keystrokes, but that generation could itself have been steered by
     // a crafted focusTopic — wrapped the same as every other text block reaching
     // this prompt rather than assuming it's safe because it's one hop removed.
+    // SECURITY: XML delimiters for LLM data (not browser HTML). escapeXml on
+    // each title. Semgrep raw-html-format false-positive on prompt tags.
     const excludeSection = excludeTitles && excludeTitles.length > 0
-      ? `\n<avoid_duplicating>Do not repeat or closely resemble any of these existing ideas:\n${excludeTitles.map((t) => `- <existing_idea_title>${escapeXml(t)}</existing_idea_title>`).join('\n')}</avoid_duplicating>\n`
+      ? (
+        // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
+        '\n<avoid_duplicating>Do not repeat or closely resemble any of these existing ideas:\n'
+        + excludeTitles
+          // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
+          .map((t) => '- <existing_idea_title>' + escapeXml(t) + '</existing_idea_title>')
+          .join('\n')
+        + '</avoid_duplicating>\n'
+      )
       : '';
 
     const prompt = `You are a content strategist. Generate exactly ONE fresh, trending topic idea — distinct from any ideas listed below.

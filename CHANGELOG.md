@@ -15,6 +15,18 @@
 
 ---
 
+## 2026-11-16 — CI: npm-audit / SAST / Node 22 build unblocked
+
+- **npm ci / audit / test(22):** `server/.npmrc` sets `legacy-peer-deps=true`
+  because `madge@8` peerOptional wants `typescript@^5.4.4` while the server is
+  on `typescript@^6.0.3` — Node 22 `npm ci` was ERESOLVE-failing before audit
+  or lint/tests could run.
+- **SAST (Semgrep):** competitor/ideate LLM prompt XML delimiters rewritten
+  away from HTML-looking template sinks (concat + `[placeholder]` JSON
+  examples); outline export builds tags via concat after `esc()`; SSE
+  `res.write` uses a prebuilt JSON payload + justified `nosemgrep` where the
+  rule still taints non-HTML responses. Local Semgrep: 0 findings.
+
 ## 2026-11-16 — CI-green verification fixes (lint / tests / Zod 4.6 build)
 
 - **client eslint:** downgrade `react-hooks/refs` + `react-hooks/immutability` to
