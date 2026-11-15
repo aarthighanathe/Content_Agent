@@ -22,5 +22,10 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // WHY: production `tsc -b` must not typecheck vitest files — they import
+  // @testing-library/* which is a peer-resolved devDependency. On CI Node 20,
+  // missing @testing-library/dom types made `screen` look unexported and failed
+  // the Build step after tests had already passed.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test/**"]
 }

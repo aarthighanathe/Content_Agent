@@ -26,6 +26,10 @@
   examples); outline export builds tags via concat after `esc()`; SSE
   `res.write` uses a prebuilt JSON payload + justified `nosemgrep` where the
   rule still taints non-HTML responses. Local Semgrep: 0 findings.
+- **test (20) build:** exclude `*.test.*` / `src/test/**` from
+  `tsconfig.app.json` so production `tsc -b` does not require Testing Library
+  types; add `@testing-library/dom` as an explicit client devDependency (peer
+  of `@testing-library/react`, source of `screen`).
 
 ## 2026-11-16 — CI-green verification fixes (lint / tests / Zod 4.6 build)
 
