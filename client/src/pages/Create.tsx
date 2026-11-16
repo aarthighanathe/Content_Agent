@@ -166,12 +166,10 @@ export default function CreatePage() {
     return `${minutes}m`;
   }
 
-  // WHY: auto-dismiss on a timer, matching Brand.tsx's flashToast duration: this
-  // draft-write failure is a low-stakes notice ("your topic won't survive a trip
-  // to /brand and back"), not something requiring the user to manually clear it.
+  // WHY: 3s like Library/Brand flashToast — low-stakes notice, not sticky.
   useEffect(() => {
     if (!draftWriteFailed) return undefined;
-    const t = setTimeout(() => dismissDraftWriteFailed(), 4000);
+    const t = setTimeout(() => dismissDraftWriteFailed(), 3000);
     return () => clearTimeout(t);
   }, [draftWriteFailed, dismissDraftWriteFailed]);
 
@@ -192,7 +190,8 @@ export default function CreatePage() {
       return undefined;
     }
     setShowDraftToast(true);
-    const t = setTimeout(() => setShowDraftToast(false), 5000);
+    // WHY: 3s matches Library flashToast — 5s felt sticky over the form.
+    const t = setTimeout(() => setShowDraftToast(false), 3000);
     return () => clearTimeout(t);
   }, [hasDraft]);
 

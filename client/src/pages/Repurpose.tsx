@@ -41,8 +41,8 @@ export default function RepurposePage() {
 
   return (
     <div className="repurpose-page">
-      <div className="repurpose-page-header" style={{ marginBottom: 32 }}>
-        <h1 style={{ fontFamily: "var(--font-heading)", fontSize: "clamp(20px, 5vw, 28px)", fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+      <div className="repurpose-page-header" style={{ marginBottom: 16 }}>
+        <h1 style={{ fontFamily: "var(--font-heading)", fontSize: "clamp(20px, 5vw, 28px)", fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>
           Repurpose Anything
         </h1>
         <p style={{ color: 'var(--text-muted)', fontSize: 13.5, margin: 0 }}>
@@ -90,7 +90,7 @@ export default function RepurposePage() {
 
         <div className="repurpose-form" style={{
           background: 'var(--bg-raised)', border: '1px solid var(--rule)',
-          borderRadius: 16, padding: '28px 28px',
+          borderRadius: 16, padding: '18px 22px',
         }}>
 
           <UrlInput
@@ -122,8 +122,8 @@ export default function RepurposePage() {
             loading={loading}
           />
 
-          <div style={{ marginBottom: 22 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
               Tone
             </label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -152,8 +152,8 @@ export default function RepurposePage() {
             </div>
           </div>
 
-          <div style={{ marginBottom: 28 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
               Target Audience <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, opacity: 0.6 }}>(optional)</span>
             </label>
             <input
@@ -216,15 +216,28 @@ export default function RepurposePage() {
             </div>
           )}
 
+          {/* WHY inline pad/minHeight: .btn-primary shrinks to 9px pad ≤480px,
+              and platform cards (~48px with icon) otherwise out-scale the CTA. */}
           <button
+            type="button"
             onClick={handleRepurpose}
             disabled={!isValid || loading}
             className="btn-primary repurpose-submit"
-            style={{ width: '100%', justifyContent: 'center', fontSize: 15 }}
+            style={{
+              width: '100%',
+              justifyContent: 'center',
+              fontSize: 15,
+              fontWeight: 700,
+              padding: '15px 22px',
+              minHeight: 52,
+              boxSizing: 'border-box',
+              borderRadius: 12,
+              gap: 10,
+            }}
           >
             {loading
-              ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Processing…</>
-              : <><Sparkles size={16} />
+              ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Processing…</>
+              : <><Sparkles size={18} />
                   {batchMode
                     ? `Repurpose ${parsedBatchUrls.length} URL${parsedBatchUrls.length !== 1 ? 's' : ''}`
                     : `Repurpose & Generate${multiPlatform && selectedPlatforms.size > 1 ? ` (${selectedPlatforms.size} platforms)` : ''}`}

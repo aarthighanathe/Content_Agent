@@ -9,6 +9,7 @@ import { ResultHeader }   from './Result/components/ResultHeader';
 import { ResultStatusBlocks } from './Result/components/ResultStatusBlocks';
 import { ContentColumn }  from './Result/components/ContentColumn';
 import { InsightsSidebar } from './Result/components/InsightsSidebar';
+import { PartialDraftBanner } from './Result/components/PartialDraftBanner';
 import { ActionDrawer }   from './Result/components/ActionDrawer';
 import type { ActionTab } from './Result/components/ActionDrawer';
 import { ExportModal }    from './Result/components/ExportModal';
@@ -57,6 +58,13 @@ export default function ResultPage() {
   const [saveError, setSaveError]               = useState('');
   const touchStartX = useRef<number | null>(null);
   const rpRef = useRef<HTMLDivElement | null>(null);
+
+  // WHY: match Brand/Library flashToast — save errors used to sit forever as a toast.
+  useEffect(() => {
+    if (!saveError) return undefined;
+    const t = setTimeout(() => setSaveError(''), 4000);
+    return () => clearTimeout(t);
+  }, [saveError]);
   // WHY: content-width (not viewport): sidebar + DevTools leave the window wide
   // while .rp is narrow — one-screen lock + Quality side column only when the
   // Result workspace itself has room (≥1100px). See Result.css @container rp.
@@ -182,6 +190,14 @@ export default function ResultPage() {
         }}
       />
 
+      {/* WHY: under header, not .toast: attempt count is page chrome for partial finals. */}
+      {isPartialFinal && content && !regenerating && (
+        <PartialDraftBanner
+          retryCount={jobData?.retryCount ?? 0}
+          onRewrite={() => onSteer()}
+        />
+      )}
+
       <ResultStatusBlocks
         jobId={jobId}
         loadError={loadError}
@@ -200,22 +216,6 @@ export default function ResultPage() {
 
       {content && !regenerating && (
         <>
-          {isPartialFinal && (
-            <div
-              className="toast"
-              role="status"
-              data-testid="partial-draft-banner"
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.5rem',
-                background: 'color-mix(in srgb, var(--color-warning, #f59e0b) 12%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 30%, transparent)',
-                color: 'var(--text-secondary)',
-              }}
-            >
-              <strong>Partial draft.</strong>{' '}
-              Quality score stayed below the approval threshold — this is the best draft from the revision loop. You can regenerate with feedback.
-            </div>
-          )}
           {saveError && (
             <div className="toast toast-error" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} role="alert">
               {saveError}
@@ -275,6 +275,8 @@ export default function ResultPage() {
               onSteer={onSteer}
               collapsed={effectiveSidebarCollapsed}
               onToggle={toggleInsights}
+              isPartialFinal={isPartialFinal}
+              retryCount={jobData?.retryCount ?? 0}
             />
           </div>
 

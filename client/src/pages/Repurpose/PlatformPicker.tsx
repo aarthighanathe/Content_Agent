@@ -29,8 +29,8 @@ export function PlatformPicker({
   platform, onPlatformChange, selectedPlatforms, onTogglePlatformSelection, loading,
 }: PlatformPickerProps) {
   return (
-    <div style={{ marginBottom: 22 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
           {multiPlatform ? 'Target Platforms' : 'Target Platform'}
         </label>

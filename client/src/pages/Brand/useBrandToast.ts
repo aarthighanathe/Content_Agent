@@ -26,7 +26,8 @@ export function useBrandToast(): UseBrandToastResult {
   const [toast, setToast] = useState<BrandToast | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const flashToast = useCallback((message: string, isError = false, durationMs = 4000) => {
+  // WHY: 3s default matches Library — callers still pass 4s for errors when needed.
+  const flashToast = useCallback((message: string, isError = false, durationMs = 3000) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, isError });
     toastTimerRef.current = setTimeout(() => setToast(null), durationMs);

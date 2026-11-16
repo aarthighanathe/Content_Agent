@@ -32,8 +32,10 @@ export function UrlInput({
   };
 
   return (
-    <div style={{ marginBottom: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+    // WHY: 12 (was 24) — less gap before Target Platform so platform + submit
+    // stay in the first viewport without the form scrolling.
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
           Source URL{batchMode ? 's' : ''}
         </label>

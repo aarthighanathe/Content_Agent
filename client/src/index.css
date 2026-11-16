@@ -1844,11 +1844,13 @@ textarea.input {
      the form, and the button stays with the fields. */
   .repurpose-run-note {
     display: flex;
-    flex: 1 0 auto;
+    /* WHY flex-shrink 1 (was 0): absorb leftover height without forcing the
+       form to scroll past Target Platform / submit on shorter viewports. */
+    flex: 1 1 auto;
     flex-direction: column;
     justify-content: center;
-    margin: 8px 0 20px;
-    padding-top: 16px;
+    margin: 4px 0 12px;
+    padding-top: 10px;
     border-top: 1px solid var(--rule);
     min-height: 0;
   }

@@ -17,6 +17,16 @@ export function isCriticResult(value: unknown): value is CriticResult {
   );
 }
 
+// WHY: matches pipelineWriteLoop criticRevisionAttempts < 3 — UI must not
+// imply more rounds than the server budget, even if retryCount ever drifts.
+export const MAX_CRITIC_REVISION_ATTEMPTS = 3;
+
+export function revisionAttemptLabel(retryCount: number): { used: number; max: number } {
+  const safe = Number.isFinite(retryCount) ? retryCount : 0;
+  const used = Math.min(Math.max(0, Math.floor(safe)), MAX_CRITIC_REVISION_ATTEMPTS);
+  return { used, max: MAX_CRITIC_REVISION_ATTEMPTS };
+}
+
 export interface ResultDerivedContent {
   content: ResultContent | undefined;
   isPartialFinal: boolean;

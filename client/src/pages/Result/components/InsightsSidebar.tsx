@@ -2,6 +2,7 @@
 import { Check, AlertTriangle, Sparkles, Zap } from 'lucide-react';
 import { VisibleScroller } from '../../../components/VisibleScroller';
 import type { CriticResult, CriticScores } from '../../../types/job';
+import { revisionAttemptLabel } from '../lib/resultDerived';
 
 interface Props {
   criticResult: CriticResult | null | undefined;
@@ -9,6 +10,8 @@ interface Props {
   onSteer?:     (prefill?: string) => void;
   collapsed?:   boolean;
   onToggle?:    () => void;
+  isPartialFinal?: boolean;
+  retryCount?: number;
 }
 
 const scoreDims: { l: string; k: keyof CriticScores; c: string; tip: string }[] = [
@@ -23,7 +26,15 @@ const RING_SIZE = 84;
 const RING_R    = 32;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
-export function InsightsSidebar({ criticResult, className, onSteer, collapsed = false, onToggle }: Props): ReactElement {
+export function InsightsSidebar({
+  criticResult,
+  className,
+  onSteer,
+  collapsed = false,
+  onToggle,
+  isPartialFinal = false,
+  retryCount = 0,
+}: Props): ReactElement {
   // WHY: one tree for open and closed: swapping to a separate 48px strip
   // unmounted the card mid-toggle, so the column snapped and the scores
   // repainted. The rail is always mounted; CSS fades it in over the same card.
@@ -95,6 +106,7 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
     : null;
 
   const showTip = Boolean(worst && dimScores && (dimScores[worst.k] || 0) < 17);
+  const attempts = isPartialFinal ? revisionAttemptLabel(retryCount) : null;
 
   return (
     <div className={shellClass}>
@@ -152,6 +164,21 @@ export function InsightsSidebar({ criticResult, className, onSteer, collapsed = 
                 ? <><Check size={10} /> Approved</>
                 : <><AlertTriangle size={10} /> Needs work</>}
             </div>
+            {attempts && (
+              <div
+                style={{
+                  marginTop: 8,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 10,
+                  letterSpacing: 0.4,
+                  color: 'var(--text-muted)',
+                  lineHeight: 1.4,
+                }}
+                data-testid="partial-draft-attempts"
+              >
+                After {attempts.used} of {attempts.max} revision attempts · needs 70+ to approve
+              </div>
+            )}
           </div>
         </div>
 

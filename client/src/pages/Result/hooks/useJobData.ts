@@ -126,6 +126,13 @@ export function useJobData(jobId: string | undefined) {
     }
   }, [jobId, isMountedRef]);
 
+  // WHY: 4s like Brand error flashToast — actionError used to stick until navigate.
+  useEffect(() => {
+    if (!actionError) return undefined;
+    const t = setTimeout(() => setActionError(null), 4000);
+    return () => clearTimeout(t);
+  }, [actionError]);
+
   useEffect(() => {
     if (!jobId) return;
     loadGen.current += 1;

@@ -35,6 +35,12 @@ export default function CalendarPage() {
     isMutating,
   } = useSchedule(viewMonthKey);
   const [scheduleActionError, setScheduleActionError] = useState<string | null>(null);
+  // WHY: auto-dismiss like Brand/Library — manual ✕ remains, but errors shouldn't linger.
+  useEffect(() => {
+    if (!scheduleActionError) return undefined;
+    const t = setTimeout(() => setScheduleActionError(null), 4000);
+    return () => clearTimeout(t);
+  }, [scheduleActionError]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dragJobId, setDragJobId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);

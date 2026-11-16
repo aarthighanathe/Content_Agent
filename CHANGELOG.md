@@ -15,6 +15,38 @@
 
 ---
 
+## 2026-11-16 — Toasts auto-dismiss faster / consistently
+
+- **Create draft toast:** 5s → 3s (and draft-write-failed 4s → 3s), matching
+  Library `flashToast`.
+- **Brand:** default flash duration 4s → 3s (explicit longer durations for
+  errors/warnings unchanged).
+- **Result / Calendar:** `saveError`, regenerate `actionError`, and schedule
+  action errors now auto-clear after 4s instead of lingering until navigate
+  or manual dismiss.
+
+## 2026-11-16 — Repurpose form denser (less scroll)
+
+- Tightened gap before Target Platform (`UrlInput` margin 24→12), page header,
+  form padding, and section spacing so platform + submit stay in view without
+  the form scrolling. Run-note can shrink (`flex-shrink: 1`) instead of forcing
+  overflow.
+
+## 2026-11-16 — Repurpose CTA size
+
+- **Repurpose submit:** `Repurpose & Generate` now uses Create-scale padding
+  (`15px` / `minHeight: 52`) so it is not shorter than the platform cards or
+  crushed by the ≤480px `.btn-primary` pad shrink.
+
+## 2026-11-16 — Partial draft: top banner + revision attempts
+
+- **Result UX:** replaced the bottom-right `.toast` partial-draft notice with an
+  inline `PartialDraftBanner` under the Result header (warning strip + CTA that
+  opens Rewrite). Shows `{n} of 3 revision attempts` from `job.retryCount`.
+- **Quality panel:** when the final is partial, InsightsSidebar shows
+  `After n of 3 revision attempts · needs 70+ to approve` under the Needs work
+  pill so attempts stay visible on the Insights tab / after scrolling.
+
 ## 2026-11-16 — CI: npm-audit / SAST / Node 22 build unblocked
 
 - **npm ci / audit / test(22):** `server/.npmrc` sets `legacy-peer-deps=true`
